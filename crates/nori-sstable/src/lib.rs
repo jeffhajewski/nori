@@ -27,17 +27,21 @@
 //! ```
 
 mod block;
+mod bloom;
 mod entry;
 mod error;
 mod format;
+mod index;
 
 pub use block::{Block, BlockBuilder, BlockIterator};
+pub use bloom::BloomFilter;
 pub use entry::Entry;
 pub use error::{Result, SSTableError};
 pub use format::{
     Compression, Footer, BLOOM_BITS_PER_KEY, BLOOM_FP_RATE, DEFAULT_BLOCK_SIZE,
     DEFAULT_RESTART_INTERVAL, FOOTER_SIZE, SSTABLE_MAGIC,
 };
+pub use index::{Index, IndexEntry};
 
 // Re-export for convenience
 pub use bytes::Bytes;

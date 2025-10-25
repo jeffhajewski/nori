@@ -36,7 +36,9 @@ use crate::format::Footer;
 use crate::index::Index;
 use crate::iterator::SSTableIterator;
 use bytes::Bytes;
+use lru::LruCache;
 use nori_observe::{Meter, NoopMeter};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -52,21 +54,37 @@ pub struct SSTableReader {
     bloom: BloomFilter,
     file_size: u64,
     meter: Arc<dyn Meter>,
+    /// LRU cache for blocks (key: block_offset)
+    block_cache: Option<Mutex<LruCache<u64, Block>>>,
 }
 
 impl SSTableReader {
-    /// Opens an SSTable file for reading with default (noop) metrics.
+    /// Opens an SSTable file for reading with default (noop) metrics and 64MB block cache.
     ///
     /// This reads and caches the footer, index, and bloom filter in memory.
     pub async fn open(path: PathBuf) -> Result<Self> {
-        Self::open_with_meter(path, Arc::new(NoopMeter)).await
+        Self::open_with_config(path, Arc::new(NoopMeter), 64).await
     }
 
-    /// Opens an SSTable file for reading with custom metrics.
+    /// Opens an SSTable file for reading with custom metrics and default 64MB block cache.
     ///
     /// This reads and caches the footer, index, and bloom filter in memory.
     /// Metrics are emitted via the provided `Meter` implementation.
     pub async fn open_with_meter(path: PathBuf, meter: Arc<dyn Meter>) -> Result<Self> {
+        Self::open_with_config(path, meter, 64).await
+    }
+
+    /// Opens an SSTable file for reading with custom metrics and cache size.
+    ///
+    /// # Parameters
+    /// - `path`: Path to the SSTable file
+    /// - `meter`: Metrics implementation
+    /// - `block_cache_mb`: Block cache size in MB (0 to disable caching)
+    pub async fn open_with_config(
+        path: PathBuf,
+        meter: Arc<dyn Meter>,
+        block_cache_mb: usize,
+    ) -> Result<Self> {
         let start = std::time::Instant::now();
 
         let mut file = File::open(&path).await.map_err(SSTableError::Io)?;
@@ -116,6 +134,18 @@ impl SSTableReader {
 
         let bloom = BloomFilter::decode(&bloom_bytes)?;
 
+        // Initialize block cache if enabled
+        let block_cache = if block_cache_mb > 0 {
+            // Calculate number of blocks that fit in cache
+            // Assume average block size of 4KB
+            let blocks_in_cache = (block_cache_mb * 1024 * 1024) / 4096;
+            Some(Mutex::new(LruCache::new(
+                NonZeroUsize::new(blocks_in_cache.max(1)).unwrap(),
+            )))
+        } else {
+            None
+        };
+
         // Track open duration
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         meter
@@ -134,6 +164,7 @@ impl SSTableReader {
             bloom,
             file_size,
             meter,
+            block_cache,
         })
     }
 
@@ -219,8 +250,25 @@ impl SSTableReader {
         Ok(result)
     }
 
-    /// Reads a specific block from disk.
+    /// Reads a specific block from cache or disk.
     pub(crate) async fn read_block(&self, offset: u64, size: u32) -> Result<Block> {
+        // Check cache first if enabled
+        if let Some(ref cache) = self.block_cache {
+            let mut cache_lock = cache.lock().await;
+            if let Some(block) = cache_lock.get(&offset) {
+                // Cache hit - return cloned block
+                self.meter
+                    .counter("sstable_block_cache_hits", &[])
+                    .inc(1);
+                return Ok(block.clone());
+            }
+            // Cache miss - continue to read from disk
+            self.meter
+                .counter("sstable_block_cache_misses", &[])
+                .inc(1);
+        }
+
+        // Read from disk
         let mut file = self.file.lock().await;
 
         file.seek(std::io::SeekFrom::Start(offset))
@@ -235,7 +283,15 @@ impl SSTableReader {
         // Track block read
         self.meter.counter("sstable_block_reads", &[]).inc(1);
 
-        Block::decode(Bytes::from(block_bytes))
+        let block = Block::decode(Bytes::from(block_bytes))?;
+
+        // Add to cache if enabled
+        if let Some(ref cache) = self.block_cache {
+            let mut cache_lock = cache.lock().await;
+            cache_lock.put(offset, block.clone());
+        }
+
+        Ok(block)
     }
 
     /// Returns an iterator over all entries in the SSTable.

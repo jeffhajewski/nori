@@ -56,6 +56,8 @@ pub struct SSTableConfig {
     pub compression: Compression,
     /// Bits per key for bloom filter (default: 10).
     pub bloom_bits_per_key: usize,
+    /// Block cache size in MB for readers (default: 64). Set to 0 to disable caching.
+    pub block_cache_mb: usize,
 }
 
 impl Default for SSTableConfig {
@@ -67,6 +69,7 @@ impl Default for SSTableConfig {
             restart_interval: DEFAULT_RESTART_INTERVAL,
             compression: Compression::None,
             bloom_bits_per_key: BLOOM_BITS_PER_KEY,
+            block_cache_mb: 64, // 64MB default cache
         }
     }
 }

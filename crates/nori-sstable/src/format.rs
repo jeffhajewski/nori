@@ -118,8 +118,7 @@ impl Footer {
 
         // Verify magic
         let magic = u64::from_le_bytes([
-            buf[52], buf[53], buf[54], buf[55],
-            buf[56], buf[57], buf[58], buf[59],
+            buf[52], buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59],
         ]);
         if magic != SSTABLE_MAGIC {
             return Err(SSTableError::InvalidFormat(format!(

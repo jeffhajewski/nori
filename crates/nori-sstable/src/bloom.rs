@@ -11,9 +11,8 @@
 //! - h2 = xxhash64(key, seed=1)
 //! - h_i = h1 + i * h2  (double hashing)
 
-use bytes::{BufMut, Bytes, BytesMut};
 use crate::error::{Result, SSTableError};
-use crate::format::{BLOOM_BITS_PER_KEY, BLOOM_FP_RATE};
+use bytes::{BufMut, Bytes, BytesMut};
 
 /// Bloom filter for fast membership testing.
 #[derive(Debug, Clone)]
@@ -41,7 +40,7 @@ impl BloomFilter {
         let num_hash_functions = ((bits_per_key as f64 * 0.693).ceil() as u32).max(1);
 
         // Allocate bit array (round up to byte boundary)
-        let num_bytes = (num_bits + 7) / 8;
+        let num_bytes = num_bits.div_ceil(8);
         let bits = vec![0u8; num_bytes];
 
         Self {
@@ -146,11 +145,10 @@ impl BloomFilter {
 
         let num_hash_functions = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
         let num_bits = u64::from_le_bytes([
-            data[4], data[5], data[6], data[7],
-            data[8], data[9], data[10], data[11],
+            data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11],
         ]) as usize;
 
-        let expected_bytes = (num_bits + 7) / 8;
+        let expected_bytes = num_bits.div_ceil(8);
         if data.len() < 12 + expected_bytes {
             return Err(SSTableError::Incomplete);
         }
@@ -183,6 +181,7 @@ impl BloomFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::format::{BLOOM_BITS_PER_KEY, BLOOM_FP_RATE};
 
     #[test]
     fn test_bloom_filter_basic() {
@@ -217,7 +216,11 @@ mod tests {
         // Verify all added keys are found (no false negatives)
         for i in 0..num_keys {
             let key = format!("key{:04}", i);
-            assert!(bloom.contains(key.as_bytes()), "False negative for key{:04}", i);
+            assert!(
+                bloom.contains(key.as_bytes()),
+                "False negative for key{:04}",
+                i
+            );
         }
 
         // Test false positive rate with keys not in the set
@@ -232,10 +235,18 @@ mod tests {
         }
 
         let fp_rate = false_positives as f64 / test_count as f64;
-        println!("False positive rate: {:.2}% (target: {:.2}%)", fp_rate * 100.0, BLOOM_FP_RATE * 100.0);
+        println!(
+            "False positive rate: {:.2}% (target: {:.2}%)",
+            fp_rate * 100.0,
+            BLOOM_FP_RATE * 100.0
+        );
 
         // False positive rate should be less than 2% (target is ~0.9%)
-        assert!(fp_rate < 0.02, "False positive rate too high: {:.2}%", fp_rate * 100.0);
+        assert!(
+            fp_rate < 0.02,
+            "False positive rate too high: {:.2}%",
+            fp_rate * 100.0
+        );
     }
 
     #[test]

@@ -8,8 +8,8 @@
 //! - value: bytes[vlen]
 //! - crc32c: u32 (little-endian)
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crate::error::{Result, SSTableError};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 bitflags::bitflags! {
     struct Flags: u8 {
@@ -94,7 +94,7 @@ impl Entry {
         let vlen = decode_varint(&mut cursor)? as usize;
 
         // Decode flags
-        if cursor.len() < 1 {
+        if cursor.is_empty() {
             return Err(SSTableError::Incomplete);
         }
         let flags = Flags::from_bits_truncate(cursor[0]);

@@ -18,9 +18,9 @@
 //! - unshared_key: bytes[unshared_len]
 //! - value: bytes[value_len]
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crate::entry::Entry;
 use crate::error::{Result, SSTableError};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 /// A block of entries with prefix compression.
 #[derive(Debug, Clone)]
@@ -37,8 +37,12 @@ impl Block {
         }
 
         // Read restart count from last 4 bytes
-        let restart_count =
-            u32::from_le_bytes([data[data.len() - 4], data[data.len() - 3], data[data.len() - 2], data[data.len() - 1]]);
+        let restart_count = u32::from_le_bytes([
+            data[data.len() - 4],
+            data[data.len() - 3],
+            data[data.len() - 2],
+            data[data.len() - 1],
+        ]);
 
         let restart_points_size = restart_count as usize * 4;
         if data.len() < restart_points_size + 4 {
@@ -51,7 +55,12 @@ impl Block {
 
         for i in 0..restart_count as usize {
             let offset = restart_points_start + i * 4;
-            let point = u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]);
+            let point = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
             restart_points.push(point);
         }
 
@@ -113,7 +122,7 @@ impl Block {
         if left == 0 {
             // No suitable restart point, start from beginning
             let mut iter = self.iter();
-            while let Some(entry) = iter.next()? {
+            while let Some(entry) = iter.try_next()? {
                 match entry.key.as_ref().cmp(key) {
                     std::cmp::Ordering::Equal => return Ok(Some(entry)),
                     std::cmp::Ordering::Greater => return Ok(None),
@@ -133,7 +142,7 @@ impl Block {
             last_key: Bytes::new(),
         };
 
-        while let Some(entry) = iter.next()? {
+        while let Some(entry) = iter.try_next()? {
             match entry.key.as_ref().cmp(key) {
                 std::cmp::Ordering::Equal => return Ok(Some(entry)),
                 std::cmp::Ordering::Greater => return Ok(None),
@@ -195,7 +204,10 @@ pub struct BlockIterator {
 
 impl BlockIterator {
     /// Returns the next entry in the block.
-    pub fn next(&mut self) -> Result<Option<Entry>> {
+    ///
+    /// Returns `Ok(Some(entry))` if there is another entry,
+    /// `Ok(None)` if iteration is complete, or `Err` on decoding errors.
+    pub fn try_next(&mut self) -> Result<Option<Entry>> {
         let data_end = self.data.len() - 4 - (self.restart_points.len() * 4);
         if self.offset >= data_end {
             return Ok(None);
@@ -416,7 +428,9 @@ mod tests {
         for i in 0..100 {
             let key = format!("key{:03}", i);
             let value = format!("value{:03}", i);
-            builder.add(&Entry::put(key.clone(), value.clone())).unwrap();
+            builder
+                .add(&Entry::put(key.clone(), value.clone()))
+                .unwrap();
         }
 
         let block_data = builder.finish();
@@ -456,12 +470,12 @@ mod tests {
 
         let mut iter = block.iter();
         for expected in &entries {
-            let entry = iter.next().unwrap().unwrap();
+            let entry = iter.try_next().unwrap().unwrap();
             assert_eq!(entry.key, expected.key);
             assert_eq!(entry.value, expected.value);
         }
 
-        assert!(iter.next().unwrap().is_none());
+        assert!(iter.try_next().unwrap().is_none());
     }
 
     #[test]
@@ -470,16 +484,24 @@ mod tests {
 
         // Add keys with common prefixes
         builder.add(&Entry::put(&b"apple"[..], &b"v1"[..])).unwrap();
-        builder.add(&Entry::put(&b"application"[..], &b"v2"[..])).unwrap();
+        builder
+            .add(&Entry::put(&b"application"[..], &b"v2"[..]))
+            .unwrap();
         builder.add(&Entry::put(&b"apply"[..], &b"v3"[..])).unwrap();
 
         let size_with_compression = builder.current_size();
 
         // Build without compression (restart_interval = 1)
         let mut builder_no_compression = BlockBuilder::new(1);
-        builder_no_compression.add(&Entry::put(&b"apple"[..], &b"v1"[..])).unwrap();
-        builder_no_compression.add(&Entry::put(&b"application"[..], &b"v2"[..])).unwrap();
-        builder_no_compression.add(&Entry::put(&b"apply"[..], &b"v3"[..])).unwrap();
+        builder_no_compression
+            .add(&Entry::put(&b"apple"[..], &b"v1"[..]))
+            .unwrap();
+        builder_no_compression
+            .add(&Entry::put(&b"application"[..], &b"v2"[..]))
+            .unwrap();
+        builder_no_compression
+            .add(&Entry::put(&b"apply"[..], &b"v3"[..]))
+            .unwrap();
 
         let size_without_compression = builder_no_compression.current_size();
 

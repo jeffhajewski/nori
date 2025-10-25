@@ -28,13 +28,16 @@
 
 mod block;
 mod bloom;
+mod builder;
 mod entry;
 mod error;
 mod format;
 mod index;
+mod writer;
 
 pub use block::{Block, BlockBuilder, BlockIterator};
 pub use bloom::BloomFilter;
+pub use builder::{SSTableBuilder, SSTableConfig, SSTableMetadata};
 pub use entry::Entry;
 pub use error::{Result, SSTableError};
 pub use format::{
@@ -42,6 +45,7 @@ pub use format::{
     DEFAULT_RESTART_INTERVAL, FOOTER_SIZE, SSTABLE_MAGIC,
 };
 pub use index::{Index, IndexEntry};
+pub use writer::SSTableWriter;
 
 // Re-export for convenience
 pub use bytes::Bytes;

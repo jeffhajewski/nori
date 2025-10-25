@@ -17,8 +17,8 @@
 //! 2. Read Block 0 at offset 0
 //! 3. Search within Block 0
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crate::error::{Result, SSTableError};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 /// Entry in the top-level index.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,8 +189,8 @@ impl Index {
 
             // Decode offset and size
             let block_offset = u64::from_le_bytes([
-                cursor[0], cursor[1], cursor[2], cursor[3],
-                cursor[4], cursor[5], cursor[6], cursor[7],
+                cursor[0], cursor[1], cursor[2], cursor[3], cursor[4], cursor[5], cursor[6],
+                cursor[7],
             ]);
             cursor.advance(8);
 
@@ -302,8 +302,8 @@ mod tests {
 
         // Keys between blocks
         assert_eq!(index.find_block(b"banana"), Some(0)); // Between apple and cherry
-        assert_eq!(index.find_block(b"date"), Some(1));   // Between cherry and fig
-        assert_eq!(index.find_block(b"grape"), Some(2));  // After fig
+        assert_eq!(index.find_block(b"date"), Some(1)); // Between cherry and fig
+        assert_eq!(index.find_block(b"grape"), Some(2)); // After fig
 
         // Key before first block
         assert_eq!(index.find_block(b"aaa"), None);
@@ -324,8 +324,8 @@ mod tests {
         index.add_block(Bytes::from("key"), 0, 4096);
 
         assert_eq!(index.find_block(b"key"), Some(0));
-        assert_eq!(index.find_block(b"zzz"), Some(0));  // After first key
-        assert_eq!(index.find_block(b"aaa"), None);     // Before first key
+        assert_eq!(index.find_block(b"zzz"), Some(0)); // After first key
+        assert_eq!(index.find_block(b"aaa"), None); // Before first key
     }
 
     #[test]

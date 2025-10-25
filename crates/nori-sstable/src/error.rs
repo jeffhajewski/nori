@@ -1,4 +1,4 @@
-///! Error types for nori-sstable operations.
+//! Error types for nori-sstable operations.
 
 use std::io;
 use thiserror::Error;

@@ -94,7 +94,7 @@ impl Block {
             let mut buf = &self.data[restart_offset..];
             let shared_len = decode_varint(&mut buf)? as usize;
             let unshared_len = decode_varint(&mut buf)? as usize;
-            let _value_len = decode_varint(&mut buf)? as usize;
+            let _value_len_encoded = decode_varint(&mut buf)?;
 
             if shared_len != 0 {
                 return Err(SSTableError::InvalidFormat(
@@ -163,7 +163,11 @@ impl Block {
 
         let shared_len = decode_varint(&mut buf)? as usize;
         let unshared_len = decode_varint(&mut buf)? as usize;
-        let value_len = decode_varint(&mut buf)? as usize;
+        let value_len_encoded = decode_varint(&mut buf)?;
+
+        // Extract tombstone flag from high bit
+        let tombstone = (value_len_encoded & (1u64 << 63)) != 0;
+        let value_len = (value_len_encoded & !(1u64 << 63)) as usize;
 
         if buf.len() < unshared_len + value_len {
             return Err(SSTableError::Incomplete);
@@ -189,7 +193,7 @@ impl Block {
         Ok(Some(Entry {
             key,
             value,
-            tombstone: false, // Tombstones handled at SSTable level
+            tombstone,
         }))
     }
 }
@@ -219,7 +223,11 @@ impl BlockIterator {
 
         let shared_len = decode_varint(&mut buf)? as usize;
         let unshared_len = decode_varint(&mut buf)? as usize;
-        let value_len = decode_varint(&mut buf)? as usize;
+        let value_len_encoded = decode_varint(&mut buf)?;
+
+        // Extract tombstone flag from high bit
+        let tombstone = (value_len_encoded & (1u64 << 63)) != 0;
+        let value_len = (value_len_encoded & !(1u64 << 63)) as usize;
 
         if buf.len() < unshared_len + value_len {
             return Err(SSTableError::Incomplete);
@@ -252,7 +260,7 @@ impl BlockIterator {
         Ok(Some(Entry {
             key,
             value,
-            tombstone: false,
+            tombstone,
         }))
     }
 }
@@ -312,7 +320,13 @@ impl BlockBuilder {
         // Encode entry with prefix compression
         encode_varint(&mut self.buffer, shared_len as u64);
         encode_varint(&mut self.buffer, unshared_len as u64);
-        encode_varint(&mut self.buffer, entry.value.len() as u64);
+        // Use high bit of value_len to encode tombstone flag
+        let value_len_encoded = if entry.tombstone {
+            (entry.value.len() as u64) | (1u64 << 63)
+        } else {
+            entry.value.len() as u64
+        };
+        encode_varint(&mut self.buffer, value_len_encoded);
         self.buffer.put_slice(&entry.key[shared_len..]);
         self.buffer.put_slice(&entry.value);
 

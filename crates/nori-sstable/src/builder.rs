@@ -137,10 +137,8 @@ impl SSTableBuilder {
             self.first_key = Some(entry.key.clone());
         }
 
-        // Add to bloom filter (skip tombstones)
-        if !entry.tombstone {
-            self.bloom.add(&entry.key);
-        }
+        // Add to bloom filter (include tombstones - they exist in the table)
+        self.bloom.add(&entry.key);
 
         // Try to add to current block
         self.block_builder.add(entry)?;

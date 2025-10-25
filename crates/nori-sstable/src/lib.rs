@@ -33,6 +33,8 @@ mod entry;
 mod error;
 mod format;
 mod index;
+mod iterator;
+mod reader;
 mod writer;
 
 pub use block::{Block, BlockBuilder, BlockIterator};
@@ -45,6 +47,8 @@ pub use format::{
     DEFAULT_RESTART_INTERVAL, FOOTER_SIZE, SSTABLE_MAGIC,
 };
 pub use index::{Index, IndexEntry};
+pub use iterator::SSTableIterator;
+pub use reader::SSTableReader;
 pub use writer::SSTableWriter;
 
 // Re-export for convenience

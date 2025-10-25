@@ -9,3 +9,29 @@ readme = "README.md"
 
 [dependencies]
 nori-observe = { path = "../nori-observe" }
+bytes = "1.5"
+tokio = { version = "1.35", features = ["fs", "io-util", "rt"] }
+thiserror = "1.0"
+crc32c = "0.6"
+lz4 = "1.24"
+zstd = "0.13"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+bitflags = "2.4"
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3.8"
+proptest = "1.4"
+tokio = { version = "1.35", features = ["full"] }
+
+[[bench]]
+name = "build_sstable"
+harness = false
+
+[[bench]]
+name = "read_sstable"
+harness = false
+
+[[bench]]
+name = "bloom_filter"
+harness = false

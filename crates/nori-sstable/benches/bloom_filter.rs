@@ -148,8 +148,11 @@ fn bloom_false_positive_rate(c: &mut Criterion) {
 
             // FP rate should be around 0.9% (90 out of 10000)
             // Allow 0.5-1.5% range
-            assert!(false_positives >= 50 && false_positives <= 150,
-                    "False positive rate out of range: {} / 10000", false_positives);
+            assert!(
+                false_positives >= 50 && false_positives <= 150,
+                "False positive rate out of range: {} / 10000",
+                false_positives
+            );
 
             black_box(false_positives);
         });
@@ -175,8 +178,11 @@ fn bloom_memory_overhead(c: &mut Criterion) {
                 let bytes_per_key = encoded.len() as f64 / size as f64;
 
                 // With 10 bits/key, expect ~1.25 bytes per key (10/8)
-                assert!(bytes_per_key >= 1.0 && bytes_per_key <= 2.0,
-                        "Unexpected bytes per key: {:.2}", bytes_per_key);
+                assert!(
+                    bytes_per_key >= 1.0 && bytes_per_key <= 2.0,
+                    "Unexpected bytes per key: {:.2}",
+                    bytes_per_key
+                );
 
                 black_box((encoded, bytes_per_key));
             });

@@ -69,16 +69,10 @@ impl SSTableReader {
     pub async fn open_with_meter(path: PathBuf, meter: Arc<dyn Meter>) -> Result<Self> {
         let start = std::time::Instant::now();
 
-        let mut file = File::open(&path)
-            .await
-            .map_err(SSTableError::Io)?;
+        let mut file = File::open(&path).await.map_err(SSTableError::Io)?;
 
         // Get file size
-        let file_size = file
-            .metadata()
-            .await
-            .map_err(SSTableError::Io)?
-            .len();
+        let file_size = file.metadata().await.map_err(SSTableError::Io)?.len();
 
         if file_size < 64 {
             return Err(SSTableError::InvalidFormat(
@@ -192,7 +186,9 @@ impl SSTableReader {
 
         // Read the block
         let entry = self.index.get(block_idx).unwrap();
-        let block = self.read_block(entry.block_offset, entry.block_size).await?;
+        let block = self
+            .read_block(entry.block_offset, entry.block_size)
+            .await?;
 
         // Search within the block
         let result = block.get(key)?;
@@ -237,9 +233,7 @@ impl SSTableReader {
             .map_err(SSTableError::Io)?;
 
         // Track block read
-        self.meter
-            .counter("sstable_block_reads", &[])
-            .inc(1);
+        self.meter.counter("sstable_block_reads", &[]).inc(1);
 
         Block::decode(Bytes::from(block_bytes))
     }
@@ -425,9 +419,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("empty.sst");
 
-        build_test_sstable(path.clone(), vec![])
-            .await
-            .unwrap();
+        build_test_sstable(path.clone(), vec![]).await.unwrap();
 
         let reader = SSTableReader::open(path).await.unwrap();
         assert_eq!(reader.entry_count(), 0);
@@ -518,9 +510,7 @@ mod tests {
         let path = dir.path().join("invalid.sst");
 
         // Write invalid data
-        tokio::fs::write(&path, b"invalid data")
-            .await
-            .unwrap();
+        tokio::fs::write(&path, b"invalid data").await.unwrap();
 
         // Should fail to open
         let result = SSTableReader::open(path).await;

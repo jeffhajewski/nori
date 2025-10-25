@@ -211,7 +211,6 @@ async fn test_max_bloom_size() {
 }
 
 #[tokio::test]
-#[ignore] // TODO: Fix seek implementation - currently has issues with exact matches
 async fn test_seek_after_boundary() {
     // Test iterator seek across block boundaries
     let dir = TempDir::new().unwrap();
@@ -237,7 +236,10 @@ async fn test_seek_after_boundary() {
     builder.finish().await.unwrap();
 
     let reader = Arc::new(SSTableReader::open(path).await.unwrap());
-    assert!(reader.block_count() > 5, "Need multiple blocks for this test");
+    assert!(
+        reader.block_count() > 5,
+        "Need multiple blocks for this test"
+    );
 
     // Seek to various positions
     for seek_pos in [0, 100, 250, 500, 750, 999] {
@@ -288,7 +290,11 @@ async fn test_all_tombstones() {
         let key = format!("key_{:08}", i);
         let entry = reader.get(key.as_bytes()).await.unwrap();
         assert!(entry.is_some(), "Tombstone not found: {}", key);
-        assert!(entry.unwrap().tombstone, "Expected tombstone for key: {}", key);
+        assert!(
+            entry.unwrap().tombstone,
+            "Expected tombstone for key: {}",
+            key
+        );
     }
 }
 

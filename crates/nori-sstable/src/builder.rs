@@ -165,9 +165,7 @@ impl SSTableBuilder {
         self.entry_count += 1;
 
         // Track entry written
-        self.meter
-            .counter("sstable_entries_written", &[])
-            .inc(1);
+        self.meter.counter("sstable_entries_written", &[]).inc(1);
 
         Ok(())
     }
@@ -195,9 +193,7 @@ impl SSTableBuilder {
         self.index.add_block(first_key, block_offset, block_size);
 
         // Track block flushed and bytes written
-        self.meter
-            .counter("sstable_blocks_flushed", &[])
-            .inc(1);
+        self.meter.counter("sstable_blocks_flushed", &[]).inc(1);
         self.meter
             .counter("sstable_bytes_written", &[])
             .inc(block_size as u64);
@@ -245,9 +241,7 @@ impl SSTableBuilder {
         self.writer.write_footer(&footer).await?;
 
         // Track footer bytes written
-        self.meter
-            .counter("sstable_bytes_written", &[])
-            .inc(64); // Footer is always 64 bytes
+        self.meter.counter("sstable_bytes_written", &[]).inc(64); // Footer is always 64 bytes
 
         // Sync to disk
         self.writer.sync().await?;

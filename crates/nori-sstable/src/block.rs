@@ -234,27 +234,42 @@ impl BlockIterator {
         }
 
         // Reconstruct full key
-        let mut key = BytesMut::with_capacity(shared_len + unshared_len);
-        if shared_len > self.last_key.len() {
-            return Err(SSTableError::InvalidFormat(format!(
-                "shared_len {} exceeds last_key len {}",
-                shared_len,
-                self.last_key.len()
-            )));
-        }
-        key.put_slice(&self.last_key[..shared_len]);
-        key.put_slice(&buf[..unshared_len]);
-        let key = key.freeze();
+        // Optimization: Only allocate if we have a shared prefix
+        let key = if shared_len > 0 {
+            if shared_len > self.last_key.len() {
+                return Err(SSTableError::InvalidFormat(format!(
+                    "shared_len {} exceeds last_key len {}",
+                    shared_len,
+                    self.last_key.len()
+                )));
+            }
+            // Need to combine shared prefix with unshared suffix
+            let mut key_buf = BytesMut::with_capacity(shared_len + unshared_len);
+            key_buf.put_slice(&self.last_key[..shared_len]);
+            key_buf.put_slice(&buf[..unshared_len]);
+            key_buf.freeze()
+        } else {
+            // No shared prefix - can create Bytes directly from slice
+            // Calculate the absolute offset in self.data
+            let varint_bytes = initial_buf_len - buf.len();
+            let unshared_start = self.offset + varint_bytes;
+            self.data
+                .slice(unshared_start..unshared_start + unshared_len)
+        };
 
         buf.advance(unshared_len);
 
-        let value = Bytes::copy_from_slice(&buf[..value_len]);
+        // Optimization: Use slice instead of copy for value
+        let value_offset_in_buf = data_end - buf.len();
+        let value = self
+            .data
+            .slice(value_offset_in_buf..value_offset_in_buf + value_len);
 
         // Update offset: advance by how many bytes we consumed
         let bytes_consumed = initial_buf_len - buf.len() + value_len;
         self.offset = start_offset + bytes_consumed;
 
-        // Update last_key
+        // Update last_key (Bytes::clone is cheap - just increments refcount)
         self.last_key = key.clone();
 
         Ok(Some(Entry {

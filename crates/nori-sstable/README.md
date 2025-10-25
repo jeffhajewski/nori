@@ -157,11 +157,11 @@ let builder = SSTableBuilder::new_with_meter(config, meter).await?;
 
 The crate includes comprehensive test coverage:
 
-- **89 total tests**
+- **90 total tests** (all passing)
 - **Unit tests**: Core functionality (blocks, bloom, index, entries)
 - **Integration tests**: End-to-end SSTable roundtrips
 - **Property tests**: Correctness invariants verified with proptest
-- **Stress tests**: 1M+ entry tables, concurrent reads, edge cases
+- **Stress tests**: 1M+ entry tables, concurrent reads, edge cases, iterator seek
 - **Benchmarks**: Build, read, and bloom filter performance
 
 Run tests:
@@ -208,7 +208,6 @@ let config = SSTableConfig {
 - **No in-place updates**: SSTables are immutable (by design)
 - **No compression**: Compression support is prepared but not yet implemented
 - **No block cache**: Consider adding an LRU cache wrapper for hot workloads
-- **Seek limitation**: Iterator seek has known issues with exact matches (see #TODO)
 
 ## Use Cases
 

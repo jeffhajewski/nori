@@ -35,9 +35,7 @@ fn sequential_scan(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let dir = TempDir::new().unwrap();
             let path = rt.block_on(build_sstable(&dir, size));
-            let reader = rt.block_on(async {
-                Arc::new(SSTableReader::open(path).await.unwrap())
-            });
+            let reader = rt.block_on(async { Arc::new(SSTableReader::open(path).await.unwrap()) });
 
             b.iter(|| {
                 rt.block_on(async {
@@ -66,9 +64,7 @@ fn range_scan(c: &mut Criterion) {
     // Build once, scan different ranges
     let dir = TempDir::new().unwrap();
     let path = rt.block_on(build_sstable(&dir, 10_000));
-    let reader = rt.block_on(async {
-        Arc::new(SSTableReader::open(path).await.unwrap())
-    });
+    let reader = rt.block_on(async { Arc::new(SSTableReader::open(path).await.unwrap()) });
 
     // 10% range
     group.bench_function("10pct_range", |b| {
@@ -139,9 +135,7 @@ fn point_lookup_hit(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let dir = TempDir::new().unwrap();
             let path = rt.block_on(build_sstable(&dir, size));
-            let reader = rt.block_on(async {
-                Arc::new(SSTableReader::open(path).await.unwrap())
-            });
+            let reader = rt.block_on(async { Arc::new(SSTableReader::open(path).await.unwrap()) });
 
             b.iter(|| {
                 rt.block_on(async {
@@ -167,9 +161,7 @@ fn point_lookup_miss(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
             let dir = TempDir::new().unwrap();
             let path = rt.block_on(build_sstable(&dir, size));
-            let reader = rt.block_on(async {
-                Arc::new(SSTableReader::open(path).await.unwrap())
-            });
+            let reader = rt.block_on(async { Arc::new(SSTableReader::open(path).await.unwrap()) });
 
             b.iter(|| {
                 rt.block_on(async {
@@ -193,9 +185,7 @@ fn multi_block_lookups(c: &mut Criterion) {
 
     let dir = TempDir::new().unwrap();
     let path = rt.block_on(build_sstable(&dir, 10_000));
-    let reader = rt.block_on(async {
-        Arc::new(SSTableReader::open(path).await.unwrap())
-    });
+    let reader = rt.block_on(async { Arc::new(SSTableReader::open(path).await.unwrap()) });
 
     group.bench_function("100_random_lookups", |b| {
         b.iter(|| {
@@ -221,9 +211,7 @@ fn hot_key_pattern(c: &mut Criterion) {
 
     let dir = TempDir::new().unwrap();
     let path = rt.block_on(build_sstable(&dir, 10_000));
-    let reader = rt.block_on(async {
-        Arc::new(SSTableReader::open(path).await.unwrap())
-    });
+    let reader = rt.block_on(async { Arc::new(SSTableReader::open(path).await.unwrap()) });
 
     group.bench_function("80_20_pattern", |b| {
         b.iter(|| {

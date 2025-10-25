@@ -30,6 +30,7 @@
 
 use crate::block::Block;
 use crate::bloom::BloomFilter;
+use crate::compress;
 use crate::entry::Entry;
 use crate::error::{Result, SSTableError};
 use crate::format::Footer;
@@ -256,7 +257,7 @@ impl SSTableReader {
         if let Some(ref cache) = self.block_cache {
             let mut cache_lock = cache.lock().await;
             if let Some(block) = cache_lock.get(&offset) {
-                // Cache hit - return cloned block
+                // Cache hit - return cloned block (already decompressed)
                 self.meter
                     .counter("sstable_block_cache_hits", &[])
                     .inc(1);
@@ -268,24 +269,28 @@ impl SSTableReader {
                 .inc(1);
         }
 
-        // Read from disk
+        // Read compressed block from disk
         let mut file = self.file.lock().await;
 
         file.seek(std::io::SeekFrom::Start(offset))
             .await
             .map_err(SSTableError::Io)?;
 
-        let mut block_bytes = vec![0u8; size as usize];
-        file.read_exact(&mut block_bytes)
+        let mut compressed_bytes = vec![0u8; size as usize];
+        file.read_exact(&mut compressed_bytes)
             .await
             .map_err(SSTableError::Io)?;
 
         // Track block read
         self.meter.counter("sstable_block_reads", &[]).inc(1);
 
-        let block = Block::decode(Bytes::from(block_bytes))?;
+        // Decompress the block data
+        let decompressed_bytes = compress::decompress(&compressed_bytes, self.footer.compression)?;
 
-        // Add to cache if enabled
+        // Decode the decompressed block
+        let block = Block::decode(Bytes::from(decompressed_bytes))?;
+
+        // Cache the decompressed block if caching is enabled
         if let Some(ref cache) = self.block_cache {
             let mut cache_lock = cache.lock().await;
             cache_lock.put(offset, block.clone());

@@ -168,6 +168,7 @@
 mod block;
 mod bloom;
 mod builder;
+mod compress;
 mod entry;
 mod error;
 mod format;

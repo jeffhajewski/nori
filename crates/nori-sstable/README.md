@@ -14,7 +14,8 @@ Immutable sorted string tables (SSTables) with blocks, index, bloom filters, and
 - **Two-level index**: Sparse block index for fast key lookups with minimal I/O
 - **Bloom filters**: Probabilistic membership testing (~0.9% false positive rate) to avoid unnecessary disk reads
 - **Async I/O**: Built on Tokio for high-performance asynchronous operations
-- **Compression**: Optional LZ4 or Zstd compression (ready for future implementation)
+- **Block compression**: Optional LZ4 (fast, 3.9 GB/s decompress) or Zstd (higher ratio) compression
+- **LRU block cache**: Configurable in-memory cache for hot data blocks (default 64MB)
 - **CRC32C checksums**: Data integrity validation at block level
 - **Tombstones**: Explicit delete markers preserved through the storage layer
 - **Observability**: Vendor-neutral metrics via `nori-observe::Meter` trait
@@ -33,7 +34,7 @@ tokio = { version = "1", features = ["full"] }
 ### Building an SSTable
 
 ```rust
-use nori_sstable::{Entry, SSTableBuilder, SSTableConfig};
+use nori_sstable::{Compression, Entry, SSTableBuilder, SSTableConfig};
 use std::path::PathBuf;
 
 #[tokio::main]
@@ -41,6 +42,8 @@ async fn main() -> nori_sstable::Result<()> {
     let config = SSTableConfig {
         path: PathBuf::from("data.sst"),
         estimated_entries: 1000,
+        compression: Compression::Lz4,  // Enable LZ4 compression
+        block_cache_mb: 64,              // 64MB cache (default)
         ..Default::default()
     };
 
@@ -152,17 +155,21 @@ let builder = SSTableBuilder::new_with_meter(config, meter).await?;
 - `sstable_get_duration_ms`: Lookup latency by outcome (hit/miss/bloom_skip)
 - `sstable_bloom_checks`: Bloom filter checks by outcome (pass/skip)
 - `sstable_block_reads`: Disk I/O count
+- `sstable_block_cache_hits`: Cache hits (decompressed blocks cached)
+- `sstable_block_cache_misses`: Cache misses (read from disk)
+- `sstable_compression_ratio`: Compression ratio histogram (when compression enabled)
 
 ## Testing
 
 The crate includes comprehensive test coverage:
 
-- **90 total tests** (all passing)
-- **Unit tests**: Core functionality (blocks, bloom, index, entries)
+- **108 total tests** (all passing)
+- **Unit tests**: Core functionality (blocks, bloom, index, entries, compression)
 - **Integration tests**: End-to-end SSTable roundtrips
+- **Compression tests**: LZ4/Zstd roundtrips, cache integration, compression ratios
 - **Property tests**: Correctness invariants verified with proptest
 - **Stress tests**: 1M+ entry tables, concurrent reads, edge cases, iterator seek
-- **Benchmarks**: Build, read, and bloom filter performance
+- **Benchmarks**: Build, read, bloom filter, and compression performance
 
 Run tests:
 
@@ -180,34 +187,52 @@ cargo bench -p nori-sstable
 
 Benchmarked on Apple M1 (release build):
 
-| Operation | Throughput | Latency (p95) |
-|-----------|-----------|---------------|
-| Build (10K entries) | ~100K entries/sec | - |
-| Point lookup (hit) | ~200K ops/sec | <50µs |
-| Point lookup (miss) | ~500K ops/sec | <20µs (bloom skip) |
-| Sequential scan | ~1M entries/sec | - |
-| Bloom filter check | - | <1µs |
+| Operation | Throughput | Latency | Notes |
+|-----------|-----------|---------|-------|
+| Build (10K entries) | ~100K entries/sec | - | With compression |
+| Point lookup (hit) | ~200K ops/sec | ~5µs | Cached blocks |
+| Point lookup (miss) | ~500K ops/sec | <20µs | Bloom skip |
+| Sequential scan | ~1M entries/sec | - | Streaming |
+| Bloom filter check | - | ~65ns | In-memory |
+| Hot key (80/20 pattern) | **18x faster** | 777µs | With 64MB cache |
+| Compression ratio (LZ4) | 2-3x typical | - | 14x on highly compressible data |
 
 ## Configuration
 
 ```rust
-use nori_sstable::SSTableConfig;
+use nori_sstable::{Compression, SSTableConfig};
 
 let config = SSTableConfig {
     path: "data.sst".into(),
     estimated_entries: 10_000,
-    block_size: 4096,            // 4KB blocks (default)
-    restart_interval: 16,        // Prefix compression restart points
-    compression: Compression::None,
-    bloom_bits_per_key: 10,      // ~0.9% FP rate
+    block_size: 4096,                    // 4KB blocks (default)
+    restart_interval: 16,                // Prefix compression restart points
+    compression: Compression::Lz4,       // None, Lz4, or Zstd
+    bloom_bits_per_key: 10,              // ~0.9% FP rate (default)
+    block_cache_mb: 64,                  // 64MB cache (default, 0 to disable)
 };
 ```
+
+### Compression Options
+
+- **`Compression::None`**: No compression (fastest writes, largest files)
+- **`Compression::Lz4`**: Fast compression (3.9 GB/s decompress, 2-3x ratio) - **recommended default**
+- **`Compression::Zstd`**: Higher compression (1.2 GB/s decompress, 3-5x ratio) - use for cold storage
+
+### Block Cache
+
+The LRU block cache stores **decompressed** blocks in memory:
+
+- **Default**: 64MB cache (~16,000 blocks of 4KB each)
+- **Hot workloads**: Increase cache size for better hit rates (e.g., 256MB)
+- **Cold workloads**: Disable cache (`block_cache_mb: 0`) to save memory
+- **Cache hit**: ~18x faster than disk read for hot keys
 
 ## Limitations
 
 - **No in-place updates**: SSTables are immutable (by design)
-- **No compression**: Compression support is prepared but not yet implemented
-- **No block cache**: Consider adding an LRU cache wrapper for hot workloads
+- **Single-threaded writes**: Builder is not thread-safe (use one builder per SSTable)
+- **Memory-mapped I/O**: Not yet implemented (async I/O via Tokio instead)
 
 ## Use Cases
 

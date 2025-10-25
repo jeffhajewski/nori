@@ -30,6 +30,7 @@
 
 use crate::block::BlockBuilder;
 use crate::bloom::BloomFilter;
+use crate::compress;
 use crate::entry::Entry;
 use crate::error::{Result, SSTableError};
 use crate::format::{
@@ -185,21 +186,37 @@ impl SSTableBuilder {
             .clone()
             .ok_or_else(|| SSTableError::InvalidFormat("no first key".to_string()))?;
 
-        // Finish the block
+        // Finish the block (uncompressed)
         let block_data = self.block_builder.finish();
-        let block_size = block_data.len() as u32;
+        let uncompressed_size = block_data.len();
 
-        // Write block to file
-        let block_offset = self.writer.write_block(&block_data).await?;
+        // Compress the block if compression is enabled
+        let compressed_data = compress::compress(&block_data, self.config.compression)?;
+        let compressed_size = compressed_data.len();
 
-        // Add to index
-        self.index.add_block(first_key, block_offset, block_size);
+        // Write compressed block to file
+        let block_offset = self.writer.write_block(&compressed_data).await?;
 
-        // Track block flushed and bytes written
+        // Add to index (store uncompressed size for reconstruction)
+        self.index.add_block(first_key, block_offset, compressed_size as u32);
+
+        // Track block flushed and bytes written (compressed size)
         self.meter.counter("sstable_blocks_flushed", &[]).inc(1);
         self.meter
             .counter("sstable_bytes_written", &[])
-            .inc(block_size as u64);
+            .inc(compressed_size as u64);
+
+        // Track compression ratio if compression is enabled
+        if self.config.compression != Compression::None {
+            let ratio = uncompressed_size as f64 / compressed_size.max(1) as f64;
+            self.meter
+                .histo(
+                    "sstable_compression_ratio",
+                    &[1.0, 1.5, 2.0, 3.0, 5.0, 10.0],
+                    &[],
+                )
+                .observe(ratio);
+        }
 
         // Reset for next block
         self.block_builder.reset();

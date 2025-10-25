@@ -36,6 +36,7 @@ use crate::format::Footer;
 use crate::index::Index;
 use crate::iterator::SSTableIterator;
 use bytes::Bytes;
+use nori_observe::{Meter, NoopMeter};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -50,13 +51,24 @@ pub struct SSTableReader {
     index: Index,
     bloom: BloomFilter,
     file_size: u64,
+    meter: Arc<dyn Meter>,
 }
 
 impl SSTableReader {
-    /// Opens an SSTable file for reading.
+    /// Opens an SSTable file for reading with default (noop) metrics.
     ///
     /// This reads and caches the footer, index, and bloom filter in memory.
     pub async fn open(path: PathBuf) -> Result<Self> {
+        Self::open_with_meter(path, Arc::new(NoopMeter)).await
+    }
+
+    /// Opens an SSTable file for reading with custom metrics.
+    ///
+    /// This reads and caches the footer, index, and bloom filter in memory.
+    /// Metrics are emitted via the provided `Meter` implementation.
+    pub async fn open_with_meter(path: PathBuf, meter: Arc<dyn Meter>) -> Result<Self> {
+        let start = std::time::Instant::now();
+
         let mut file = File::open(&path)
             .await
             .map_err(SSTableError::Io)?;
@@ -110,6 +122,16 @@ impl SSTableReader {
 
         let bloom = BloomFilter::decode(&bloom_bytes)?;
 
+        // Track open duration
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+        meter
+            .histo(
+                "sstable_open_duration_ms",
+                &[0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0],
+                &[],
+            )
+            .observe(duration_ms);
+
         Ok(Self {
             file: Mutex::new(file),
             path,
@@ -117,6 +139,7 @@ impl SSTableReader {
             index,
             bloom,
             file_size,
+            meter,
         })
     }
 
@@ -125,15 +148,46 @@ impl SSTableReader {
     /// Returns `None` if the key is not present (using bloom filter for fast negative lookups).
     /// Returns `Some(entry)` if found, which may be a tombstone.
     pub async fn get(&self, key: &[u8]) -> Result<Option<Entry>> {
+        let start = std::time::Instant::now();
+
         // Check bloom filter first (fast negative lookup)
         if !self.bloom.contains(key) {
+            // Track bloom filter skip
+            self.meter
+                .counter("sstable_bloom_checks", &[("outcome", "skip")])
+                .inc(1);
+
+            let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+            self.meter
+                .histo(
+                    "sstable_get_duration_ms",
+                    &[0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0],
+                    &[("outcome", "bloom_skip")],
+                )
+                .observe(duration_ms);
+
             return Ok(None);
         }
+
+        // Track bloom filter pass
+        self.meter
+            .counter("sstable_bloom_checks", &[("outcome", "pass")])
+            .inc(1);
 
         // Find which block might contain the key
         let block_idx = match self.index.find_block(key) {
             Some(idx) => idx,
-            None => return Ok(None), // Key is before first block
+            None => {
+                let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+                self.meter
+                    .histo(
+                        "sstable_get_duration_ms",
+                        &[0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0],
+                        &[("outcome", "miss")],
+                    )
+                    .observe(duration_ms);
+                return Ok(None); // Key is before first block
+            }
         };
 
         // Read the block
@@ -141,7 +195,32 @@ impl SSTableReader {
         let block = self.read_block(entry.block_offset, entry.block_size).await?;
 
         // Search within the block
-        block.get(key)
+        let result = block.get(key)?;
+
+        // Track outcome
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+        match &result {
+            Some(_) => {
+                self.meter
+                    .histo(
+                        "sstable_get_duration_ms",
+                        &[0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0],
+                        &[("outcome", "hit")],
+                    )
+                    .observe(duration_ms);
+            }
+            None => {
+                self.meter
+                    .histo(
+                        "sstable_get_duration_ms",
+                        &[0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0],
+                        &[("outcome", "miss")],
+                    )
+                    .observe(duration_ms);
+            }
+        }
+
+        Ok(result)
     }
 
     /// Reads a specific block from disk.
@@ -156,6 +235,11 @@ impl SSTableReader {
         file.read_exact(&mut block_bytes)
             .await
             .map_err(SSTableError::Io)?;
+
+        // Track block read
+        self.meter
+            .counter("sstable_block_reads", &[])
+            .inc(1);
 
         Block::decode(Bytes::from(block_bytes))
     }

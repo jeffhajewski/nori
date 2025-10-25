@@ -38,6 +38,7 @@ use crate::format::{
 use crate::index::Index;
 use crate::writer::SSTableWriter;
 use bytes::Bytes;
+use nori_observe::{Meter, NoopMeter};
 use std::path::PathBuf;
 
 /// Configuration for building an SSTable.
@@ -95,13 +96,23 @@ pub struct SSTableBuilder {
     entry_count: u64,
     last_key: Bytes,
     first_key: Option<Bytes>,
+    meter: Box<dyn Meter>,
+    start_time: std::time::Instant,
 }
 
 impl SSTableBuilder {
-    /// Creates a new SSTable builder.
+    /// Creates a new SSTable builder with default (noop) metrics.
     ///
     /// This opens the file for writing and initializes all internal structures.
     pub async fn new(config: SSTableConfig) -> Result<Self> {
+        Self::new_with_meter(config, Box::new(NoopMeter)).await
+    }
+
+    /// Creates a new SSTable builder with custom metrics.
+    ///
+    /// This opens the file for writing and initializes all internal structures.
+    /// Metrics are emitted via the provided `Meter` implementation.
+    pub async fn new_with_meter(config: SSTableConfig, meter: Box<dyn Meter>) -> Result<Self> {
         let writer = SSTableWriter::create(config.path.clone()).await?;
         let block_builder = BlockBuilder::new(config.restart_interval);
         let index = Index::new();
@@ -116,6 +127,8 @@ impl SSTableBuilder {
             entry_count: 0,
             last_key: Bytes::new(),
             first_key: None,
+            meter,
+            start_time: std::time::Instant::now(),
         })
     }
 
@@ -151,6 +164,11 @@ impl SSTableBuilder {
         self.last_key = entry.key.clone();
         self.entry_count += 1;
 
+        // Track entry written
+        self.meter
+            .counter("sstable_entries_written", &[])
+            .inc(1);
+
         Ok(())
     }
 
@@ -175,6 +193,14 @@ impl SSTableBuilder {
 
         // Add to index
         self.index.add_block(first_key, block_offset, block_size);
+
+        // Track block flushed and bytes written
+        self.meter
+            .counter("sstable_blocks_flushed", &[])
+            .inc(1);
+        self.meter
+            .counter("sstable_bytes_written", &[])
+            .inc(block_size as u64);
 
         // Reset for next block
         self.block_builder.reset();
@@ -201,6 +227,11 @@ impl SSTableBuilder {
         // Write bloom filter
         let (bloom_offset, bloom_size) = self.writer.write_bloom(&self.bloom).await?;
 
+        // Track metadata bytes written
+        self.meter
+            .counter("sstable_bytes_written", &[])
+            .inc(index_size + bloom_size);
+
         // Write footer
         let footer = Footer {
             index_offset,
@@ -213,6 +244,11 @@ impl SSTableBuilder {
         };
         self.writer.write_footer(&footer).await?;
 
+        // Track footer bytes written
+        self.meter
+            .counter("sstable_bytes_written", &[])
+            .inc(64); // Footer is always 64 bytes
+
         // Sync to disk
         self.writer.sync().await?;
 
@@ -221,6 +257,16 @@ impl SSTableBuilder {
 
         // Close file
         self.writer.finish().await?;
+
+        // Track build duration
+        let duration_ms = self.start_time.elapsed().as_secs_f64() * 1000.0;
+        self.meter
+            .histo(
+                "sstable_build_duration_ms",
+                &[1.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0],
+                &[],
+            )
+            .observe(duration_ms);
 
         Ok(SSTableMetadata {
             path,

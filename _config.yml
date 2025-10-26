@@ -4,8 +4,8 @@
 # which you are expected to set up once and rarely edit after that.
 
 # Site settings
-title: nori-wal Documentation
-description: Production-ready Write-Ahead Log for Rust
+title: NoriKV Documentation
+description: Sharded, Raft-replicated, log-structured key-value store
 baseurl: "/nori" # the subpath of your site, e.g. /blog
 url: "https://j-haj.github.io" # the base hostname & protocol
 
@@ -58,7 +58,7 @@ back_to_top: true
 back_to_top_text: "Back to top"
 
 # Footer content
-footer_content: "Copyright © 2024 nori-wal contributors. Distributed under the MIT License."
+footer_content: "Copyright © 2024 NoriKV contributors. Distributed under the MIT License."
 
 # Footer "Edit this page on GitHub" link
 gh_edit_link: true

@@ -22,22 +22,22 @@ SSTables (Sorted String Tables) are a foundational data structure in modern stor
 ## Key Concepts
 
 ### [What is an SSTable?](what-is-sstable)
-Learn what SSTables are, why they exist, and how they fit into LSM-tree storage engines.
+Learn what SSTables are, why they exist, how they work, and how they fit into LSM-tree storage engines.
 
 ### [Immutability](immutability)
-Why SSTables are write-once, immutable files and the benefits this provides.
+Why SSTables are write-once, immutable files and the profound benefits this provides: lock-free reads, simple caching, crash safety, and zero-cost snapshots.
 
 ### [Block-Based Storage](block-based-storage)
-How data is organized into 4KB blocks for efficient I/O and caching.
+How data is organized into fixed-size 4KB blocks for efficient I/O, caching, and compression. Understand why blocks are the quantum of I/O in SSTables.
 
 ### [Bloom Filters](bloom-filters)
-Probabilistic data structures that prevent unnecessary disk reads.
+Probabilistic data structures that prevent unnecessary disk reads. Learn how ~67ns checks save 100µs disk I/O and why false positives are acceptable.
 
-### [Compression](compression-fundamentals)
-How block-level compression reduces storage costs with minimal performance impact.
+### [Compression Fundamentals](compression-fundamentals)
+How block-level compression reduces storage costs 2-5x with minimal performance impact. Understand LZ4 vs Zstd trade-offs and when compression actually speeds up reads.
 
 ### [When to Use SSTables](when-to-use)
-Understand the use cases where SSTables excel and where they don't.
+Understand the use cases where SSTables excel (write-heavy, time-series, hot keys) and where they don't (ultra-low latency, heavy updates, tiny datasets).
 
 ---
 

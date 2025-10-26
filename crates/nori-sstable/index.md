@@ -205,10 +205,10 @@ Learn how to install and use nori-sstable in your project.
 
 [Getting Started →](getting-started)
 
-### Architecture
-Understand the file format, block structure, and internal organization.
+### Core Concepts
+Understand the fundamental concepts behind SSTables: immutability, block-based storage, bloom filters, and when to use them.
 
-[Architecture Guide →](architecture)
+[Core Concepts →](core-concepts/)
 
 ### Compression 🆕
 Deep dive into LZ4 and Zstd compression: when to use each, performance tradeoffs, and configuration.
@@ -220,25 +220,35 @@ Learn how the LRU block cache works, how to tune it for hot workloads, and achie
 
 [Caching Guide →](caching)
 
+### How It Works
+Detailed internals: file format, block format, bloom filters, index structure, compression, and cache implementation.
+
+[How It Works →](how-it-works/)
+
 ### API Reference
 Complete API documentation for builders, readers, configuration, and iterators.
 
 [API Reference →](api-reference/)
 
 ### Performance
-Benchmarks, tuning guides, and compression ratio analysis.
+Benchmarks, tuning guides, compression ratio analysis, and profiling.
 
-[Performance Docs →](performance/benchmarks)
+[Performance →](performance/)
 
-### How It Works
-Detailed internals: block format, prefix compression, bloom filters, index structure, and cache implementation.
+### Design Decisions
+Rationale behind key design choices: block-based organization, immutability, compression strategy, and more.
 
-[Internals →](how-it-works/)
+[Design Decisions →](design-decisions/)
 
 ### Recipes
 Common patterns and use cases with code examples.
 
 [Recipes →](recipes/)
+
+### Internals
+Deep implementation details for contributors and advanced users.
+
+[Internals →](internals/)
 
 ---
 

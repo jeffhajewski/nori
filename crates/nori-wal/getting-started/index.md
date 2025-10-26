@@ -3,6 +3,8 @@ layout: default
 title: Getting Started
 nav_order: 2
 has_children: true
+parent: nori-wal
+grand_parent: Crates
 ---
 
 # Getting Started with nori-wal

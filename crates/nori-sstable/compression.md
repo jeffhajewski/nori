@@ -2,6 +2,7 @@
 layout: default
 title: Compression
 parent: nori-sstable
+grand_parent: Crates
 nav_order: 5
 ---
 

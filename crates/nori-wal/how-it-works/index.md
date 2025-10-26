@@ -3,6 +3,8 @@ layout: default
 title: How It Works
 nav_order: 4
 has_children: true
+parent: nori-wal
+grand_parent: Crates
 ---
 
 # How It Works

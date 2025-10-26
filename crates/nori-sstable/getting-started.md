@@ -2,6 +2,7 @@
 layout: default
 title: Getting Started
 parent: nori-sstable
+grand_parent: Crates
 nav_order: 2
 ---
 

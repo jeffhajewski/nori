@@ -12,7 +12,8 @@ permalink: /
 A sharded, Raft-replicated, log-structured key-value store with portable SDKs and first-class observability.
 {: .fs-6 .fw-300 }
 
-[Get Started](getting-started/quickstart){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[View Architecture](architecture/){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Browse Crates](crates/){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/j-haj/nori){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
@@ -54,12 +55,12 @@ NoriKV is built from six core crates, each solving a specific problem:
 
 | Crate | Purpose | Status |
 |-------|---------|--------|
-| **[nori-observe](https://github.com/j-haj/nori/tree/main/crates/nori-observe)** | Vendor-neutral observability ABI | Ready |
-| **[nori-wal](https://github.com/j-haj/nori/tree/main/crates/nori-wal)** | Write-ahead log with recovery | Ready |
-| **[nori-sstable](https://github.com/j-haj/nori/tree/main/crates/nori-sstable)** | Immutable sorted string tables | Ready |
-| **[nori-lsm](https://github.com/j-haj/nori/tree/main/crates/nori-lsm)** | LSM storage engine | Ready |
-| **[nori-swim](https://github.com/j-haj/nori/tree/main/crates/nori-swim)** | SWIM membership protocol | Ready |
-| **[nori-raft](https://github.com/j-haj/nori/tree/main/crates/nori-raft)** | Raft consensus algorithm | Ready |
+| **[nori-observe](crates/nori-observe/)** | Vendor-neutral observability ABI | 🚧 Planned |
+| **[nori-wal](crates/nori-wal/)** | Write-ahead log with recovery | ✅ Production-ready |
+| **[nori-sstable](crates/nori-sstable/)** | Immutable sorted string tables | ✅ Production-ready |
+| **[nori-lsm](crates/nori-lsm/)** | LSM storage engine | 🚧 In development |
+| **[nori-swim](crates/nori-swim/)** | SWIM membership protocol | 🚧 In development |
+| **[nori-raft](crates/nori-raft/)** | Raft consensus algorithm | 🚧 In development |
 
 ---
 
@@ -83,7 +84,7 @@ wal.append(&record).await?;
 - Automatic crash recovery with prefix-valid truncation
 - LZ4/Zstd compression support
 
-[WAL Documentation →](core-concepts/what-is-wal)
+[WAL Documentation →](crates/nori-wal/)
 
 ---
 
@@ -99,7 +100,7 @@ Immutable, sorted key-value tables with bloom filters, compression, and caching.
 - Range queries and iterators
 - 108 tests passing
 
-[SSTable Documentation →](sstable/)
+[SSTable Documentation →](crates/nori-sstable/)
 
 ---
 
@@ -301,37 +302,24 @@ Default: 1024 virtual shards, RF=3
 
 ## Documentation Structure
 
-This documentation covers the entire NoriKV project:
+This documentation is organized by component:
 
-### Core Concepts
-Learn the fundamentals of WAL, LSM, Raft, and SWIM.
+### Architecture
+Understand how all components fit together in a distributed system.
 
-[Core Concepts →](core-concepts/what-is-wal)
+[Architecture Overview →](architecture/)
 
-### Getting Started
-Quick tutorials to get up and running.
+### Crates
+Deep-dive documentation for each published crate.
 
-[Quickstart →](getting-started/quickstart)
+[Browse All Crates →](crates/)
 
-### How It Works
-Deep dives into internals and algorithms.
-
-[How It Works →](how-it-works/record-format)
-
-### API Reference
-Complete API documentation for all crates.
-
-[API Reference →](api-reference/)
-
-### Recipes
-Common patterns and use cases.
-
-[Recipes →](recipes/)
-
-### Performance
-Benchmarks and optimization guides.
-
-[Performance →](performance/benchmarks)
+#### Individual Crates
+- [nori-wal](crates/nori-wal/) - Write-ahead log
+- [nori-sstable](crates/nori-sstable/) - Sorted string tables
+- [nori-lsm](crates/nori-lsm/) - LSM storage engine (🚧 in development)
+- [nori-raft](crates/nori-raft/) - Raft consensus (🚧 in development)
+- [nori-swim](crates/nori-swim/) - SWIM membership (🚧 in development)
 
 ---
 
@@ -442,15 +430,15 @@ MIT License - see [LICENSE](https://github.com/j-haj/nori/blob/main/LICENSE) for
 <div class="code-example" markdown="1">
 
 **New to distributed systems?**
-Start with [What is a Write-Ahead Log?](core-concepts/what-is-wal) to understand the fundamentals.
+Start with [Architecture](architecture/) to understand how NoriKV components fit together.
 
-**Ready to build?**
-Jump into the [5-Minute Quickstart](getting-started/quickstart) to get hands-on.
+**Want to use a specific component?**
+Browse [Crates](crates/) to find documentation for nori-wal, nori-sstable, and more.
 
-**Want deep dives?**
-Check out [How It Works](how-it-works/record-format) for implementation details.
+**Building storage systems?**
+Check out [nori-wal](crates/nori-wal/) and [nori-sstable](crates/nori-sstable/) for production-ready components.
 
-**Need API docs?**
-See the [API Reference](api-reference/) for complete API documentation.
+**Need the big picture?**
+See the [Architecture Overview](architecture/) for how everything connects.
 
 </div>

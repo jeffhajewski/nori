@@ -3,6 +3,8 @@ layout: default
 title: Performance
 nav_order: 9
 has_children: true
+parent: nori-wal
+grand_parent: Crates
 ---
 
 # Performance

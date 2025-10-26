@@ -3,6 +3,8 @@ layout: default
 title: Design Decisions
 nav_order: 7
 has_children: true
+parent: nori-wal
+grand_parent: Crates
 ---
 
 # Design Decisions

@@ -22,22 +22,13 @@ This section explains **why** nori-sstable works the way it does. Each design de
 ## Key Decisions
 
 ### [Block-Based Organization](block-based)
-Why we use 4KB blocks instead of variable-length entries.
+Why we use fixed-size 4KB blocks: OS page alignment, compression sweet spot, cache efficiency, and performance validation.
 
-### [Immutability](immutability-decision)
-Why SSTables are write-once, never modified.
+### [Compression Strategy](compression-strategy)
+Why block-level compression with LZ4 default: decompression speed, cache interaction, and cold storage with Zstd.
 
-### [Compression at Block Level](compression-strategy)
-Why we compress blocks individually rather than the whole file.
-
-### [Bloom Filter Strategy](bloom-filters)
-Why xxHash64 with double hashing, and how we size filters.
-
-### [Prefix Compression](prefix-compression)
-How we reduce key size within blocks while maintaining random access.
-
-### [Cache Design](caching-strategy)
-Why LRU at block granularity, and how we handle compressed blocks.
+### [Bloom Filter Strategy](bloom-strategy)
+Why 10 bits/key with xxHash64 double hashing: false positive rate analysis, whole-file bloom, and loaded-on-open design.
 
 ---
 

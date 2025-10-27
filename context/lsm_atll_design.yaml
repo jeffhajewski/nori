@@ -1,0 +1,365 @@
+spec_version: "0.1"
+name: "ATLL (Adaptive Tiered‑Leveled LSM)"
+status: "draft"
+last_updated: "2025-10-26"
+authors:
+  - handle: "you"
+    role: "architect"
+  - handle: "assistant"
+    role: "co-author"
+
+assumptions:
+  - You already have durable WAL and SSTable implementations (block index, filter block, range tombstones optional).
+  - Filesystem supports fallocate/punch-hole or equivalent for space reclamation (optional but recommended).
+  - Target media: NVMe SSD; optional ZNS device via ZenFS-like shim.
+  - POSIX-like environment, Rust or C++ implementation (examples show Rust-like types).
+
+objectives:
+  primary:
+    - Lower write amplification than strict Leveled Compaction Strategy (LCS).
+    - Bounded read fan-in like LCS for hot ranges; predictable tail latency.
+    - Localized compaction (per-range), minimal cross-range rewrites.
+  secondary:
+    - Value-log option for large values to reduce WA.
+    - ZNS-affine placement to reduce zone GC.
+    - Online adaptivity to workload hotness & tombstones.
+
+non_objectives:
+  - Distributed/sharded KV (single-node engine spec; can be embedded in a larger system later).
+  - Full MVCC transactional semantics beyond sequence-numbered visibility.
+
+# ---------------------------
+# High-level Architecture
+# ---------------------------
+architecture:
+  levels: "L0 (unbounded overlapping), L1..Lk (range‑partitioned into slots with bounded overlap per slot)."
+  key_ideas:
+    - Levels L>=1 are partitioned into range shards called slots, delimited by guard keys.
+    - Each slot holds up to K_i,s sorted runs (SSTables) at level i (bounded-overlap invariant).
+    - Compaction actions are slot-local (horizontal tiering) or slot promotion (vertical, range-preserving).
+    - Hot slots converge to K=1 (leveled); cold slots behave size-tiered (K>1) to save writes.
+  components:
+    memtable:
+      type: "skiplist|ART"
+      flush_trigger: {bytes: 64MiB, wal_age_s: 30}
+    wal:
+      integration: "reuse existing WAL; 1:1 with memtable lifetime; sync policy configurable"
+    sstable:
+      required_meta: [min_key, max_key, seqno_min, seqno_max, block_index, filter_block]
+      optional_meta: [range_tombstone_index, guard_id, slot_id, level, heat_hint, tombstone_count,
+        value_log_segment_id, value_ptr_encoding]
+    manifest:
+      description: "Versioned edit log of levels, slots, guards, and file installs"
+      fs_layout: "MANIFEST-current + MANIFEST-#### incremental edits + periodic snapshots"
+    guard_manager:
+      role: "maintains guard keys (slot boundaries) per level via quantile sketches"
+    heat_tracker:
+      role: "per-slot EWMA of GET/SCAN/PUT/DEL activity; optional per-key hot cache"
+    filter_manager:
+      role: "allocates filter bits across runs/slots (Bloom/Ribbon; SuRF optional)"
+    compaction_planner:
+      role: "chooses actions per slot: {tier, promote, eager_level, tombstone_cleanup, guard_move}"
+    scheduler:
+      role: "bandit-like action selector with budgets; enforces IO slicing for latency"
+    compaction_executor:
+      role: "merges SSTs, writes new files, installs atomically into MANIFEST"
+    value_log:
+      enabled: false
+      role: "append-only blob segments; GC by slot age/tombstones"
+    cache:
+      block_cache_mib: 1024
+      index_cache_mib: 128
+    zns_manager:
+      enabled: false
+      policy: "map slot-id -> zone set; prefer intra-zone horizontal compaction"
+
+# ---------------------------
+# Invariants & Guarantees
+# ---------------------------
+invariants:
+  bounded_overlap: |
+    For any key and for each level i>=1, the number of overlapping runs in its slot is ≤ K_{i,s}.
+    With eager leveling for hot slots, K_{i,s} -> 1.
+  localized_rewrite: |
+    A compaction touches at most the files within a single (level,slot), unless promoting; a promotion
+    merges a compacted result with only the corresponding slot above.
+  l0_backlog_control: |
+    L0 file count <= L0_max_files. Exceeding thresholds raises priority for L0→L1 admissions.
+  crash_safety: |
+    All file installs are two-phase: write new files, fsync, append MANIFEST edit, fsync, then atomically
+    publish CURRENT. On crash, recovery replays MANIFEST and orphan-scans tmp files.
+
+# ---------------------------
+# Configuration & Tunables
+# ---------------------------
+config:
+  fanout_T: 10         # target level size ratio
+  levels_max: 7
+  slot_count_L1: 32     # initial guard count for L1; higher levels inherit and may refine
+  slot_overprovision_factor: 1.2  # allow skewed slots; guard_manager will rebalance
+  K_defaults:
+    L1: 3
+    L2: 3
+    L3plus: 2
+  K_hot: 1
+  slot_byte_budget_fraction: 0.9  # fraction of level bytes distributed across slots by size/heat
+  heat_thresholds:
+    H_hot: 0.8   # normalized [0,1]
+    H_cold: 0.2
+    half_life_ops: 100000   # EWMA half-life in ops
+  tombstone:
+    density_threshold: 0.15         # fraction of entries in slot
+    ttl_default_sec: null           # optional global TTL
+    range_tombstones_enabled: true
+  l0:
+    max_files: 12
+    admission_split_on_guards: true
+  filters:
+    total_budget_mib: 256
+    type_preference_order: [ribbon, bloom, surf]
+    target_fp_point_lookups: 1e-3
+    partitioned_filters: true
+  value_log:
+    enabled: false
+    segment_mb: 128
+    pointer_encoding: "(segment_id, offset, length)"
+    gc_low_utilization: 0.6   # reclaim when live<40%
+  zns:
+    enabled: false
+    zone_size_mb: 256
+    zones_per_slot: 2
+  io:
+    compaction_slice_mb: 64  # cooperative yield granularity
+    max_background_compactions: 4
+    rate_limit_mb_s: null
+
+# ---------------------------
+# Data Structures
+# ---------------------------
+metadata_schemas:
+  manifest_snapshot:
+    version: int
+    levels:
+      - level: int
+        guards: [bytes]   # sorted guard keys; slot i covers [guards[i], guards[i+1])
+        slots:
+          - slot_id: int
+            range: {start: bytes, end: bytes}
+            bytes: int
+            runs:
+              - file_number: int
+                size: int
+                min_key: bytes
+                max_key: bytes
+                seqno_min: uint64
+                seqno_max: uint64
+                tombstone_count: int
+                filter_fp: float
+                heat_hint: float
+            K: int
+            heat_score: float
+            age_histogram: [int]
+            tombstone_density: float
+            last_compaction_ts: int
+            zns_zone_ids: [int]
+  sstable_meta_extension:
+    slot_id: int
+    level: int
+    guard_id: int
+    range_tombstone_index_offset: int
+    filter_kind: string  # bloom|ribbon|surf
+    value_log_segment_id: int|null
+
+# ---------------------------
+# Algorithms (pseudocode)
+# ---------------------------
+algorithms:
+  l0_admission: |
+    for each flushed L0 run R:
+      for each (g_i, g_{i+1}) overlapping R:
+        split R on guard boundaries (block-aligned),
+        place fragment into L1 slot i; update bytes, runs.
+      if L0_files > max_files: raise scheduler priority for L0→L1 compactions.
+
+  heat_update: |
+    # For each slot s, maintain EWMA of operations (GET, SCAN weighted > PUT,DEL)
+    heat_s = EWMA(heat_s, op_weight, half_life_ops)
+
+  dynamic_K_selection: |
+    # Optimize per-slot K under read/write cost model and filter budget.
+    # Inputs: heat_s, read_mix_s, write_pressure, bytes_s, current K_s.
+    # Objective: minimize RUM = a*reads(K) + b*writes(K) + c*space(K)
+    # Subject to: sum(filter_bits_s) <= total_budget.
+    if heat_s > H_hot: K_s := K_hot (typically 1)
+    else if heat_s < H_cold and write_pressure_high: K_s := min(K_s+1, K_default)
+    else: keep K_s.
+
+  slot_local_tiering: |
+    # Trigger: slot runs > K_s OR bytes_s > slot_budget_s
+    choose ~size-tiered group of oldest runs with similar size (e.g., 4),
+    merge into one run within same slot; install; drop inputs.
+
+  vertical_promotion: |
+    # Trigger: post-tiering run size exceeds level_target for slot OR slot bytes >> budget
+    move the compacted run to corresponding slot in level+1; if overlapping > K_{i+1,s},
+    merge with oldest run(s) there until K is satisfied.
+
+  eager_leveling_hot_slots: |
+    if heat_s >= H_hot:
+      plan compactions to converge runs_in_slot -> 1 at each level for s.
+
+  tombstone_cleanup: |
+    if tombstone_density_s > threshold OR (ttl horizon advanced):
+      compact runs in s with oldest seqno first; drop obsolete keys; update value-log GC marks.
+
+  guard_placement_adjustment: |
+    # Maintain KLL sketch per level of key distribution and heat density.
+    periodically (e.g., after X bytes written):
+      propose new guard set that balances bytes and minimizes integral(heat * overlap),
+      constrain number of guard moves; apply at next compaction boundaries.
+
+  filter_budgeting: |
+    # Allocate bits across slots to hit target false-positive rates given K_s and query mix.
+    use greedy bit-shifting between slots with highest marginal benefit until budget exhausted.
+
+  scheduler_bandit: |
+    # Each slot is an arm; actions = {Tier, Promote, EagerLevel, Cleanup, GuardMove, DoNothing}
+    # Reward ~ predicted reduction in (p99_read_latency * heat + L0_backlog_penalty) per byte rewritten.
+    # Use epsilon-greedy or UCB with non-stationary discount; enforce fairness and L0 SLOs.
+    loop:
+      observe state S; for candidate actions compute features via counterfactual cost model;
+      pick action by bandit policy under IO budget; execute via executor in slices.
+
+  crash_recovery: |
+    read CURRENT -> MANIFEST; replay edits; rebuild level/slot map; verify files on disk;
+    for value-log, rebuild live map from latest checkpoint + delta from manifest.
+
+# ---------------------------
+# Public API (embedding)
+# ---------------------------
+api:
+  kv:
+    - name: put
+      params: {key: bytes, value: bytes, seqno: optional}
+    - name: get
+      params: {key: bytes, snapshot_seqno: optional}
+    - name: delete
+      params: {key: bytes}
+    - name: scan
+      params: {start: bytes, end: bytes, limit: int, inclusive_end: bool}
+    - name: approximate_size
+      params: {start: bytes, end: bytes}
+    - name: compact_range
+      params: {start: bytes|null, end: bytes|null, mode: auto|eager|cleanup}
+  admin:
+    - name: stats
+      returns: metrics
+    - name: set_config
+      params: {path: string, value: any}
+    - name: debug_dump_manifest
+  background:
+    - heat_tracker: {interval_ms: 200}
+    - filter_rebalancer: {interval_s: 30}
+    - guard_optimizer: {interval_mb_written: 1024}
+
+# ---------------------------
+# Telemetry & Observability
+# ---------------------------
+telemetry:
+  metrics:
+    - l0_files
+    - compaction.bytes_in
+    - compaction.bytes_out
+    - write_amplification
+    - read_amplification_point
+    - space_amplification
+    - p50_get_ms
+    - p99_get_ms
+    - p50_put_ms
+    - p99_put_ms
+    - scans.p95_mb_s
+    - slot.K_current{level,slot}
+    - slot.heat{level,slot}
+    - slot.tombstone_density{level,slot}
+    - guard.moves_applied
+    - filter.bits_assigned_total
+    - value_log.gc_reclaimed_bytes
+    - zns.zone_write_amp (if zns)
+  tracing:
+    - compaction_planner_span
+    - compaction_slice_span
+    - manifest_install_span
+  logs:
+    - guard_change_events
+    - scheduler_decisions
+
+# ---------------------------
+# Storage Layout
+# ---------------------------
+storage:
+  directories:
+    - data_dir/sst/
+    - data_dir/manifest/
+    - data_dir/wal/
+    - data_dir/vlog/  # if value_log enabled
+  file_naming:
+    sstable: "sst-<file_number>.sst"
+    vlog_segment: "vlog-<segment_id>.vseg"
+    manifest_snapshot: "MANIFEST-<id>"
+
+# ---------------------------
+# Concurrency & Resources
+# ---------------------------
+runtime:
+  thread_pools:
+    compaction: {threads: 4, priority: low}
+    flush: {threads: 2, priority: normal}
+    io_async: {threads: auto}
+  memory_budgets:
+    block_cache_mib: 1024
+    filters_mib: 256
+    memtables_mib: 512
+  file_descriptors_soft_limit: 16384
+
+# ---------------------------
+# Testing & Validation Plan (engine-level)
+# ---------------------------
+validation:
+  unit_tests:
+    - manifest_roundtrip
+    - slot_guard_mapping
+    - l0_split_on_guards
+    - dynamic_K_transitions
+    - tombstone_cleanup_correctness
+  fault_injection:
+    - crash_during_manifest_install
+    - powerloss_mid_compaction
+    - torn_write_vlog_pointer
+  correctness:
+    - compare against in-memory map for sequential/random workloads
+    - verify snapshot isolation by seqno
+  performance_sanity:
+    - ensure p99 PUT doesn’t exceed target under steady load
+
+# ---------------------------
+# Integration Notes (WAL/SSTable)
+# ---------------------------
+integration:
+  wal:
+    flush_protocol: "on memtable seal -> write SST -> fsync SST -> install MANIFEST edit -> fsync -> drop WAL range"
+  sstable:
+    extra_meta_to_add: [slot_id, level, guard_id, tombstone_count, filter_kind]
+    filter_block:
+      partitioned: true
+      kind: "ribbon|bloom|surf (per run)"
+  iterators:
+    merge_iter: "fan-in across at most sum_i K_{i,s} + L0 runs"
+
+# ---------------------------
+# Open Questions / TODOs
+# ---------------------------
+open_items:
+  - Prove/measure regret bounds of bandit scheduler on non-stationary workloads.
+  - Evaluate guard_move safety windows to avoid iterator invalidation during scans.
+  - Calibrate filter bit shifting heuristic vs exact convex optimization.
+  - Value-log crash consistency (pointer install ordering) details.

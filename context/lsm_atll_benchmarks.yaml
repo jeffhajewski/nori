@@ -1,0 +1,320 @@
+spec_version: "0.1"
+name: "ATLL Benchmark & Experiment Plan"
+status: "draft"
+last_updated: "2025-10-26"
+
+objectives:
+  - Quantify R/W/Space amplification vs baselines (RocksDB LCS, PebblesDB/FLSM, hybrid sims for ICS/UCS).
+  - Demonstrate bounded read fan-in and tail latency stability under hot ranges.
+  - Show benefits of dynamic K, learned guards, and bandit scheduler via ablations.
+  - Evaluate value-log and ZNS-affine placement options.
+
+# ---------------------------
+# Test Matrix
+# ---------------------------
+matrix:
+  hardware_profiles:
+    - id: nvme_single
+      cpu: {sockets: 1, cores: 16}
+      memory_gb: 64
+      storage: {type: NVMe, model: "Generic", size_gb: 1000}
+      fs: {type: ext4, mount_opts: "noatime,discard"}
+      kernel: ">=5.15"
+    - id: zns_nvme
+      cpu: {sockets: 1, cores: 16}
+      memory_gb: 64
+      storage: {type: ZNS, model: "nvme-zns", size_gb: 1000}
+      fs: {type: zenfs, mount_opts: "default"}
+      kernel: ">=6.0"
+  engines:
+    - id: atll
+      build: {target: release}
+      config_overrides:
+        - {filters.total_budget_mib: 256}
+        - {K_defaults.L1: 3}
+        - {K_defaults.L2: 3}
+        - {K_defaults.L3plus: 2}
+    - id: rocksdb_lcs
+      notes: "RocksDB configured for leveled compaction"
+      config: {compaction_style: leveled, max_bytes_for_level_multiplier: 10, level0_file_num_compaction_trigger: 4}
+    - id: pebbles_flsm
+      notes: "PebblesDB or equivalent FLSM-style guard-sharded leveled/tiered"
+      config: {max_tables_per_guard: 4}
+    - id: ics_sim
+      notes: "Simulated Scylla ICS behavior over our SST format (planner-only)"
+    - id: ucs_sim
+      notes: "Simulated Cassandra UCS density-based planner"
+  datasets:
+    - id: small
+      keys: 50_000_000
+      value_bytes: 64
+      key_dist: uniform
+      keyspace_bytes: 3.2GiB
+    - id: medium
+      keys: 200_000_000
+      value_bytes: 128
+      key_dist: uniform
+      keyspace_bytes: 25.6GiB
+    - id: skew_zipf
+      keys: 200_000_000
+      value_bytes: 128
+      key_dist: {type: zipf, s: 1.1}
+    - id: timeseries_ttl
+      keys: 200_000_000
+      value_bytes: 200
+      pattern: append_only
+      ttl_sec: 604800 # 7 days
+  workloads:
+    - id: ycsb_a
+      desc: "50/50 read/update"
+      mix: {read: 0.5, update: 0.5}
+      ops: 200_000_000
+      threads: 32
+    - id: ycsb_c
+      desc: "100% read"
+      mix: {read: 1.0, update: 0.0}
+      ops: 200_000_000
+      threads: 32
+    - id: ycsb_f
+      desc: "read-modify-write"
+      mix: {rmw: 1.0}
+      ops: 200_000_000
+      threads: 32
+    - id: scans_e
+      desc: "range scans"
+      scan:
+        ranges_per_s: 100
+        range_len: {mean: 10_000, dist: lognormal}
+      ops: 100_000
+      threads: 16
+    - id: mixed_churn
+      desc: "Zipfian hot-set rotation every 15 min"
+      mix: {read: 0.8, update: 0.2}
+      ops: 200_000_000
+      threads: 32
+      hotset:
+        fraction: 0.05
+        rotation_minutes: 15
+        zipf_s: 1.2
+    - id: ttl_heavy
+      desc: "Time-window with TTL expirations dominating deletions"
+      mix: {insert: 0.9, range_scan: 0.1}
+      ops: 200_000_000
+      threads: 16
+
+# ---------------------------
+# Experiments & Ablations
+# ---------------------------
+experiments:
+  - id: baseline_vs_atll
+    goal: "Compare R/W/Space amp and latency across engines"
+    engines: [atll, rocksdb_lcs, pebbles_flsm]
+    datasets: [medium]
+    workloads: [ycsb_a, ycsb_c, ycsb_f]
+    repetitions: 3
+  - id: dynamic_k_ablation
+    goal: "Value of dynamic per-slot K"
+    engines: [atll]
+    atll_variants:
+      - name: dynK_on
+        overrides: {}
+      - name: dynK_off
+        overrides:
+          K_defaults: {L1: 3, L2: 3, L3plus: 3}
+          heat_thresholds: {H_hot: 2.0, H_cold: -1.0}  # effectively disables adaptivity
+    datasets: [skew_zipf]
+    workloads: [mixed_churn]
+    repetitions: 3
+  - id: learned_guards_ablation
+    goal: "Impact of learned guard placement"
+    engines: [atll]
+    atll_variants:
+      - name: learned_on
+        overrides: {guard_optimizer: {interval_mb_written: 1024}}
+      - name: learned_off
+        overrides: {guard_optimizer: {interval_mb_written: null}}
+    datasets: [skew_zipf]
+    workloads: [ycsb_a]
+    repetitions: 3
+  - id: bandit_vs_greedy
+    goal: "Scheduler choice impact on tails and L0 stalls"
+    engines: [atll]
+    atll_variants:
+      - name: bandit
+        overrides: {scheduler: {policy: bandit, epsilon: 0.05}}
+      - name: greedy
+        overrides: {scheduler: {policy: greedy}}
+    datasets: [medium]
+    workloads: [ycsb_a, scans_e]
+    repetitions: 3
+  - id: filter_budgeting
+    goal: "Optimizing filter bits across slots"
+    engines: [atll]
+    atll_variants:
+      - name: budget_128
+        overrides: {filters: {total_budget_mib: 128}}
+      - name: budget_256
+        overrides: {filters: {total_budget_mib: 256}}
+      - name: budget_512
+        overrides: {filters: {total_budget_mib: 512}}
+    datasets: [medium]
+    workloads: [ycsb_c]
+    repetitions: 3
+  - id: ttl_tombstone_cleanup
+    goal: "Tombstone/TTL cleanup policy effectiveness"
+    engines: [atll, rocksdb_lcs]
+    datasets: [timeseries_ttl]
+    workloads: [ttl_heavy]
+    repetitions: 3
+  - id: value_log_option
+    goal: "KV-separation benefits for large values"
+    engines: [atll]
+    atll_variants:
+      - name: vLog_on
+        overrides: {value_log: {enabled: true, segment_mb: 128}}
+      - name: vLog_off
+        overrides: {value_log: {enabled: false}}
+    datasets:
+      - id: large_values
+        keys: 100_000_000
+        value_bytes: {mix: [{p:0.7, size:128}, {p:0.3, size:4096}]}
+        key_dist: uniform
+      - id: very_large_values
+        keys: 50_000_000
+        value_bytes: 16384
+        key_dist: uniform
+    workloads: [ycsb_a]
+    repetitions: 3
+  - id: zns_affinity
+    goal: "ZNS-affine placement impact"
+    engines: [atll]
+    hardware_profiles: [zns_nvme]
+    atll_variants:
+      - name: zns_on
+        overrides: {zns: {enabled: true, zones_per_slot: 2}}
+      - name: zns_off
+        overrides: {zns: {enabled: false}}
+    datasets: [medium]
+    workloads: [ycsb_a, scans_e]
+    repetitions: 3
+
+# ---------------------------
+# Metrics & Derived Quantities
+# ---------------------------
+metrics:
+  raw:
+    - bytes_user_written
+    - compaction.bytes_in
+    - compaction.bytes_out
+    - files_created
+    - files_deleted
+    - l0_files
+    - get_latency_ms_p50
+    - get_latency_ms_p99
+    - put_latency_ms_p50
+    - put_latency_ms_p99
+    - scan_throughput_mb_s_p95
+    - cpu_util_percent
+    - io_read_mb
+    - io_write_mb
+    - filter_bits_assigned
+    - false_positive_rate_est
+    - slot_heat_histogram
+    - l0_stalls
+    - value_log_gc_reclaimed_mb
+    - zns_zone_write_amp
+  derived:
+    - name: write_amplification
+      formula: "compaction.bytes_out / bytes_user_written"
+    - name: read_amplification_point
+      formula: "io_read_mb / bytes_user_read_in_gets"
+    - name: space_amplification
+      formula: "on-disk-bytes / logical-bytes"
+
+# ---------------------------
+# Harness & How To Run
+# ---------------------------
+harness:
+  repo_layout:
+    bin: [atll_db, ycsb_driver]
+    configs: [engine/*.yaml, bench/*.yaml]
+    scripts: [tools/bench/run.py, tools/bench/plot.ipynb]
+  build:
+    steps:
+      - cmd: "make release"  # or cargo build --release
+  dataset_prep:
+    steps:
+      - cmd: "bin/ycsb_driver load --dataset <dataset_id> --engine <engine_id> --out data/<run_id>/load.log"
+        notes: "Generates keyspace and preloads if needed"
+  run_step:
+    template: |
+      bin/ycsb_driver run \
+        --engine <engine_id> \
+        --engine-config configs/engine/<engine_id>.yaml \
+        --workload <workload_id> \
+        --dataset <dataset_id> \
+        --threads <threads> \
+        --duration <minutes> \
+        --out data/<run_id>/<engine_id>_<workload_id>.json
+  environment:
+    pinned_governor: "performance"
+    no_turbo: true
+    background_noise: "kill"  # stop cron, updatedb, etc.
+  warmup:
+    policy: "15 minutes steady-state before measurement"
+  measurement_window:
+    minutes: 30
+  repetitions: 3
+  seeds: [1, 2, 3]
+  naming:
+    run_id_format: "<exp_id>_<engine_variant>_<dataset>_<workload>_<seed>"
+
+# ---------------------------
+# Analysis & Reporting
+# ---------------------------
+analysis:
+  aggregate:
+    input_glob: "data/*/*.json"
+    outputs:
+      - file: "reports/summary.csv"
+        columns: [exp_id, engine, variant, dataset, workload, p50_get_ms, p99_get_ms, p50_put_ms, p99_put_ms,
+          write_amp, read_amp_point, space_amp, l0_stalls]
+      - file: "reports/slot_heat_dynamics.csv"
+        columns: [time, slot_id, level, K, heat, bytes]
+  plots:
+    - name: latency_cdf
+      script: tools/bench/plot.ipynb
+      inputs: reports/summary.csv
+      produces: reports/latency_cdf.png
+    - name: amp_bars
+      script: tools/bench/plot.ipynb
+      inputs: reports/summary.csv
+      produces: reports/amplifications.png
+    - name: heat_K_timeseries
+      script: tools/bench/plot.ipynb
+      inputs: reports/slot_heat_dynamics.csv
+      produces: reports/heat_K_timeseries.png
+  success_criteria:
+    - "ATLL p99 GET ≤ RocksDB LCS within ±10% on hot-range workloads while ≥30% lower write amplification on mixed workloads"
+    - "Dynamic K improves p99 by ≥20% vs fixed K under Zipfian churn with ≤10% extra writes"
+
+# ---------------------------
+# Sanity Checks & CI smoke
+# ---------------------------
+ci_smoke:
+  small_local:
+    engine: atll
+    dataset: small
+    workload: ycsb_a
+    minutes: 2
+    assertions:
+      - "process_exit_code == 0"
+      - "write_amplification < 7.0"
+      - "p99_get_ms < 20"
+
+# ---------------------------
+# Notes
+# ---------------------------
+notes:
+  - ICS/UCS are included as planner simulations for apples-to-apples on our file format.
+  - For ZNS, ensure zenfs or equivalent is installed and configured; otherwise skip zns_affinity experiment.

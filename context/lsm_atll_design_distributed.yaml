@@ -1,0 +1,394 @@
+spec_version: "0.1"
+name: "ATLL Distributed Extensions"
+extends: "lsm_atll_design.yaml"  # conceptual reference to the single-node spec
+status: "draft"
+last_updated: "2025-10-26"
+authors:
+  - handle: "you"
+    role: "architect"
+  - handle: "assistant"
+    role: "co-author"
+
+# This file adds cluster/distribution semantics on top of the single-node ATLL design.
+
+# ---------------------------
+# Cluster Architecture
+# ---------------------------
+cluster:
+  partitioning:
+    shard_kind: "range"            # range or hash
+    shard_id_format: "<keyspace>-<startKeyHex>-<endKeyHex>-<epoch>"
+    target_shard_bytes: 64GiB       # split when exceeded or by QPS heat
+    min_shard_bytes: 8GiB           # merge threshold
+    placement:
+      rf: 3                         # replication factor
+      policy: "rack_aware|zone_aware"
+      rebalancer: "greedy_bytes|hotspot_aware"
+  replication:
+    mode: "raft|quorum"            # choose one at deployment
+    raft:
+      group_size: 3
+      election_timeout_ms: 500
+      heartbeat_ms: 100
+      snapshot_trigger_mb: 1024
+      wal_policy: "shared|separate"   # shared: Raft log is source of durability; separate: keep local WAL too
+      apply_ordering: "seqno == raft_index"
+      read_policy: "lease_read|read_index"
+    quorum:
+      write_consistency: "ONE|QUORUM|ALL"
+      read_consistency: "ONE|QUORUM|ALL|SERIAL_QUORUM"
+      hinted_handoff: true
+      read_repair: "background|blocking|off"
+  per_shard_lsm:
+    engine: "ATLL"
+    manifest_namespace: "<shard_id>/manifest"
+    wal_namespace: "<shard_id>/wal"   # if using separate local WAL
+    value_log_namespace: "<shard_id>/vlog"
+
+# ---------------------------
+# Distributed Invariants
+# ---------------------------
+invariants:
+  replicated_visibility: |
+    A record with sequence/raft-index ≤ commit_index is durable on a quorum.
+    Compaction must preserve visibility order; no record newer than a replica's applied_index can be made visible by compaction alone.
+  guard_epoch_consistency: |
+    All replicas of a shard eventually agree on the (level, guard) boundary set identified by guard_epoch.
+    Files may differ; ranges MUST align so slot digests are comparable.
+  tombstone_gc_safety: |
+    Physical purge of versions/deletes is gated by gc_grace_sec and a replicated_safe_purge_index
+    (e.g., min applied_index across quorum or min timestamp across NTP-synchronized replicas).
+
+# ---------------------------
+# Guard Epochs & Range Alignment
+# ---------------------------
+guards:
+  epoching:
+    guard_epoch: 0
+    change_protocol: |
+      raft: guard changes are committed via config-change entries; apply atomically with MANIFEST snapshot.
+      quorum: guard changes are gossiped with version; shards reject compaction that would cross old boundaries until convergence.
+  placement:
+    initializer: "deterministic from shard_id seed + quantile sketch bootstrap"
+    optimizer: "same learned optimizer as single-node; emits a bounded set of guard moves per epoch"
+  compatibility:
+    max_moves_per_epoch: 8
+    file_boundary_policy: "split on new guard at next compaction; never stitch across guards"
+
+# ---------------------------
+# Anti-Entropy, Repair & Streaming
+# ---------------------------
+repair:
+  digests:
+    kind: "slot_merkle|slot_hashlist"
+    slot_merkle:
+      leaf: "xxh3(min_key||max_key||seqno_max||tombstone_count)"
+      fanout: 32
+      frequency_s: 30
+  protocol:
+    rpc:
+      - name: GetSlotDigest
+        req: {shard_id, level, slot_id, guard_epoch}
+        resp: {digest_kind, root_hash, byte_size, seqno_max, file_count}
+      - name: StreamSlot
+        req: {shard_id, level, slot_id, guard_epoch, since_seqno}
+        resp: {fragments: [file_fragment_descriptor]}
+    stages:
+      - compare_digests
+      - plan_differences (by ranges)
+      - anti_compact_sender (split SSTS at guard boundaries -> fragments)
+      - transmit + throttle
+      - install_receiver (atomic file install; MANIFEST edit; verify digest)
+  throttling:
+    max_inflight_mb: 4096
+    per_node_bw_mb_s: 512
+
+# ---------------------------
+# Rebalancing, Split/Merge, and Moves
+# ---------------------------
+resharding:
+  triggers: [size_threshold, sustained_hot_slot, imbalance_bytes]
+  split:
+    boundary_choice: "choose an existing guard boundary with lowest hotness*bytes"
+    steps:
+      - freeze_ingest
+      - cutover_point: "applied_index checkpoint"
+      - anti_compact to produce sub-range fragments
+      - create new shard_id with epoch+1
+      - stream fragments to new placement
+      - resume_ingest on both shards
+  merge:
+    preconditions: "adjacent shards, low bytes, low QPS"
+    steps:
+      - reconcile guard epochs
+      - stream smaller into larger
+      - retire donor shard_id
+  move:
+    reason: "rebalancing or maintenance"
+    method: "stream shard to new node; switch replica set via Raft joint-consensus or gossip handoff"
+
+# ---------------------------
+# Node-Wide IO Arbiter & Budgets
+# ---------------------------
+node_arbiter:
+  objectives: [limit_tail_latency, avoid_thundering_compactions]
+  io_budget_mb_s: 1200
+  max_concurrent_promotions: 2
+  fairness: "DRR across (shard,level) queues"
+  signals: [l0_backlog, p99_get_ms, write_amp, cpu_util, disk_bw]
+
+# ---------------------------
+# Read/Write Paths in Cluster
+# ---------------------------
+io_paths:
+  writes:
+    raft: "client -> leader -> Raft log commit -> apply to ATLL (memtable/WAL semantics per policy)"
+    quorum: "client -> coordinator -> N replicas -> commit at chosen consistency -> apply to ATLL"
+  reads:
+    raft: "leader lease/read-index; followers allowed for staleness_read=true"
+    quorum: "CL=ONE|QUORUM|ALL; coordinator merges versions using timestamps + conflict rules"
+  range_scans:
+    cross_shard:
+      coordinator: "scatter-gather across shards; per-shard slot-bounded iterators; ordered merge"
+
+# ---------------------------
+# Storage Layout (cluster-aware)
+# ---------------------------
+storage:
+  directories:
+    - data_dir/shards/<shard_id>/sst/
+    - data_dir/shards/<shard_id>/manifest/
+    - data_dir/shards/<shard_id>/wal/
+    - data_dir/shards/<shard_id>/vlog/
+    - data_dir/raft/<shard_id>/
+    - data_dir/snapshots/<shard_id>/
+    - data_dir/streaming_staging/
+
+# ---------------------------
+# API (cluster ops)
+# ---------------------------
+api:
+  admin_cluster:
+    - name: split_shard
+      params: {shard_id, split_key}
+    - name: merge_shards
+      params: {left_shard_id, right_shard_id}
+    - name: move_shard
+      params: {shard_id, target_nodes: [node_id]}
+    - name: trigger_repair
+      params: {shard_id, level: optional, slot_id: optional}
+    - name: set_consistency
+      params: {read: string, write: string}
+    - name: set_gc_grace
+      params: {seconds: int}
+    - name: guard_epoch_bump
+      params: {shard_id}
+  telemetry_endpoints:
+    - path: "/metrics"    # Prometheus-style
+    - path: "/debug/manifest?shard_id=<id>"
+
+# ---------------------------
+# Telemetry (cluster)
+# ---------------------------
+telemetry:
+  metrics_cluster:
+    - shard.bytes
+    - shard.qps.read
+    - shard.qps.write
+    - shard.p99_get_ms
+    - shard.p99_put_ms
+    - shard.K_avg{level}
+    - shard.guard_epoch
+    - raft.commit_index
+    - raft.apply_index
+    - raft.apply_lag
+    - raft.leader_changes
+    - quorum.read_repair_rate
+    - repair.backlog_slots
+    - repair.throughput_mb_s
+    - reshard.bytes_moved
+    - reshard.duration_s
+    - gc.safe_purge_index
+    - gc.tombstones_purged
+    - node.io_bw_used
+    - node.compaction_queue_depth
+
+# ---------------------------
+# Safety & GC
+# ---------------------------
+safety:
+  gc_grace_sec: 604800    # 7 days default
+  purge_policy: |
+    Only purge versions strictly below (replicated_safe_purge_index) and older than gc_grace_sec.
+    For quorum mode, replicated_safe_purge_index is min(last_acked_index) over quorum.
+
+# ---------------------------
+# Failure & Fault Handling
+# ---------------------------
+faults:
+  scenarios:
+    - node_crash: "fast restart; recovery uses MANIFEST + (Raft log OR local WAL)"
+    - leader_kill: "measure election/lease gap; protect tail latencies via io_arbiter"
+    - network_partition: "isolate leader or minority; verify safety; repair backlog catches up"
+    - disk_full: "backpressure; refuse promotions; preserve L0 via throttling"
+    - slow_disk: "demote from replica set; move shards"
+
+# ---------------------------
+# Security
+# ---------------------------
+security:
+  transport: {tls: true, mtls: true}
+  at_rest_encryption: {enabled: false, key_provider: "kms|file"}
+  authz: {rbac: true}
+
+# ---------------------------
+# Open Items (cluster)
+# ---------------------------
+open_items:
+  - Formalize read-your-writes guarantees under CL=ONE for quorum mode (client-side stickiness?).
+  - Cross-shard transactions (2PC or timestamp oracle) and interaction with compaction.
+  - Adaptive RF per shard based on heat and durability SLOs.
+  - WAN replication (multi-DC) and guard_epoch alignment under high latency.
+
+# ---------------------------
+# Cluster Topologies & Distributed Experiments
+# ---------------------------
+cluster:
+  topologies:
+    - id: rf3_3nodes
+      nodes: 3
+      rf: 3
+      zones: [a, b, c]
+      network: {rtt_ms_matrix: [[0,1,1],[1,0,1],[1,1,0]]}
+    - id: rf3_5nodes
+      nodes: 5
+      rf: 3
+      zones: [a, b, c]
+      network: {rtt_ms_matrix: [[0,1,3,1,3],[1,0,3,1,3],[3,3,0,3,3],[1,1,3,0,3],[3,3,3,3,0]]}
+    - id: multi_dc
+      nodes: 6
+      rf: 3
+      zones: [dc1, dc1, dc1, dc2, dc2, dc2]
+      network:
+        intra_dc_rtt_ms: 1
+        inter_dc_rtt_ms: 40
+  consistency_scenarios:
+    raft: [lease_read, read_index]
+    quorum: [ONE, QUORUM, ALL]
+
+  distributed_experiments:
+    - id: cluster_baseline
+      goal: "Throughput/latency vs single-node overhead"
+      topology: rf3_3nodes
+      engines: [atll]
+      replication_modes: [raft]
+      datasets: [medium]
+      workloads: [ycsb_a, ycsb_c]
+      repetitions: 3
+    - id: leader_failover
+      goal: "Tail latency during elections"
+      topology: rf3_3nodes
+      engines: [atll]
+      replication_modes: [raft]
+      fault:
+        action: kill -9 <leader>
+        when: 5m into steady_state
+      datasets: [medium]
+      workloads: [ycsb_a]
+      metrics_focus: [p99_get_ms, p99_put_ms, raft.leader_changes, error_rate]
+      repetitions: 5
+    - id: network_partition
+      goal: "Availability and repair under minority/majority splits"
+      topology: rf3_5nodes
+      engines: [atll]
+      replication_modes: [raft]
+      fault:
+        action: "tc netem add loss 100%"  # isolate two nodes
+        duration_s: 60
+      datasets: [medium]
+      workloads: [ycsb_a]
+      metrics_focus: [error_rate, raft.apply_lag, repair.backlog_slots, repair.throughput_mb_s]
+      repetitions: 3
+    - id: reshard_split_move
+      goal: "Cost of hot-range split and move"
+      topology: rf3_5nodes
+      engines: [atll]
+      datasets: [skew_zipf]
+      workloads: [mixed_churn]
+      actions:
+        - split_shard at hot guard boundary
+        - move_shard to least loaded node
+      metrics_focus: [reshard.bytes_moved, reshard.duration_s, p99_get_ms]
+      repetitions: 3
+    - id: repair_catchup
+      goal: "Time to repair after prolonged node outage"
+      topology: rf3_3nodes
+      engines: [atll]
+      datasets: [medium]
+      workloads: [ycsb_a]
+      procedure:
+        - stop node B for 30m while running workload
+        - start node B and trigger_repair
+      metrics_focus: [repair.throughput_mb_s, p99_get_ms, write_amplification]
+      repetitions: 3
+    - id: quorum_consistency_latency
+      goal: "Latency vs consistency level tradeoff"
+      topology: rf3_5nodes
+      engines: [atll]
+      replication_modes: [quorum]
+      consistency_levels: [ONE, QUORUM, ALL]
+      datasets: [medium]
+      workloads: [ycsb_a, ycsb_c]
+      metrics_focus: [p99_get_ms, staleness_ms]
+      repetitions: 3
+    - id: distributed_dynK_benefit
+      goal: "Dynamic K impact under replicated hot ranges"
+      topology: rf3_3nodes
+      engines: [atll]
+      atll_variants:
+        - name: dynK_on
+          overrides: {}
+        - name: dynK_off
+          overrides:
+            K_defaults: {L1: 3, L2: 3, L3plus: 3}
+            heat_thresholds: {H_hot: 2.0, H_cold: -1.0}
+      datasets: [skew_zipf]
+      workloads: [mixed_churn]
+      metrics_focus: [p99_get_ms, write_amplification, l0_stalls]
+      repetitions: 3
+
+  cluster_metrics:
+    raw:
+      - raft.commit_index
+      - raft.apply_index
+      - raft.apply_lag
+      - raft.leader_changes
+      - repair.backlog_slots
+      - repair.throughput_mb_s
+      - reshard.bytes_moved
+      - reshard.duration_s
+      - error_rate
+      - staleness_ms  # for eventual reads in quorum mode
+    derived:
+      - name: failover_gap_ms
+        formula: "time_to_first_success_after_leader_death"
+
+  cluster_harness:
+    orchestrator: "docker-compose|k8s"
+    playbooks:
+      - name: bringup
+        steps:
+          - cmd: "./scripts/cluster/up.sh --topology <topology_id>"
+      - name: run_workload
+        steps:
+          - cmd: "bin/ycsb_driver run --endpoints <svc_dns> --workload <workload_id> --dataset <dataset_id> --minutes <minutes> --out data/<run_id>/client.json"
+      - name: inject_fault
+        steps:
+          - cmd: "./scripts/faults/<fault>.sh"
+      - name: collect_metrics
+        steps:
+          - cmd: "./scripts/metrics/pull_prom.sh data/<run_id>/prom.json"
+      - name: teardown
+        steps:
+          - cmd: "./scripts/cluster/down.sh"
+

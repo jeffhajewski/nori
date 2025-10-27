@@ -78,10 +78,10 @@
 
 pub mod config;
 pub mod error;
+pub mod manifest;
 pub mod memtable;
 
 // Core modules (to be implemented in phases)
-// pub mod manifest;
 // pub mod guards;
 // pub mod heat;
 // pub mod compaction;

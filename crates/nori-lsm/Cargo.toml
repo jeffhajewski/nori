@@ -12,7 +12,7 @@ nori-observe = { path = "../nori-observe" }
 nori-wal = { path = "../nori-wal" }
 nori-sstable = { path = "../nori-sstable" }
 tokio = { version = "1", features = ["full"] }
-bytes = "1"
+bytes = { version = "1", features = ["serde"] }
 crossbeam-skiplist = "0.1"
 serde = { version = "1", features = ["derive"] }
 bincode = "1"

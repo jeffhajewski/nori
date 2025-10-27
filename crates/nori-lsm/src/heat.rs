@@ -110,8 +110,7 @@ impl SlotHeat {
         }
 
         // α ≈ ln(2) / half_life for large half_life
-        let ln2 = 0.693147;
-        let alpha = ln2 / half_life as f32;
+        let alpha = std::f32::consts::LN_2 / half_life as f32;
         alpha.min(1.0)
     }
 

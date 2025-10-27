@@ -82,12 +82,12 @@ pub mod error;
 pub mod flush;
 pub mod guards;
 pub mod heat;
+pub mod iterator;
 pub mod manifest;
 pub mod memtable;
 
 // Core modules (to be implemented in phases)
 // pub mod filters;
-// pub mod iterator;
 // pub mod value_log;
 
 pub use config::ATLLConfig;

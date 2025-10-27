@@ -147,6 +147,21 @@ impl Memtable {
         }
     }
 
+    /// Returns entries in a key range [start, end).
+    ///
+    /// Used for range scans in the read path.
+    pub fn range(&self, start: &[u8], end: &[u8]) -> Vec<(Bytes, MemtableEntry)> {
+        let start_key = Bytes::copy_from_slice(start);
+        let end_key = Bytes::copy_from_slice(end);
+
+        self.data
+            .iter()
+            .skip_while(|entry| entry.key() < &start_key)
+            .take_while(|entry| entry.key() < &end_key)
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
     /// Returns true if the memtable is empty.
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()

@@ -306,14 +306,39 @@ impl ManifestSnapshot {
                         Error::Manifest("slot_id required for L1+".to_string())
                     })?;
 
+                    // Find existing slot or create new one
                     let slot = level_meta
                         .slots
                         .iter_mut()
-                        .find(|s| s.slot_id == slot_id)
-                        .ok_or_else(|| Error::SlotNotFound(level, slot_id))?;
+                        .find(|s| s.slot_id == slot_id);
 
-                    slot.bytes += run.size;
-                    slot.runs.push(run);
+                    match slot {
+                        Some(slot) => {
+                            slot.bytes += run.size;
+                            slot.runs.push(run);
+                        }
+                        None => {
+                            // Create new slot on demand
+                            // Range will be set based on guards during L0 admission
+                            level_meta.slots.push(SlotMeta {
+                                slot_id,
+                                range: SlotRange {
+                                    start: run.min_key.clone(),
+                                    end: run.max_key.clone(),
+                                },
+                                bytes: run.size,
+                                runs: vec![run],
+                                k: 3, // Default K value
+                                heat_score: 0.0,
+                                age_histogram: Vec::new(),
+                                tombstone_density: 0.0,
+                                last_compaction_ts: 0,
+                                zns_zone_ids: Vec::new(),
+                            });
+                            // Keep slots sorted by slot_id
+                            level_meta.slots.sort_by_key(|s| s.slot_id);
+                        }
+                    }
                 }
             }
 

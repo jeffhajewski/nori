@@ -160,11 +160,17 @@ impl L0Admitter {
     ///   if L0_files > max_files: raise scheduler priority for L0→L1 compactions.
     /// ```
     ///
-    /// # Simplification for Phase 4
-    /// Instead of physically splitting files, we:
-    /// 1. Find which L1 slot(s) the L0 file overlaps
-    /// 2. Add the entire file to the primary slot
-    /// 3. Physical splitting can be added in Phase 6 during compaction
+    /// # Implementation Strategy
+    /// Physical file splitting is expensive. We use a two-phase approach:
+    /// 1. **Phase 3 (current)**: Assign L0 file to primary overlapping slot
+    ///    - Quick admission to prevent L0 backlog
+    ///    - File may span multiple slots temporarily
+    /// 2. **Phase 4 (compaction)**: Physical splitting during tiering/promotion
+    ///    - Split on guard boundaries when merging
+    ///    - Amortize split cost across compaction work
+    ///
+    /// # Returns
+    /// Vector of ManifestEdits: [DeleteFile(L0), AddFile(L1, slot), ...]
     pub async fn admit_to_l1(
         &self,
         l0_run: &RunMeta,
@@ -178,21 +184,37 @@ impl L0Admitter {
             guard_manager.overlapping_slots(&l0_run.min_key, &l0_run.max_key);
 
         if overlapping_slots.is_empty() {
-            return Err(Error::Internal("No overlapping slots found".to_string()));
+            return Err(Error::Internal(
+                "L0 admission: No overlapping L1 slots found".to_string(),
+            ));
         }
 
-        // For simplicity in Phase 4: assign to the first overlapping slot
-        // In Phase 6, we'll physically split the file across multiple slots
+        // Strategy: assign to first overlapping slot (primary slot)
+        // Rationale:
+        // - Fast admission (no file I/O needed)
+        // - File will be split during compaction when merging with L1 runs
+        // - Preserves guard invariants at L2+ (L1 is relaxed tiering layer)
         let target_slot = overlapping_slots[0];
 
-        // Create edit to add file to L1
+        // If file spans multiple slots, log it for observability
+        if overlapping_slots.len() > 1 {
+            tracing::debug!(
+                "L0 file {} spans {} slots [{:?}], assigning to slot {}",
+                l0_run.file_number,
+                overlapping_slots.len(),
+                overlapping_slots,
+                target_slot
+            );
+        }
+
+        // Add to L1 at target slot (do this first so file is never orphaned)
         edits.push(ManifestEdit::AddFile {
             level: 1,
             slot_id: Some(target_slot),
             run: l0_run.clone(),
         });
 
-        // Create edit to remove from L0
+        // Remove from L0 (do this second after it's safely in L1)
         edits.push(ManifestEdit::DeleteFile {
             level: 0,
             slot_id: None,

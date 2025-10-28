@@ -169,6 +169,9 @@ pub struct IoConfig {
 
     /// Optional rate limit in MB/s (None = no limit)
     pub rate_limit_mb_s: Option<usize>,
+
+    /// Background compaction loop interval in seconds (default: 10)
+    pub compaction_interval_sec: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,6 +301,7 @@ impl Default for IoConfig {
             compaction_slice_mb: 64,
             max_background_compactions: 4,
             rate_limit_mb_s: None,
+            compaction_interval_sec: 10,
         }
     }
 }

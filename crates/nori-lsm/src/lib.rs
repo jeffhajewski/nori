@@ -105,7 +105,7 @@ use manifest::ManifestLog;
 use memtable::Memtable;
 use nori_wal::{Wal, WalConfig};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -148,6 +148,9 @@ pub struct LsmEngine {
 
     /// Next sequence number for writes
     seqno: Arc<AtomicU64>,
+
+    /// Shutdown signal for background compaction thread
+    compaction_shutdown: Arc<AtomicBool>,
 }
 
 impl LsmEngine {
@@ -241,18 +244,43 @@ impl LsmEngine {
         // Initialize heat tracker
         let heat = Arc::new(HeatTracker::new(config.clone()));
 
-        Ok(Self {
+        // Create shutdown signal for background compaction
+        let compaction_shutdown = Arc::new(AtomicBool::new(false));
+
+        let engine = Self {
             memtable: Arc::new(parking_lot::RwLock::new(memtable)),
             immutable_memtables: Arc::new(parking_lot::RwLock::new(Vec::new())),
             wal: Arc::new(parking_lot::RwLock::new(wal)),
             wal_create_time: Arc::new(parking_lot::RwLock::new(Instant::now())),
             manifest: Arc::new(parking_lot::RwLock::new(manifest)),
-            guards,
-            heat,
-            config,
-            sst_dir,
+            guards: guards.clone(),
+            heat: heat.clone(),
+            config: config.clone(),
+            sst_dir: sst_dir.clone(),
             seqno: Arc::new(AtomicU64::new(next_seqno)),
-        })
+            compaction_shutdown: compaction_shutdown.clone(),
+        };
+
+        // Spawn background compaction thread
+        let manifest_clone = engine.manifest.clone();
+        let shutdown_clone = compaction_shutdown.clone();
+        let config_clone = config.clone();
+        let sst_dir_clone = sst_dir.clone();
+        let heat_clone = heat.clone();
+
+        tokio::spawn(async move {
+            Self::compaction_loop(
+                manifest_clone,
+                guards,
+                heat_clone,
+                config_clone,
+                sst_dir_clone,
+                shutdown_clone,
+            )
+            .await;
+        });
+
+        Ok(engine)
     }
 
     /// Retrieves the value for a given key.
@@ -697,7 +725,7 @@ impl LsmEngine {
 
     /// Triggers manual compaction for a key range.
     pub async fn compact_range(&self, _start: Option<&[u8]>, _end: Option<&[u8]>) -> Result<()> {
-        // TODO: Phase 4 implementation
+        // TODO: Future enhancement - manual compaction trigger
         Ok(())
     }
 
@@ -705,6 +733,71 @@ impl LsmEngine {
     pub fn stats(&self) -> Stats {
         // TODO: Phase 8 implementation
         Stats::default()
+    }
+
+    /// Background compaction loop.
+    ///
+    /// Runs continuously until shutdown signal is set.
+    /// Each iteration:
+    /// 1. Selects a compaction action via BanditScheduler
+    /// 2. Executes the action via CompactionExecutor
+    /// 3. Applies resulting ManifestEdits
+    /// 4. Sleeps for compaction_interval_sec
+    async fn compaction_loop(
+        manifest: Arc<parking_lot::RwLock<ManifestLog>>,
+        guards: Arc<GuardManager>,
+        heat: Arc<HeatTracker>,
+        config: ATLLConfig,
+        sst_dir: PathBuf,
+        shutdown: Arc<AtomicBool>,
+    ) {
+        use std::sync::atomic::Ordering;
+        use tokio::time::{sleep, Duration};
+
+        tracing::info!("Background compaction loop started");
+
+        // Phase 4 simplification: Run placeholder loop
+        // Full implementation will be completed when CompactionExecutor is ready
+        loop {
+            // Check shutdown signal
+            if shutdown.load(Ordering::Relaxed) {
+                tracing::info!("Compaction loop shutting down");
+                break;
+            }
+
+            // TODO Phase 4 continuation: Implement full compaction selection and execution
+            // For now, just monitor manifest state and log
+            {
+                let manifest_guard = manifest.read();
+                let snapshot = manifest_guard.snapshot();
+                let snapshot_guard = snapshot.read().unwrap();
+
+                let l0_count = snapshot_guard.l0_file_count();
+                if l0_count > 0 {
+                    tracing::debug!("Background compaction: L0 has {} files", l0_count);
+                }
+            }
+
+            // Sleep before next iteration
+            sleep(Duration::from_secs(config.io.compaction_interval_sec as u64)).await;
+        }
+
+        tracing::info!("Background compaction loop stopped");
+    }
+}
+
+impl Drop for LsmEngine {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+
+        // Signal compaction thread to shut down
+        self.compaction_shutdown.store(true, Ordering::Relaxed);
+
+        // Give the thread a moment to finish gracefully
+        // In production, we'd use a proper join handle
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        tracing::info!("LsmEngine dropped, compaction thread signaled to stop");
     }
 }
 

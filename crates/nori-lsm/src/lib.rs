@@ -101,9 +101,12 @@ pub use nori_wal::Record;
 
 use guards::GuardManager;
 use heat::HeatTracker;
+use lru::LruCache;
 use manifest::ManifestLog;
 use memtable::Memtable;
+use nori_sstable::SSTableReader;
 use nori_wal::{Wal, WalConfig};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
@@ -151,6 +154,11 @@ pub struct LsmEngine {
 
     /// Shutdown signal for background compaction thread
     compaction_shutdown: Arc<AtomicBool>,
+
+    /// LRU cache for SSTableReaders (file_number -> Arc<SSTableReader>)
+    /// Caches up to 128 open SSTable files to avoid repeated file opens
+    /// and to reuse bloom filters and indexes already loaded in memory.
+    reader_cache: Arc<parking_lot::Mutex<LruCache<u64, Arc<SSTableReader>>>>,
 }
 
 impl LsmEngine {
@@ -247,6 +255,11 @@ impl LsmEngine {
         // Create shutdown signal for background compaction
         let compaction_shutdown = Arc::new(AtomicBool::new(false));
 
+        // Create SSTableReader cache (128 entries = ~128MB with 64MB block cache per reader)
+        let reader_cache = Arc::new(parking_lot::Mutex::new(LruCache::new(
+            NonZeroUsize::new(128).unwrap(),
+        )));
+
         let engine = Self {
             memtable: Arc::new(parking_lot::RwLock::new(memtable)),
             immutable_memtables: Arc::new(parking_lot::RwLock::new(Vec::new())),
@@ -259,6 +272,7 @@ impl LsmEngine {
             sst_dir: sst_dir.clone(),
             seqno: Arc::new(AtomicU64::new(next_seqno)),
             compaction_shutdown: compaction_shutdown.clone(),
+            reader_cache,
         };
 
         // Spawn background compaction thread
@@ -290,15 +304,17 @@ impl LsmEngine {
     /// 2. Check L0 (all files, newest first)
     /// 3. Check L1+ (only overlapping slot, bounded K runs per slot)
     ///
+    /// # Optimizations (Phase 6)
+    /// - SSTableReader caching: Reuses open files and their bloom filters
+    /// - Bloom filter checks: SSTableReader.get() checks bloom before reading blocks
+    ///
     /// # Heat Tracking
     /// Records GET operation for the key's slot to update heat scores.
     ///
     /// # TODO
-    /// - Bloom filter optimization (Phase 8)
     /// - Heat tracking integration (currently commented out)
     pub async fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
         use crate::memtable::MemtableEntry;
-        use nori_sstable::SSTableReader;
 
         // 1. Check memtable first (newest data)
         {
@@ -318,14 +334,8 @@ impl LsmEngine {
 
         // L0 files are ordered newest first in the manifest
         for run in l0_files.iter() {
-            let sst_path = self.sst_dir.join(format!("{}.sst", run.file_number));
-            if !sst_path.exists() {
-                continue; // Skip missing files (should log warning in production)
-            }
-
-            // TODO: Check bloom filter before opening file
-            let reader = SSTableReader::open(sst_path).await
-                .map_err(|e| Error::SSTable(format!("Failed to open SSTable: {}", e)))?;
+            // Get cached reader (bloom filter check happens inside reader.get())
+            let reader = self.get_cached_reader(run.file_number).await?;
 
             if let Some(entry) = reader.get(key).await
                 .map_err(|e| Error::SSTable(format!("SSTable read error: {}", e)))? {
@@ -350,14 +360,8 @@ impl LsmEngine {
                     continue; // Key not in this run's range
                 }
 
-                let sst_path = self.sst_dir.join(format!("{}.sst", run.file_number));
-                if !sst_path.exists() {
-                    continue;
-                }
-
-                // TODO: Check bloom filter before opening file
-                let reader = SSTableReader::open(sst_path).await
-                    .map_err(|e| Error::SSTable(format!("Failed to open SSTable: {}", e)))?;
+                // Get cached reader (bloom filter check happens inside reader.get())
+                let reader = self.get_cached_reader(run.file_number).await?;
 
                 if let Some(entry) = reader.get(key).await
                     .map_err(|e| Error::SSTable(format!("SSTable read error: {}", e)))? {
@@ -717,6 +721,48 @@ impl LsmEngine {
         }
 
         Ok(())
+    }
+
+    /// Gets a cached SSTableReader or opens a new one.
+    ///
+    /// This method provides significant performance benefits:
+    /// 1. Avoids repeated file opens for hot SSTable files
+    /// 2. Reuses bloom filters already loaded in memory
+    /// 3. Reuses indexes already loaded in memory
+    /// 4. Leverages block-level LRU cache within each reader
+    ///
+    /// The cache holds up to 128 readers (configurable).
+    async fn get_cached_reader(&self, file_number: u64) -> Result<Arc<SSTableReader>> {
+        // Check cache first
+        {
+            let mut cache = self.reader_cache.lock();
+            if let Some(reader) = cache.get(&file_number) {
+                return Ok(reader.clone());
+            }
+        }
+
+        // Cache miss - open the file
+        let sst_path = self.sst_dir.join(format!("sst-{:06}.sst", file_number));
+        if !sst_path.exists() {
+            return Err(Error::Internal(format!(
+                "SSTable file not found: {}",
+                file_number
+            )));
+        }
+
+        let reader = SSTableReader::open(sst_path)
+            .await
+            .map_err(|e| Error::SSTable(format!("Failed to open SSTable: {}", e)))?;
+
+        let reader = Arc::new(reader);
+
+        // Insert into cache
+        {
+            let mut cache = self.reader_cache.lock();
+            cache.put(file_number, reader.clone());
+        }
+
+        Ok(reader)
     }
 
     /// Checks L0 backpressure and returns an error if threshold exceeded.

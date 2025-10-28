@@ -593,15 +593,24 @@ impl LsmEngine {
     /// Freezes the active memtable and initiates background flush.
     ///
     /// # Process
-    /// 1. Acquire write lock on memtable
-    /// 2. Swap active → immutable (create new empty memtable)
-    /// 3. Add immutable to list
-    /// 4. Reset WAL create time
-    /// 5. Spawn background flush task (TODO: for now, flush synchronously)
+    /// 1. Capture WAL position (for cleanup after flush)
+    /// 2. Acquire write lock on memtable
+    /// 3. Swap active → immutable (create new empty memtable)
+    /// 4. Add immutable to list
+    /// 5. Reset WAL create time
+    /// 6. Flush to L0, register in MANIFEST
+    /// 7. Delete old WAL segments
     async fn flush_memtable(&self) -> Result<()> {
         use flush::Flusher;
 
-        // 1. Freeze memtable (swap with new empty memtable)
+        // 1. Capture WAL position before freezing
+        // All entries before this position will be in the flushed SSTable
+        let wal_position = {
+            let wal = self.wal.read();
+            wal.current_position().await
+        };
+
+        // 2. Freeze memtable (swap with new empty memtable)
         let frozen_memtable = {
             let mut memtable_guard = self.memtable.write();
             let old_seqno = self.seqno.load(std::sync::atomic::Ordering::SeqCst);
@@ -615,7 +624,7 @@ impl LsmEngine {
             return Ok(());
         }
 
-        // 2. Reset WAL create time
+        // 3. Reset WAL create time
         {
             let mut wal_time = self.wal_create_time.write();
             *wal_time = Instant::now();
@@ -685,8 +694,27 @@ impl LsmEngine {
             tracing::debug!("L0 admission completed for file {}", run_meta.file_number);
         }
 
-        // 6. TODO: Delete WAL segment after successful flush
-        // For now, WAL will keep growing (Phase 5 will add cleanup)
+        // 6. Delete old WAL segments after successful flush
+        // All data up to wal_position is now durably stored in L0
+        {
+            let wal = self.wal.read();
+            match wal.delete_segments_before(wal_position).await {
+                Ok(deleted_count) => {
+                    if deleted_count > 0 {
+                        tracing::info!(
+                            "WAL cleanup: deleted {} segments after flush of file {}",
+                            deleted_count,
+                            run_meta.file_number
+                        );
+                    }
+                }
+                Err(e) => {
+                    // WAL cleanup failure is not fatal - log warning and continue
+                    // The WAL may grow larger than necessary but data is safe
+                    tracing::warn!("WAL cleanup failed after flush: {}", e);
+                }
+            }
+        }
 
         Ok(())
     }
@@ -745,10 +773,10 @@ impl LsmEngine {
     /// 4. Sleeps for compaction_interval_sec
     async fn compaction_loop(
         manifest: Arc<parking_lot::RwLock<ManifestLog>>,
-        guards: Arc<GuardManager>,
-        heat: Arc<HeatTracker>,
+        _guards: Arc<GuardManager>,
+        _heat: Arc<HeatTracker>,
         config: ATLLConfig,
-        sst_dir: PathBuf,
+        _sst_dir: PathBuf,
         shutdown: Arc<AtomicBool>,
     ) {
         use std::sync::atomic::Ordering;
@@ -1298,6 +1326,117 @@ mod tests {
         assert!(
             l0_count <= 2,
             "L0 should be bounded after admission"
+        );
+    }
+
+    /// Phase 5 test: WAL segments are cleaned up after flush
+    #[tokio::test]
+    async fn test_wal_cleanup_after_flush() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1024; // Small memtable to trigger flush
+
+        let wal_dir = temp_dir.path().join("wal");
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Helper to count WAL segments
+        let count_wal_segments = || {
+            std::fs::read_dir(&wal_dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map_or(false, |ext| ext == "wal")
+                })
+                .count()
+        };
+
+        // Initial WAL segment count
+        let initial_count = count_wal_segments();
+        assert_eq!(initial_count, 1, "Should start with one WAL segment");
+
+        // Write enough data to trigger a flush
+        for i in 0..50 {
+            let key = format!("key{:03}", i);
+            let value = vec![b'x'; 50]; // 50 bytes per value
+            engine.put(Bytes::from(key), Bytes::from(value)).await.unwrap();
+        }
+
+        // Force flush
+        engine.check_flush_triggers().await.unwrap();
+
+        // Wait a bit for async flush to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // After flush, old WAL segments should be cleaned up
+        // We should still have at least one segment (the active one)
+        let after_flush_count = count_wal_segments();
+        println!(
+            "WAL segments: initial={}, after_flush={}",
+            initial_count, after_flush_count
+        );
+
+        // The count should not grow unbounded - cleanup should keep it minimal
+        assert!(
+            after_flush_count <= 2,
+            "WAL segments should be cleaned up after flush"
+        );
+
+        // Verify L0 file was created (data was flushed successfully)
+        let manifest = engine.manifest.read();
+        let snapshot = manifest.snapshot();
+        let snap_guard = snapshot.read().unwrap();
+        let l0_count = snap_guard.l0_file_count();
+        assert!(
+            l0_count > 0,
+            "Should have at least one L0 file after flush"
+        );
+    }
+
+    /// Phase 5 test: WAL cleanup across multiple flushes
+    #[tokio::test]
+    async fn test_wal_cleanup_multiple_flushes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 512; // Very small for frequent flushes
+
+        let wal_dir = temp_dir.path().join("wal");
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        let count_wal_segments = || {
+            std::fs::read_dir(&wal_dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map_or(false, |ext| ext == "wal")
+                })
+                .count()
+        };
+
+        // Trigger multiple flushes
+        for batch in 0..5 {
+            for i in 0..20 {
+                let key = format!("batch{}_key{}", batch, i);
+                let value = vec![b'x'; 40];
+                engine.put(Bytes::from(key), Bytes::from(value)).await.unwrap();
+            }
+            engine.check_flush_triggers().await.unwrap();
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+
+        // After multiple flushes, WAL segment count should remain bounded
+        let final_count = count_wal_segments();
+        println!("WAL segments after 5 flushes: {}", final_count);
+
+        assert!(
+            final_count <= 3,
+            "WAL should not grow unbounded: {} segments after 5 flushes",
+            final_count
         );
     }
 }

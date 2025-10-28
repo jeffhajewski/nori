@@ -953,7 +953,7 @@ impl CompactionCoordinator {
     /// Starts the background compaction loop.
     ///
     /// Returns a join handle that can be awaited for graceful shutdown.
-    pub fn start(mut self) -> tokio::task::JoinHandle<()> {
+    pub fn start(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(200));
 

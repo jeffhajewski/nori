@@ -103,14 +103,17 @@ use guards::GuardManager;
 use heat::HeatTracker;
 use manifest::ManifestLog;
 use memtable::Memtable;
+use nori_wal::{Wal, WalConfig};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Main LSM engine implementing the ATLL (Adaptive Tiered-Leveled LSM) design.
 ///
 /// Provides durable key-value storage with:
 /// - Memtable for in-memory writes
+/// - WAL for crash recovery
 /// - Multi-level LSM tree with adaptive tiered-leveled compaction
 /// - Guard-based range partitioning (slots)
 /// - Heat tracking for dynamic K adjustment
@@ -118,6 +121,15 @@ use std::sync::Arc;
 pub struct LsmEngine {
     /// Active memtable for writes
     memtable: Arc<parking_lot::RwLock<Memtable>>,
+
+    /// Immutable memtables being flushed
+    immutable_memtables: Arc<parking_lot::RwLock<Vec<Arc<Memtable>>>>,
+
+    /// Write-ahead log for durability
+    wal: Arc<parking_lot::RwLock<Wal>>,
+
+    /// WAL creation time for age-based flush trigger
+    wal_create_time: Arc<parking_lot::RwLock<Instant>>,
 
     /// Manifest tracking LSM levels and files
     manifest: Arc<parking_lot::RwLock<ManifestLog>>,
@@ -147,15 +159,17 @@ impl LsmEngine {
     /// # Steps
     /// 1. Create SSTable directory if needed
     /// 2. Load or create manifest
-    /// 3. Initialize guard manager
-    /// 4. Create empty memtable
-    /// 5. Initialize heat tracker
+    /// 3. Initialize WAL and perform recovery
+    /// 4. Replay WAL records into memtable
+    /// 5. Initialize guard manager
+    /// 6. Initialize heat tracker
     ///
     /// # TODO
-    /// - WAL recovery (Phase 2)
     /// - Background compaction threads (Phase 6)
     /// - Persistent heat tracker state (Phase 8)
     pub async fn open(config: ATLLConfig) -> Result<Self> {
+        use std::time::Duration;
+
         // Ensure SSTable directory exists
         let sst_dir = PathBuf::from(&config.data_dir);
         std::fs::create_dir_all(&sst_dir)?;
@@ -163,15 +177,6 @@ impl LsmEngine {
         // Load or create manifest (synchronous operation)
         let manifest_dir = sst_dir.join("manifest");
         let manifest = ManifestLog::open(&manifest_dir, config.max_levels)?;
-
-        // Initialize guard manager with default guards for L1
-        let guards = Arc::new(GuardManager::new(1, config.l1_slot_count)?);
-
-        // Initialize heat tracker
-        let heat = Arc::new(HeatTracker::new(config.clone()));
-
-        // Create empty memtable starting at seqno 1
-        let memtable = Arc::new(parking_lot::RwLock::new(Memtable::new(1)));
 
         // Initialize sequence number from manifest's max seqno
         let snapshot = manifest.snapshot();
@@ -183,16 +188,70 @@ impl LsmEngine {
             .max()
             .unwrap_or(0);
         drop(snapshot_guard);
-        let seqno = Arc::new(AtomicU64::new(max_seqno + 1));
+        let mut next_seqno = max_seqno + 1;
+
+        // Initialize WAL with recovery
+        let wal_dir = sst_dir.join("wal");
+        let wal_config = WalConfig {
+            dir: wal_dir,
+            max_segment_size: 128 * 1024 * 1024, // 128 MB
+            fsync_policy: nori_wal::FsyncPolicy::Batch(Duration::from_millis(5)),
+            preallocate: true,
+            node_id: 0,
+        };
+
+        let (wal, recovery_info) = Wal::open(wal_config).await
+            .map_err(|e| Error::Internal(format!("Failed to open WAL: {}", e)))?;
+
+        // Create memtable and replay WAL if needed
+        let memtable = Memtable::new(next_seqno);
+
+        if recovery_info.valid_records > 0 {
+            // Replay all recovered records from the beginning
+            let start_pos = nori_wal::Position {
+                segment_id: 0,
+                offset: 0,
+            };
+            let mut reader = wal.read_from(start_pos).await
+                .map_err(|e| Error::Internal(format!("Failed to read WAL: {}", e)))?;
+
+            loop {
+                match reader.next_record().await {
+                    Ok(Some((record, _pos))) => {
+                        let seqno = next_seqno;
+                        next_seqno += 1;
+
+                        if record.tombstone {
+                            memtable.delete(record.key, seqno)?;
+                        } else {
+                            memtable.put(record.key, record.value, seqno)?;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        return Err(Error::Internal(format!("WAL read error: {}", e)));
+                    }
+                }
+            }
+        }
+
+        // Initialize guard manager with default guards for L1
+        let guards = Arc::new(GuardManager::new(1, config.l1_slot_count)?);
+
+        // Initialize heat tracker
+        let heat = Arc::new(HeatTracker::new(config.clone()));
 
         Ok(Self {
-            memtable,
+            memtable: Arc::new(parking_lot::RwLock::new(memtable)),
+            immutable_memtables: Arc::new(parking_lot::RwLock::new(Vec::new())),
+            wal: Arc::new(parking_lot::RwLock::new(wal)),
+            wal_create_time: Arc::new(parking_lot::RwLock::new(Instant::now())),
             manifest: Arc::new(parking_lot::RwLock::new(manifest)),
             guards,
             heat,
             config,
             sst_dir,
-            seqno,
+            seqno: Arc::new(AtomicU64::new(next_seqno)),
         })
     }
 
@@ -292,45 +351,68 @@ impl LsmEngine {
 
     /// Inserts or updates a key-value pair.
     ///
-    /// # Write Path (simplified - memtable only)
-    /// 1. Acquire next sequence number
-    /// 2. Insert into memtable
-    /// 3. Return sequence number
-    ///
-    /// # TODO
-    /// - WAL durability (Phase 2)
-    /// - Flush trigger (Phase 2)
+    /// # Write Path
+    /// 1. Append to WAL for durability
+    /// 2. Acquire next sequence number
+    /// 3. Insert into memtable
+    /// 4. Check flush triggers (size/age)
+    /// 5. Return sequence number
     pub async fn put(&self, key: Bytes, value: Bytes) -> Result<u64> {
         use std::sync::atomic::Ordering;
 
-        // Get next sequence number
+        // 1. Write to WAL first (durability)
+        let record = Record::put(key.clone(), value.clone());
+        {
+            let wal = self.wal.write();
+            wal.append(&record).await
+                .map_err(|e| Error::Internal(format!("WAL append failed: {}", e)))?;
+        }
+
+        // 2. Get next sequence number
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
 
-        // Insert into memtable
-        let memtable = self.memtable.read();
-        memtable.put(key, value, seqno)?;
+        // 3. Insert into memtable
+        {
+            let memtable = self.memtable.read();
+            memtable.put(key, value, seqno)?;
+        }
+
+        // 4. Check flush triggers
+        self.check_flush_triggers().await?;
 
         Ok(seqno)
     }
 
     /// Deletes a key (writes a tombstone).
     ///
-    /// # Write Path (simplified - memtable only)
-    /// 1. Acquire next sequence number
-    /// 2. Write tombstone to memtable
-    ///
-    /// # TODO
-    /// - WAL durability (Phase 2)
+    /// # Write Path
+    /// 1. Append tombstone to WAL for durability
+    /// 2. Acquire next sequence number
+    /// 3. Write tombstone to memtable
+    /// 4. Check flush triggers
     pub async fn delete(&self, key: &[u8]) -> Result<()> {
         use std::sync::atomic::Ordering;
 
-        // Get next sequence number
+        // 1. Write to WAL first (durability)
+        let key_bytes = Bytes::copy_from_slice(key);
+        let record = Record::delete(key_bytes.clone());
+        {
+            let wal = self.wal.write();
+            wal.append(&record).await
+                .map_err(|e| Error::Internal(format!("WAL append failed: {}", e)))?;
+        }
+
+        // 2. Get next sequence number
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
 
-        // Write tombstone to memtable
-        let memtable = self.memtable.read();
-        let key_bytes = Bytes::copy_from_slice(key);
-        memtable.delete(key_bytes, seqno)?;
+        // 3. Write tombstone to memtable
+        {
+            let memtable = self.memtable.read();
+            memtable.delete(key_bytes, seqno)?;
+        }
+
+        // 4. Check flush triggers
+        self.check_flush_triggers().await?;
 
         Ok(())
     }
@@ -439,6 +521,87 @@ impl LsmEngine {
         lsm_iter.init().await?;
 
         Ok(MergeIterator { inner: lsm_iter })
+    }
+
+    /// Checks if flush triggers are met and initiates flush if needed.
+    ///
+    /// Triggers:
+    /// - Size: memtable >= 64 MiB
+    /// - Age: WAL age >= 30 seconds
+    async fn check_flush_triggers(&self) -> Result<()> {
+        let should_flush = {
+            let memtable = self.memtable.read();
+            let size_bytes = memtable.size();
+            let size_trigger = size_bytes >= self.config.memtable.flush_trigger_bytes;
+
+            let wal_age = self.wal_create_time.read().elapsed();
+            let age_trigger = wal_age.as_secs() >= self.config.memtable.wal_age_trigger_sec;
+
+            size_trigger || age_trigger
+        };
+
+        if should_flush {
+            self.flush_memtable().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Freezes the active memtable and initiates background flush.
+    ///
+    /// # Process
+    /// 1. Acquire write lock on memtable
+    /// 2. Swap active → immutable (create new empty memtable)
+    /// 3. Add immutable to list
+    /// 4. Reset WAL create time
+    /// 5. Spawn background flush task (TODO: for now, flush synchronously)
+    async fn flush_memtable(&self) -> Result<()> {
+        use flush::Flusher;
+
+        // 1. Freeze memtable (swap with new empty memtable)
+        let frozen_memtable = {
+            let mut memtable_guard = self.memtable.write();
+            let old_seqno = self.seqno.load(std::sync::atomic::Ordering::SeqCst);
+            let new_memtable = Memtable::new(old_seqno);
+            let frozen = std::mem::replace(&mut *memtable_guard, new_memtable);
+            Arc::new(frozen)
+        };
+
+        // Skip empty memtables
+        if frozen_memtable.is_empty() {
+            return Ok(());
+        }
+
+        // 2. Reset WAL create time
+        {
+            let mut wal_time = self.wal_create_time.write();
+            *wal_time = Instant::now();
+        }
+
+        // 3. Flush to L0 (synchronous for now; Phase 6 will make this async)
+        let file_number = {
+            let manifest = self.manifest.read();
+            manifest.snapshot().read().unwrap().version as u64 + 1000
+        };
+
+        let flusher = Flusher::new(&self.sst_dir, self.config.clone())?;
+        let run_meta = flusher.flush_to_l0(&frozen_memtable, file_number).await?;
+
+        // 4. Register in MANIFEST as L0 file
+        {
+            let mut manifest = self.manifest.write();
+            let edit = manifest::ManifestEdit::AddFile {
+                level: 0,
+                slot_id: None, // L0 files have no slot
+                run: run_meta,
+            };
+            manifest.append(edit)?;
+        }
+
+        // 5. TODO: Delete WAL segment after successful flush
+        // For now, WAL will keep growing (Phase 6 will add cleanup)
+
+        Ok(())
     }
 
     /// Triggers manual compaction for a key range.
@@ -691,14 +854,138 @@ mod tests {
             engine.put(Bytes::from("persistent_key"), Bytes::from("persistent_value")).await.unwrap();
         }
 
-        // Second session: reopen and verify
-        // Note: This currently only tests memtable data, which is lost on restart
-        // Full persistence will be tested in Phase 2 with WAL recovery
+        // Second session: reopen and verify WAL recovery
         {
             let engine = LsmEngine::open(config.clone()).await.unwrap();
-            // Without WAL recovery, memtable data is lost
+            // With WAL recovery, data should be recovered
             let result = engine.get(b"persistent_key").await.unwrap();
-            assert_eq!(result, None); // Expected: data not persisted yet
+            assert_eq!(result, Some(Bytes::from("persistent_value")));
         }
+    }
+
+    /// Phase 2 test: WAL durability - multiple records
+    #[tokio::test]
+    async fn test_wal_durability_multiple_records() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+
+        // Write multiple records
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+            for i in 0..100 {
+                let key = Bytes::from(format!("key{:03}", i));
+                let value = Bytes::from(format!("value{:03}", i));
+                engine.put(key, value).await.unwrap();
+            }
+        }
+
+        // Reopen and verify all records
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+            for i in 0..100 {
+                let key = format!("key{:03}", i);
+                let expected = Bytes::from(format!("value{:03}", i));
+                let result = engine.get(key.as_bytes()).await.unwrap();
+                assert_eq!(result, Some(expected), "Key {} not recovered", key);
+            }
+        }
+    }
+
+    /// Phase 2 test: WAL recovery with tombstones
+    #[tokio::test]
+    async fn test_wal_recovery_with_tombstones() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+
+        // Write, delete, write pattern
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+            engine.put(Bytes::from("key1"), Bytes::from("value1")).await.unwrap();
+            engine.put(Bytes::from("key2"), Bytes::from("value2")).await.unwrap();
+            engine.delete(b"key1").await.unwrap();
+            engine.put(Bytes::from("key3"), Bytes::from("value3")).await.unwrap();
+        }
+
+        // Reopen and verify tombstones work
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+            assert_eq!(engine.get(b"key1").await.unwrap(), None); // Deleted
+            assert_eq!(engine.get(b"key2").await.unwrap(), Some(Bytes::from("value2")));
+            assert_eq!(engine.get(b"key3").await.unwrap(), Some(Bytes::from("value3")));
+        }
+    }
+
+    /// Phase 2 test: Flush trigger by size (simplified - manual test)
+    #[tokio::test]
+    async fn test_flush_trigger_manual() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        // Set very small flush trigger for testing
+        config.memtable.flush_trigger_bytes = 1024; // 1KB
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write enough data to trigger flush
+        // Each entry is ~50 bytes, so 25 entries ≈ 1.25KB should trigger
+        for i in 0..30 {
+            let key = Bytes::from(format!("large_key_{:010}", i));
+            let value = Bytes::from(vec![b'x'; 100]); // 100 byte value
+            engine.put(key, value).await.unwrap();
+        }
+
+        // Check manifest for L0 files (flush should have occurred)
+        let manifest = engine.manifest.read();
+        let snapshot = manifest.snapshot();
+        let snap_guard = snapshot.read().unwrap();
+        let l0_count = snap_guard.l0_files().len();
+
+        // We expect at least one flush to have occurred
+        assert!(l0_count > 0, "Expected at least one L0 file after flush trigger");
+    }
+
+    /// Phase 2 test: WAL recovery order preservation
+    #[tokio::test]
+    async fn test_wal_recovery_order() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+
+        // Write same key multiple times
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+            engine.put(Bytes::from("key"), Bytes::from("v1")).await.unwrap();
+            engine.put(Bytes::from("key"), Bytes::from("v2")).await.unwrap();
+            engine.put(Bytes::from("key"), Bytes::from("v3")).await.unwrap();
+            engine.put(Bytes::from("key"), Bytes::from("v4")).await.unwrap();
+        }
+
+        // Reopen and verify last value wins
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+            let result = engine.get(b"key").await.unwrap();
+            assert_eq!(result, Some(Bytes::from("v4")));
+        }
+    }
+
+    /// Phase 2 test: Empty memtable doesn't flush
+    #[tokio::test]
+    async fn test_empty_memtable_no_flush() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Manually trigger flush check (should do nothing)
+        engine.check_flush_triggers().await.unwrap();
+
+        // Verify no L0 files created
+        let manifest = engine.manifest.read();
+        let snapshot = manifest.snapshot();
+        let snap_guard = snapshot.read().unwrap();
+        assert_eq!(snap_guard.l0_files().len(), 0);
     }
 }

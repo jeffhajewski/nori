@@ -1,9 +1,10 @@
 //! Key-value entry representation for SSTable.
 //!
-//! Entry format (similar to WAL record format):
+//! Entry format (with sequence number for MVCC):
 //! - klen: varint
 //! - vlen: varint
 //! - flags: u8 (bits: 0=tombstone, 1-7=reserved)
+//! - seqno: varint (u64, monotonically increasing sequence number)
 //! - key: bytes[klen]
 //! - value: bytes[vlen]
 //! - crc32c: u32 (little-endian)
@@ -18,20 +19,38 @@ bitflags::bitflags! {
 }
 
 /// A key-value entry in an SSTable.
+///
+/// # Sequence Numbers
+/// The `seqno` field enables MVCC (Multi-Version Concurrency Control):
+/// - Higher sequence numbers represent newer versions
+/// - During compaction, entries with higher seqno shadow older versions
+/// - Enables snapshot isolation for reads at specific seqno
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub key: Bytes,
     pub value: Bytes,
     pub tombstone: bool,
+    pub seqno: u64,
 }
 
 impl Entry {
-    /// Creates a new PUT entry.
+    /// Creates a new PUT entry with a sequence number.
     pub fn put(key: impl Into<Bytes>, value: impl Into<Bytes>) -> Self {
         Self {
             key: key.into(),
             value: value.into(),
             tombstone: false,
+            seqno: 0, // Default to 0; caller should set appropriate seqno
+        }
+    }
+
+    /// Creates a new PUT entry with an explicit sequence number.
+    pub fn put_with_seqno(key: impl Into<Bytes>, value: impl Into<Bytes>, seqno: u64) -> Self {
+        Self {
+            key: key.into(),
+            value: value.into(),
+            tombstone: false,
+            seqno,
         }
     }
 
@@ -41,6 +60,17 @@ impl Entry {
             key: key.into(),
             value: Bytes::new(),
             tombstone: true,
+            seqno: 0, // Default to 0; caller should set appropriate seqno
+        }
+    }
+
+    /// Creates a new DELETE entry with an explicit sequence number.
+    pub fn delete_with_seqno(key: impl Into<Bytes>, seqno: u64) -> Self {
+        Self {
+            key: key.into(),
+            value: Bytes::new(),
+            tombstone: true,
+            seqno,
         }
     }
 
@@ -58,6 +88,9 @@ impl Entry {
             flags |= Flags::TOMBSTONE;
         }
         buf.put_u8(flags.bits());
+
+        // Encode sequence number (for MVCC)
+        encode_varint(&mut buf, self.seqno);
 
         // Encode key and value
         buf.put_slice(&self.key);
@@ -101,6 +134,9 @@ impl Entry {
         cursor = &cursor[1..];
         let tombstone = flags.contains(Flags::TOMBSTONE);
 
+        // Decode sequence number
+        let seqno = decode_varint(&mut cursor)?;
+
         // Decode key and value
         if cursor.len() < klen + vlen + 4 {
             return Err(SSTableError::Incomplete);
@@ -128,6 +164,7 @@ impl Entry {
             key,
             value,
             tombstone,
+            seqno,
         })
     }
 
@@ -136,6 +173,7 @@ impl Entry {
         varint_size(self.key.len() as u64)
             + varint_size(self.value.len() as u64)
             + 1 // flags
+            + varint_size(self.seqno) // sequence number
             + self.key.len()
             + self.value.len()
             + 4 // crc32c

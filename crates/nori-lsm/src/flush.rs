@@ -87,10 +87,12 @@ impl Flusher {
         // Write all entries in sorted order
         for (key, entry) in memtable.iter() {
             let sst_entry = match entry {
-                MemtableEntry::Put { value, .. } => Entry::put(key.clone(), value.clone()),
-                MemtableEntry::Delete { .. } => {
+                MemtableEntry::Put { value, seqno } => {
+                    Entry::put_with_seqno(key.clone(), value.clone(), seqno)
+                }
+                MemtableEntry::Delete { seqno } => {
                     tombstone_count += 1;
-                    Entry::delete(key.clone())
+                    Entry::delete_with_seqno(key.clone(), seqno)
                 }
             };
 

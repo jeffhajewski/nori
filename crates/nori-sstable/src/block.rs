@@ -169,6 +169,9 @@ impl Block {
         let tombstone = (value_len_encoded & (1u64 << 63)) != 0;
         let value_len = (value_len_encoded & !(1u64 << 63)) as usize;
 
+        // Decode sequence number
+        let seqno = decode_varint(&mut buf)?;
+
         if buf.len() < unshared_len + value_len {
             return Err(SSTableError::Incomplete);
         }
@@ -194,6 +197,7 @@ impl Block {
             key,
             value,
             tombstone,
+            seqno,
         }))
     }
 }
@@ -228,6 +232,9 @@ impl BlockIterator {
         // Extract tombstone flag from high bit
         let tombstone = (value_len_encoded & (1u64 << 63)) != 0;
         let value_len = (value_len_encoded & !(1u64 << 63)) as usize;
+
+        // Decode sequence number
+        let seqno = decode_varint(&mut buf)?;
 
         if buf.len() < unshared_len + value_len {
             return Err(SSTableError::Incomplete);
@@ -276,6 +283,7 @@ impl BlockIterator {
             key,
             value,
             tombstone,
+            seqno,
         }))
     }
 }
@@ -342,6 +350,8 @@ impl BlockBuilder {
             entry.value.len() as u64
         };
         encode_varint(&mut self.buffer, value_len_encoded);
+        // Encode sequence number (for MVCC)
+        encode_varint(&mut self.buffer, entry.seqno);
         self.buffer.put_slice(&entry.key[shared_len..]);
         self.buffer.put_slice(&entry.value);
 

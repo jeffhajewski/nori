@@ -198,7 +198,8 @@ impl SSTableBuilder {
         let block_offset = self.writer.write_block(&compressed_data).await?;
 
         // Add to index (store uncompressed size for reconstruction)
-        self.index.add_block(first_key, block_offset, compressed_size as u32);
+        self.index
+            .add_block(first_key, block_offset, compressed_size as u32);
 
         // Track block flushed and bytes written (compressed size)
         self.meter.counter("sstable_blocks_flushed", &[]).inc(1);

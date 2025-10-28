@@ -54,11 +54,7 @@ impl Flusher {
     /// 3. Build bloom filter
     /// 4. Sync file to disk
     /// 5. Return metadata
-    pub async fn flush_to_l0(
-        &self,
-        memtable: &Memtable,
-        file_number: u64,
-    ) -> Result<RunMeta> {
+    pub async fn flush_to_l0(&self, memtable: &Memtable, file_number: u64) -> Result<RunMeta> {
         if memtable.is_empty() {
             return Err(Error::Internal("Cannot flush empty memtable".to_string()));
         }
@@ -76,15 +72,16 @@ impl Flusher {
             block_cache_mb: 64,
         };
 
-        let mut builder = SSTableBuilder::new(config).await.map_err(|e| {
-            Error::Internal(format!("Failed to create SSTable builder: {}", e))
-        })?;
+        let mut builder = SSTableBuilder::new(config)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to create SSTable builder: {}", e)))?;
 
         let mut min_key: Option<Bytes> = None;
         let mut max_key: Option<Bytes> = None;
         let mut tombstone_count = 0u32;
 
         // Write all entries in sorted order
+        let mut entry_count = 0;
         for (key, entry) in memtable.iter() {
             let sst_entry = match entry {
                 MemtableEntry::Put { value, seqno } => {
@@ -96,21 +93,32 @@ impl Flusher {
                 }
             };
 
-            builder.add(&sst_entry).await.map_err(|e| {
-                Error::Internal(format!("Failed to add entry to SSTable: {}", e))
-            })?;
+            // Log first and last few keys
+            if entry_count < 3 || entry_count >= memtable.len() - 3 {
+                println!("  FLUSH entry {}: {}", entry_count, String::from_utf8_lossy(&key));
+            }
+
+            builder
+                .add(&sst_entry)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to add entry to SSTable: {}", e)))?;
 
             // Track key range
             if min_key.is_none() {
                 min_key = Some(key.clone());
             }
             max_key = Some(key);
+            entry_count += 1;
         }
 
+        println!("=== FLUSH: Flushed {} entries to SSTable {} (from memtable with {} total) ===",
+            entry_count, file_number, memtable.len());
+
         // Finalize SSTable
-        let metadata = builder.finish().await.map_err(|e| {
-            Error::Internal(format!("Failed to finish SSTable: {}", e))
-        })?;
+        let metadata = builder
+            .finish()
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to finish SSTable: {}", e)))?;
 
         let run_meta = RunMeta {
             file_number,
@@ -182,8 +190,7 @@ impl L0Admitter {
         let mut edits = Vec::new();
 
         // Find which L1 slot(s) this run overlaps
-        let overlapping_slots =
-            guard_manager.overlapping_slots(&l0_run.min_key, &l0_run.max_key);
+        let overlapping_slots = guard_manager.overlapping_slots(&l0_run.min_key, &l0_run.max_key);
 
         if overlapping_slots.is_empty() {
             return Err(Error::Internal(
@@ -296,13 +303,7 @@ impl Compactor {
     /// Triggers when:
     /// - Number of runs > K value for slot
     /// - Total bytes > slot budget
-    pub fn should_compact(
-        &self,
-        slot_bytes: u64,
-        run_count: usize,
-        k: u8,
-        level: u8,
-    ) -> bool {
+    pub fn should_compact(&self, slot_bytes: u64, run_count: usize, k: u8, level: u8) -> bool {
         let slot_budget = self.config.slot_budget_bytes(level);
 
         run_count > k as usize || slot_bytes > slot_budget

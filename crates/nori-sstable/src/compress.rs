@@ -86,14 +86,12 @@ fn decompress_lz4(data: &[u8]) -> Result<Vec<u8>> {
 /// Uses default compression level (3) for good balance between speed,
 /// compression ratio, and memory usage.
 fn compress_zstd(data: &[u8]) -> Result<Vec<u8>> {
-    zstd::encode_all(data, 3)
-        .map_err(|e| SSTableError::CompressionFailed(e.to_string()))
+    zstd::encode_all(data, 3).map_err(|e| SSTableError::CompressionFailed(e.to_string()))
 }
 
 /// Decompresses Zstd-compressed data.
 fn decompress_zstd(data: &[u8]) -> Result<Vec<u8>> {
-    zstd::decode_all(data)
-        .map_err(|e| SSTableError::DecompressionFailed(e.to_string()))
+    zstd::decode_all(data).map_err(|e| SSTableError::DecompressionFailed(e.to_string()))
 }
 
 #[cfg(test)]
@@ -116,9 +114,12 @@ mod tests {
         let compressed = compress(data, Compression::Lz4).unwrap();
 
         // Should be compressed (smaller than original)
-        assert!(compressed.len() < data.len(),
-                "Compressed size {} should be less than original {}",
-                compressed.len(), data.len());
+        assert!(
+            compressed.len() < data.len(),
+            "Compressed size {} should be less than original {}",
+            compressed.len(),
+            data.len()
+        );
 
         let decompressed = decompress(&compressed, Compression::Lz4).unwrap();
         assert_eq!(decompressed, data);
@@ -130,9 +131,12 @@ mod tests {
         let compressed = compress(data, Compression::Zstd).unwrap();
 
         // Should be compressed
-        assert!(compressed.len() < data.len(),
-                "Compressed size {} should be less than original {}",
-                compressed.len(), data.len());
+        assert!(
+            compressed.len() < data.len(),
+            "Compressed size {} should be less than original {}",
+            compressed.len(),
+            data.len()
+        );
 
         let decompressed = decompress(&compressed, Compression::Zstd).unwrap();
         assert_eq!(decompressed, data);
@@ -145,9 +149,11 @@ mod tests {
         let compressed = compress(&data, Compression::Lz4).unwrap();
 
         // Highly compressible data should compress well
-        assert!(compressed.len() < 100,
-                "Highly compressible data should compress to <100 bytes, got {}",
-                compressed.len());
+        assert!(
+            compressed.len() < 100,
+            "Highly compressible data should compress to <100 bytes, got {}",
+            compressed.len()
+        );
 
         let decompressed = decompress(&compressed, Compression::Lz4).unwrap();
         assert_eq!(decompressed, data);

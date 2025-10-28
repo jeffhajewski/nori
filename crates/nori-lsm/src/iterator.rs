@@ -42,7 +42,11 @@ pub enum SourceType {
     L0 { file_idx: usize },
 
     /// L1+ level (priority by level, then slot)
-    Level { level: u8, slot_id: u32, run_idx: usize },
+    Level {
+        level: u8,
+        slot_id: u32,
+        run_idx: usize,
+    },
 }
 
 impl SourceType {
@@ -146,11 +150,10 @@ impl IteratorSource {
                     }
                 }
             }
-            IteratorSource::SSTable(iter) => {
-                iter.try_next()
-                    .await
-                    .map_err(|e| Error::Internal(format!("SSTable iteration error: {}", e)))
-            }
+            IteratorSource::SSTable(iter) => iter
+                .try_next()
+                .await
+                .map_err(|e| Error::Internal(format!("SSTable iteration error: {}", e))),
         }
     }
 }

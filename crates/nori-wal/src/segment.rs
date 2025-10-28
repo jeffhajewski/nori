@@ -102,7 +102,12 @@ impl SegmentFile {
     ///
     /// If `preallocate_size` is Some and this is a new file, it will be pre-allocated
     /// to the given size to prevent "no space left" errors and improve filesystem locality.
-    async fn open(dir: &Path, id: u64, create: bool, preallocate_size: Option<u64>) -> Result<Self, SegmentError> {
+    async fn open(
+        dir: &Path,
+        id: u64,
+        create: bool,
+        preallocate_size: Option<u64>,
+    ) -> Result<Self, SegmentError> {
         let path = segment_path(dir, id);
 
         let mut file = if create {
@@ -203,7 +208,11 @@ impl FdCache {
         }
     }
 
-    async fn get_or_open(&mut self, segment_id: u64, dir: &Path) -> Result<Arc<Mutex<File>>, SegmentError> {
+    async fn get_or_open(
+        &mut self,
+        segment_id: u64,
+        dir: &Path,
+    ) -> Result<Arc<Mutex<File>>, SegmentError> {
         // Check if already in cache
         if let Some(file) = self.cache.get(&segment_id) {
             // Update access order
@@ -459,7 +468,8 @@ impl SegmentManager {
         } else {
             None
         };
-        let new_segment = SegmentFile::open(&self.config.dir, new_id, true, preallocate_size).await?;
+        let new_segment =
+            SegmentFile::open(&self.config.dir, new_id, true, preallocate_size).await?;
 
         // Swap in the new segment
         let mut current = self.current.lock().await;
@@ -479,11 +489,10 @@ impl SegmentManager {
         segment_id: u64,
     ) -> Result<(), SegmentError> {
         match self.config.fsync_policy {
-            FsyncPolicy::Always => {
-                self.fsync_with_timing(current, segment_id).await
-            }
+            FsyncPolicy::Always => self.fsync_with_timing(current, segment_id).await,
             FsyncPolicy::Batch(window) => {
-                self.fsync_if_window_elapsed(current, segment_id, window).await
+                self.fsync_if_window_elapsed(current, segment_id, window)
+                    .await
             }
             FsyncPolicy::Os => {
                 // No fsync - let OS handle it
@@ -547,7 +556,9 @@ impl SegmentManager {
     pub async fn read_from(&self, position: Position) -> Result<SegmentReader, SegmentError> {
         // Get file from cache (or open if not cached)
         let mut cache = self.fd_cache.lock().await;
-        let file_arc = cache.get_or_open(position.segment_id, &self.config.dir).await?;
+        let file_arc = cache
+            .get_or_open(position.segment_id, &self.config.dir)
+            .await?;
         drop(cache); // Release cache lock
 
         // For the current segment, get the logical size to avoid reading pre-allocated zeros
@@ -621,7 +632,10 @@ impl SegmentReader {
         buffer.truncate(n);
 
         // Try to decode the record, reading more data if needed
-        match self.try_decode_with_retry(&mut buffer, &mut file, n, READ_BUFFER_SIZE).await? {
+        match self
+            .try_decode_with_retry(&mut buffer, &mut file, n, READ_BUFFER_SIZE)
+            .await?
+        {
             Some((record, size)) => {
                 let pos = Position {
                     segment_id: self.segment_id,
@@ -720,7 +734,7 @@ mod tests {
             max_segment_size: DEFAULT_SEGMENT_SIZE,
             dir: temp_dir.path().to_path_buf(),
             fsync_policy: FsyncPolicy::Os, // Fast for tests
-            preallocate: false, // Disable for faster tests
+            preallocate: false,            // Disable for faster tests
         };
 
         let manager = SegmentManager::new(config, Arc::new(NoopMeter), 1)

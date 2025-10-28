@@ -13,14 +13,11 @@ fn concurrent_writes_benchmark(c: &mut Criterion) {
 
     for thread_count in thread_counts {
         let total_writes = thread_count * writes_per_thread;
-        group.throughput(Throughput::Bytes(
-            (total_writes * record_size) as u64,
-        ));
+        group.throughput(Throughput::Bytes((total_writes * record_size) as u64));
 
-        group.bench_function(
-            BenchmarkId::new("concurrent", thread_count),
-            |b| {
-                b.to_async(tokio::runtime::Runtime::new().unwrap()).iter_custom(|iters| async move {
+        group.bench_function(BenchmarkId::new("concurrent", thread_count), |b| {
+            b.to_async(tokio::runtime::Runtime::new().unwrap())
+                .iter_custom(|iters| async move {
                     let temp_dir = TempDir::new().unwrap();
                     let config = WalConfig {
                         dir: temp_dir.path().to_path_buf(),
@@ -38,7 +35,8 @@ fn concurrent_writes_benchmark(c: &mut Criterion) {
                             let wal_clone = wal.clone();
                             let handle = tokio::spawn(async move {
                                 for i in 0..writes_per_thread {
-                                    let key = bytes::Bytes::from(format!("t{}_key{}", thread_id, i));
+                                    let key =
+                                        bytes::Bytes::from(format!("t{}_key{}", thread_id, i));
                                     let record = Record::put(key, vec![0u8; record_size]);
                                     black_box(wal_clone.append(&record).await.unwrap());
                                 }
@@ -54,8 +52,7 @@ fn concurrent_writes_benchmark(c: &mut Criterion) {
                     }
                     start.elapsed()
                 });
-            },
-        );
+        });
     }
 
     group.finish();

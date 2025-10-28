@@ -57,9 +57,7 @@ impl GuardManager {
     /// Guards are populated via `learn_from_keys()` as writes occur.
     pub fn new(level: u8, slot_count: u32) -> Result<Self> {
         if level == 0 {
-            return Err(Error::GuardInvariant(
-                "Guards not used for L0".to_string(),
-            ));
+            return Err(Error::GuardInvariant("Guards not used for L0".to_string()));
         }
 
         if slot_count == 0 {
@@ -80,9 +78,7 @@ impl GuardManager {
     /// Used during recovery from MANIFEST.
     pub fn with_guards(level: u8, guards: Vec<Bytes>) -> Result<Self> {
         if level == 0 {
-            return Err(Error::GuardInvariant(
-                "Guards not used for L0".to_string(),
-            ));
+            return Err(Error::GuardInvariant("Guards not used for L0".to_string()));
         }
 
         let slot_count = if guards.is_empty() {
@@ -122,10 +118,7 @@ impl GuardManager {
         }
 
         // Find first guard > key
-        let pos = self
-            .guards
-            .iter()
-            .position(|guard| guard.as_ref() > key);
+        let pos = self.guards.iter().position(|guard| guard.as_ref() > key);
 
         match pos {
             Some(idx) => idx as u32, // Key is before guards[idx], so in slot idx
@@ -408,10 +401,7 @@ mod tests {
 
     #[test]
     fn test_slot_boundaries() {
-        let guards = vec![
-            Bytes::from("m"),
-            Bytes::from("z"),
-        ];
+        let guards = vec![Bytes::from("m"), Bytes::from("z")];
         let mgr = GuardManager::with_guards(1, guards).unwrap();
 
         // Slot 0: (None, Some("m"))
@@ -430,9 +420,7 @@ mod tests {
         let mut mgr = GuardManager::new(1, 3).unwrap();
 
         // Learn from keys
-        let keys: Vec<Bytes> = (b'a'..=b'z')
-            .map(|c| Bytes::from(vec![c]))
-            .collect();
+        let keys: Vec<Bytes> = (b'a'..=b'z').map(|c| Bytes::from(vec![c])).collect();
 
         mgr.learn_from_keys(&keys);
         assert!(mgr.sample_count() > 0);
@@ -451,11 +439,7 @@ mod tests {
     fn test_update_guards() {
         let mut mgr = GuardManager::new(1, 1).unwrap();
 
-        let new_guards = vec![
-            Bytes::from("d"),
-            Bytes::from("m"),
-            Bytes::from("t"),
-        ];
+        let new_guards = vec![Bytes::from("d"), Bytes::from("m"), Bytes::from("t")];
 
         mgr.update_guards(new_guards.clone()).unwrap();
         assert_eq!(mgr.guards().len(), 3);
@@ -476,11 +460,7 @@ mod tests {
 
     #[test]
     fn test_overlapping_slots() {
-        let guards = vec![
-            Bytes::from("d"),
-            Bytes::from("m"),
-            Bytes::from("t"),
-        ];
+        let guards = vec![Bytes::from("d"), Bytes::from("m"), Bytes::from("t")];
         let mgr = GuardManager::with_guards(1, guards).unwrap();
 
         // Range [a, e) overlaps slots 0 and 1

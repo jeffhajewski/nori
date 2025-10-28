@@ -85,10 +85,7 @@ pub enum CompactionAction {
     ///
     /// **When**: Key distribution skew detected
     /// **Effect**: Rebalances slot sizes
-    GuardMove {
-        level: u8,
-        new_guards: Vec<Bytes>,
-    },
+    GuardMove { level: u8, new_guards: Vec<Bytes> },
 
     /// No action: slot is healthy.
     DoNothing,
@@ -155,7 +152,8 @@ impl BanditArm {
             return f64::INFINITY; // Unvisited arms have infinite priority
         }
 
-        let exploration_bonus = c * ((total_selections as f64).ln() / self.selection_count as f64).sqrt();
+        let exploration_bonus =
+            c * ((total_selections as f64).ln() / self.selection_count as f64).sqrt();
         self.avg_reward + exploration_bonus
     }
 }
@@ -431,11 +429,8 @@ impl MultiWayMerger {
     /// Returns metadata for the merged run.
     pub async fn merge(mut self) -> Result<RunMeta> {
         // Initialize heap with first entry from each iterator
-        let mut iterators: Vec<SSTableIterator> = self
-            .readers
-            .iter()
-            .map(|r| r.clone().iter())
-            .collect();
+        let mut iterators: Vec<SSTableIterator> =
+            self.readers.iter().map(|r| r.clone().iter()).collect();
 
         for (idx, iter) in iterators.iter_mut().enumerate() {
             if let Some(entry) = iter
@@ -633,7 +628,10 @@ impl CompactionExecutor {
                 level,
                 slot_id,
                 run_count,
-            } => self.execute_tier(*level, *slot_id, *run_count, manifest).await,
+            } => {
+                self.execute_tier(*level, *slot_id, *run_count, manifest)
+                    .await
+            }
 
             CompactionAction::Promote {
                 level,
@@ -711,8 +709,9 @@ impl CompactionExecutor {
         let can_drop_tombstones = level == self.config.max_levels;
 
         // Perform K-way merge
-        let merger = MultiWayMerger::new(input_paths, output_path, can_drop_tombstones, &self.config)
-            .await?;
+        let merger =
+            MultiWayMerger::new(input_paths, output_path, can_drop_tombstones, &self.config)
+                .await?;
 
         let mut merged_run = merger.merge().await?;
         merged_run.file_number = output_file_number;
@@ -752,7 +751,9 @@ impl CompactionExecutor {
         use crate::manifest::ManifestEdit;
 
         if level >= self.config.max_levels {
-            return Err(Error::Internal("Cannot promote from last level".to_string()));
+            return Err(Error::Internal(
+                "Cannot promote from last level".to_string(),
+            ));
         }
 
         // Get the run to promote
@@ -853,8 +854,9 @@ impl CompactionExecutor {
         let can_drop_tombstones = true;
 
         // Perform merge with tombstone dropping
-        let merger = MultiWayMerger::new(input_paths, output_path, can_drop_tombstones, &self.config)
-            .await?;
+        let merger =
+            MultiWayMerger::new(input_paths, output_path, can_drop_tombstones, &self.config)
+                .await?;
 
         let mut merged_run = merger.merge().await?;
         merged_run.file_number = output_file_number;
@@ -992,7 +994,9 @@ impl CompactionCoordinator {
 
                 tokio::spawn(async move {
                     // Execute compaction
-                    let result = executor.execute_action(&action_clone, &manifest_clone).await;
+                    let result = executor
+                        .execute_action(&action_clone, &manifest_clone)
+                        .await;
 
                     // Update rewards based on result
                     if let Ok((edits, _bytes_written)) = result {
@@ -1103,8 +1107,8 @@ impl ExecutorClone for CompactionExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memtable::Memtable;
     use crate::flush::Flusher;
+    use crate::memtable::Memtable;
 
     #[test]
     fn test_bandit_arm_creation() {
@@ -1324,9 +1328,14 @@ mod tests {
         let input_path = sst_dir.join("sst-000001.sst");
         let output_path1 = temp_dir.path().join("merged_keep.sst");
 
-        let merger = MultiWayMerger::new(vec![input_path.clone()], output_path1.clone(), false, &config)
-            .await
-            .unwrap();
+        let merger = MultiWayMerger::new(
+            vec![input_path.clone()],
+            output_path1.clone(),
+            false,
+            &config,
+        )
+        .await
+        .unwrap();
 
         let result1 = merger.merge().await.unwrap();
         assert_eq!(result1.tombstone_count, 1);
@@ -1467,7 +1476,8 @@ mod tests {
             ManifestLog::open(&manifest_dir, config.max_levels).unwrap(),
         ));
 
-        let coordinator = CompactionCoordinator::new(&sst_dir, config, heat_tracker, manifest).unwrap();
+        let coordinator =
+            CompactionCoordinator::new(&sst_dir, config, heat_tracker, manifest).unwrap();
 
         // Get shutdown handle before starting
         let shutdown_signal = coordinator.shutdown.clone();
@@ -1495,11 +1505,17 @@ mod tests {
         let reduction = CompactionCoordinator::estimate_latency_reduction(&tier_action);
         assert_eq!(reduction, 2.0); // 4 * 0.5
 
-        let eager_action = CompactionAction::EagerLevel { level: 1, slot_id: 0 };
+        let eager_action = CompactionAction::EagerLevel {
+            level: 1,
+            slot_id: 0,
+        };
         let reduction = CompactionCoordinator::estimate_latency_reduction(&eager_action);
         assert_eq!(reduction, 2.0);
 
-        let cleanup_action = CompactionAction::Cleanup { level: 1, slot_id: 0 };
+        let cleanup_action = CompactionAction::Cleanup {
+            level: 1,
+            slot_id: 0,
+        };
         let reduction = CompactionCoordinator::estimate_latency_reduction(&cleanup_action);
         assert_eq!(reduction, 1.0);
     }

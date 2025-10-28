@@ -10,14 +10,11 @@ fn sequential_read_benchmark(c: &mut Criterion) {
     let record_size = 1024; // 1KB records
 
     for record_count in record_counts {
-        group.throughput(Throughput::Bytes(
-            (record_count * record_size) as u64,
-        ));
+        group.throughput(Throughput::Bytes((record_count * record_size) as u64));
 
-        group.bench_function(
-            BenchmarkId::new("scan", record_count),
-            |b| {
-                b.to_async(tokio::runtime::Runtime::new().unwrap()).iter_custom(|iters| async move {
+        group.bench_function(BenchmarkId::new("scan", record_count), |b| {
+            b.to_async(tokio::runtime::Runtime::new().unwrap())
+                .iter_custom(|iters| async move {
                     // Setup: create WAL and write records
                     let temp_dir = TempDir::new().unwrap();
                     let config = WalConfig {
@@ -29,8 +26,7 @@ fn sequential_read_benchmark(c: &mut Criterion) {
                     // Write records
                     for i in 0..record_count {
                         let key = bytes::Bytes::from(format!("key{}", i));
-                        let record =
-                            Record::put(key, vec![0u8; record_size]);
+                        let record = Record::put(key, vec![0u8; record_size]);
                         wal.append(&record).await.unwrap();
                     }
                     wal.sync().await.unwrap();
@@ -55,8 +51,7 @@ fn sequential_read_benchmark(c: &mut Criterion) {
                     }
                     start.elapsed()
                 });
-            },
-        );
+        });
     }
 
     group.finish();

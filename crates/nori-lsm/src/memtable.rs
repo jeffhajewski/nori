@@ -282,12 +282,9 @@ mod tests {
     fn test_memtable_iterator() {
         let mt = Memtable::new(0);
 
-        mt.put(Bytes::from("c"), Bytes::from("value_c"), 3)
-            .unwrap();
-        mt.put(Bytes::from("a"), Bytes::from("value_a"), 1)
-            .unwrap();
-        mt.put(Bytes::from("b"), Bytes::from("value_b"), 2)
-            .unwrap();
+        mt.put(Bytes::from("c"), Bytes::from("value_c"), 3).unwrap();
+        mt.put(Bytes::from("a"), Bytes::from("value_a"), 1).unwrap();
+        mt.put(Bytes::from("b"), Bytes::from("value_b"), 2).unwrap();
 
         let entries: Vec<_> = mt.iter().collect();
 
@@ -304,8 +301,7 @@ mod tests {
         assert!(mt.is_empty());
         assert_eq!(mt.len(), 0);
 
-        mt.put(Bytes::from("key"), Bytes::from("value"), 1)
-            .unwrap();
+        mt.put(Bytes::from("key"), Bytes::from("value"), 1).unwrap();
         assert!(!mt.is_empty());
         assert_eq!(mt.len(), 1);
     }

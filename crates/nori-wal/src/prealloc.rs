@@ -101,16 +101,12 @@ async fn preallocate_macos(file: &File, size: u64) -> io::Result<()> {
     };
 
     // Try contiguous allocation first
-    let result = unsafe {
-        libc::fcntl(fd, F_PREALLOCATE, &mut fstore as *mut FStore)
-    };
+    let result = unsafe { libc::fcntl(fd, F_PREALLOCATE, &mut fstore as *mut FStore) };
 
     if result == -1 {
         // If contiguous failed, try non-contiguous
         fstore.fst_flags = F_ALLOCATEALL;
-        let result = unsafe {
-            libc::fcntl(fd, F_PREALLOCATE, &mut fstore as *mut FStore)
-        };
+        let result = unsafe { libc::fcntl(fd, F_PREALLOCATE, &mut fstore as *mut FStore) };
 
         if result == -1 {
             // Fall back to set_len if fcntl failed

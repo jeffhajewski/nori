@@ -172,7 +172,9 @@ async fn truncate_segment_atomically(
         .open(&temp_path)
         .await?;
 
-    temp_file.write_all(&buffer[..last_valid_offset as usize]).await?;
+    temp_file
+        .write_all(&buffer[..last_valid_offset as usize])
+        .await?;
     temp_file.sync_all().await?;
     drop(temp_file);
 

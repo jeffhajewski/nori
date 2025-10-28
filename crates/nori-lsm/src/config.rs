@@ -339,7 +339,9 @@ impl ATLLConfig {
         }
 
         if self.default_k.l1 == 0 || self.default_k.l2 == 0 || self.default_k.l3_plus == 0 {
-            return Err(Error::Config("default_k values must all be > 0".to_string()));
+            return Err(Error::Config(
+                "default_k values must all be > 0".to_string(),
+            ));
         }
 
         // Validate heat thresholds
@@ -406,7 +408,9 @@ impl ATLLConfig {
 
         // Validate memtable config
         if self.memtable.flush_trigger_bytes == 0 {
-            return Err(Error::Config("Memtable flush_trigger_bytes must be > 0".to_string()));
+            return Err(Error::Config(
+                "Memtable flush_trigger_bytes must be > 0".to_string(),
+            ));
         }
 
         // Validate IO config

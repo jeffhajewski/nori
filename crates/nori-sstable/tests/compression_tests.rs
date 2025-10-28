@@ -39,7 +39,9 @@ async fn test_compression_lz4_roundtrip() {
         assert_eq!(entry.key.as_ref(), key.as_bytes());
         assert_eq!(
             entry.value.as_ref(),
-            "test_value_that_should_compress_well_".repeat(10).as_bytes()
+            "test_value_that_should_compress_well_"
+                .repeat(10)
+                .as_bytes()
         );
     }
 }

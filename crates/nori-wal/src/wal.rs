@@ -67,7 +67,8 @@ impl WalConfig {
             }
             if duration.is_zero() {
                 return Err(SegmentError::InvalidConfig(
-                    "fsync batch window cannot be zero - use FsyncPolicy::Always instead".to_string(),
+                    "fsync batch window cannot be zero - use FsyncPolicy::Always instead"
+                        .to_string(),
                 ));
             }
         }

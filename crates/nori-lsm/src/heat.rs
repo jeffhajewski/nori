@@ -48,7 +48,7 @@ impl Operation {
     pub fn weight(&self) -> f32 {
         match self {
             Operation::Get => 1.0,
-            Operation::Scan => 2.0,  // Scans are more intensive
+            Operation::Scan => 2.0, // Scans are more intensive
             Operation::Put => 0.5,
             Operation::Delete => 0.5,
         }

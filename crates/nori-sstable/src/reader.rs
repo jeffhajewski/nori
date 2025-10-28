@@ -258,15 +258,11 @@ impl SSTableReader {
             let mut cache_lock = cache.lock().await;
             if let Some(block) = cache_lock.get(&offset) {
                 // Cache hit - return cloned block (already decompressed)
-                self.meter
-                    .counter("sstable_block_cache_hits", &[])
-                    .inc(1);
+                self.meter.counter("sstable_block_cache_hits", &[]).inc(1);
                 return Ok(block.clone());
             }
             // Cache miss - continue to read from disk
-            self.meter
-                .counter("sstable_block_cache_misses", &[])
-                .inc(1);
+            self.meter.counter("sstable_block_cache_misses", &[]).inc(1);
         }
 
         // Read compressed block from disk

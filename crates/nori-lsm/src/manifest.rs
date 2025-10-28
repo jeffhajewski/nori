@@ -193,10 +193,7 @@ pub enum ManifestEdit {
     },
 
     /// Update guard keys for a level
-    UpdateGuards {
-        level: u8,
-        guards: Vec<Bytes>,
-    },
+    UpdateGuards { level: u8, guards: Vec<Bytes> },
 
     /// Advance the sequence number watermark
     SetLastSeqno { seqno: u64 },
@@ -302,15 +299,11 @@ impl ManifestSnapshot {
                     level_meta.l0_files.push(run);
                 } else {
                     // L1+: add to slot
-                    let slot_id = slot_id.ok_or_else(|| {
-                        Error::Manifest("slot_id required for L1+".to_string())
-                    })?;
+                    let slot_id = slot_id
+                        .ok_or_else(|| Error::Manifest("slot_id required for L1+".to_string()))?;
 
                     // Find existing slot or create new one
-                    let slot = level_meta
-                        .slots
-                        .iter_mut()
-                        .find(|s| s.slot_id == slot_id);
+                    let slot = level_meta.slots.iter_mut().find(|s| s.slot_id == slot_id);
 
                     match slot {
                         Some(slot) => {
@@ -355,9 +348,8 @@ impl ManifestSnapshot {
                 if level == 0 {
                     level_meta.l0_files.retain(|r| r.file_number != file_number);
                 } else {
-                    let slot_id = slot_id.ok_or_else(|| {
-                        Error::Manifest("slot_id required for L1+".to_string())
-                    })?;
+                    let slot_id = slot_id
+                        .ok_or_else(|| Error::Manifest("slot_id required for L1+".to_string()))?;
 
                     let slot = level_meta
                         .slots
@@ -383,8 +375,7 @@ impl ManifestSnapshot {
                     .get_mut(level as usize)
                     .ok_or_else(|| Error::Manifest(format!("Level {} does not exist", level)))?;
 
-                if let Some(existing) = level_meta.slots.iter_mut().find(|s| s.slot_id == slot_id)
-                {
+                if let Some(existing) = level_meta.slots.iter_mut().find(|s| s.slot_id == slot_id) {
                     *existing = slot;
                 } else {
                     level_meta.slots.push(slot);
@@ -432,10 +423,7 @@ impl ManifestSnapshot {
 
     /// Returns the L0 file count.
     pub fn l0_file_count(&self) -> usize {
-        self.levels
-            .first()
-            .map(|l| l.l0_files.len())
-            .unwrap_or(0)
+        self.levels.first().map(|l| l.l0_files.len()).unwrap_or(0)
     }
 
     /// Returns metadata for a specific level.
@@ -664,9 +652,8 @@ impl ManifestLog {
             }
 
             // Deserialize and apply edit
-            let edit: ManifestEdit = bincode::deserialize(&data).map_err(|e| {
-                Error::Manifest(format!("Failed to deserialize edit: {}", e))
-            })?;
+            let edit: ManifestEdit = bincode::deserialize(&data)
+                .map_err(|e| Error::Manifest(format!("Failed to deserialize edit: {}", e)))?;
 
             snapshot.apply_edit(edit)?;
         }
@@ -825,11 +812,7 @@ mod tests {
     fn test_update_guards() {
         let mut manifest = ManifestSnapshot::with_levels(7);
 
-        let guards = vec![
-            Bytes::from("a"),
-            Bytes::from("m"),
-            Bytes::from("z"),
-        ];
+        let guards = vec![Bytes::from("a"), Bytes::from("m"), Bytes::from("z")];
 
         manifest
             .apply_edit(ManifestEdit::UpdateGuards {

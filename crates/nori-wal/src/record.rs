@@ -120,15 +120,16 @@ impl Record {
             Compression::None => self.value.clone(),
             Compression::Lz4 => {
                 // Prepend original size for decompression
-                let compressed = lz4::block::compress(&self.value, None, false).unwrap_or_else(|_| self.value.to_vec());
+                let compressed = lz4::block::compress(&self.value, None, false)
+                    .unwrap_or_else(|_| self.value.to_vec());
                 let mut buf = BytesMut::new();
                 encode_varint(&mut buf, self.value.len() as u64);
                 buf.put_slice(&compressed);
                 buf.freeze()
             }
-            Compression::Zstd => {
-                Bytes::from(zstd::encode_all(&self.value[..], 3).unwrap_or_else(|_| self.value.to_vec()))
-            }
+            Compression::Zstd => Bytes::from(
+                zstd::encode_all(&self.value[..], 3).unwrap_or_else(|_| self.value.to_vec()),
+            ),
         };
 
         // Encode klen and vlen as varints (vlen is compressed size)
@@ -234,7 +235,11 @@ impl Record {
         Ok(bytes)
     }
 
-    fn verify_crc(data: &[u8], bytes_consumed: usize, cursor: &mut &[u8]) -> Result<(), RecordError> {
+    fn verify_crc(
+        data: &[u8],
+        bytes_consumed: usize,
+        cursor: &mut &[u8],
+    ) -> Result<(), RecordError> {
         if cursor.len() < 4 {
             return Err(RecordError::Incomplete);
         }
@@ -373,8 +378,7 @@ mod tests {
         // Create a record with compressible data
         let value = Bytes::from(b"hello world ".repeat(100)); // Highly compressible
         let key = Bytes::from(&b"key"[..]);
-        let record = Record::put(key.clone(), value.clone())
-            .with_compression(Compression::Lz4);
+        let record = Record::put(key.clone(), value.clone()).with_compression(Compression::Lz4);
 
         let encoded = record.encode();
         let (decoded, size) = Record::decode(&encoded).unwrap();
@@ -395,8 +399,7 @@ mod tests {
         // Create a record with compressible data
         let value = Bytes::from(b"the quick brown fox ".repeat(50));
         let key = Bytes::from(&b"mykey"[..]);
-        let record = Record::put(key.clone(), value.clone())
-            .with_compression(Compression::Zstd);
+        let record = Record::put(key.clone(), value.clone()).with_compression(Compression::Zstd);
 
         let encoded = record.encode();
         let (decoded, size) = Record::decode(&encoded).unwrap();
@@ -418,15 +421,15 @@ mod tests {
         let value: Vec<u8> = (0..100).map(|i| (i * 37 + 13) as u8).collect();
         let key = Bytes::from(&b"key"[..]);
 
-        let lz4_record = Record::put(key.clone(), Bytes::from(value.clone()))
-            .with_compression(Compression::Lz4);
+        let lz4_record =
+            Record::put(key.clone(), Bytes::from(value.clone())).with_compression(Compression::Lz4);
         let lz4_encoded = lz4_record.encode();
         let (lz4_decoded, _) = Record::decode(&lz4_encoded).unwrap();
 
         assert_eq!(lz4_decoded.value.as_ref(), value.as_slice());
 
-        let zstd_record = Record::put(key, Bytes::from(value.clone()))
-            .with_compression(Compression::Zstd);
+        let zstd_record =
+            Record::put(key, Bytes::from(value.clone())).with_compression(Compression::Zstd);
         let zstd_encoded = zstd_record.encode();
         let (zstd_decoded, _) = Record::decode(&zstd_encoded).unwrap();
 

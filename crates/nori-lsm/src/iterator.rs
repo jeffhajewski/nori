@@ -26,7 +26,7 @@
 /// └─────────────────────────────────────────────────────────────┘
 /// ```
 use crate::error::{Error, Result};
-use crate::memtable::{Memtable, MemtableEntry};
+use crate::memtable::MemtableEntry;
 use bytes::Bytes;
 use nori_sstable::{Entry, SSTableIterator};
 use std::cmp::Ordering;

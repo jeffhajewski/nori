@@ -158,6 +158,14 @@ pub struct RunMeta {
     pub value_log_segment_id: Option<u32>,
 }
 
+impl RunMeta {
+    /// Returns true if this run overlaps the given key range [start, end).
+    pub fn overlaps(&self, start: &[u8], end: &[u8]) -> bool {
+        // Run overlaps if: run.max_key >= start AND run.min_key < end
+        self.max_key.as_ref() >= start && self.min_key.as_ref() < end
+    }
+}
+
 /// Incremental edit to the MANIFEST.
 ///
 /// Edits are appended to the MANIFEST log and applied atomically.
@@ -201,6 +209,51 @@ pub enum ManifestEdit {
 }
 
 impl ManifestSnapshot {
+    /// Returns all L0 files.
+    pub fn l0_files(&self) -> &[RunMeta] {
+        if self.levels.is_empty() {
+            &[]
+        } else {
+            &self.levels[0].l0_files
+        }
+    }
+
+    /// Returns all runs for a specific slot in a level.
+    pub fn slot_runs(&self, level: u8, slot_id: u32) -> Vec<RunMeta> {
+        if level == 0 || level as usize >= self.levels.len() {
+            return vec![];
+        }
+
+        let level_meta = &self.levels[level as usize];
+        level_meta
+            .slots
+            .iter()
+            .find(|s| s.slot_id == slot_id)
+            .map(|s| s.runs.clone())
+            .unwrap_or_default()
+    }
+
+    /// Returns all files across all levels (for debugging/stats).
+    pub fn all_files(&self) -> Vec<&RunMeta> {
+        let mut files = Vec::new();
+
+        // L0 files
+        for file in self.l0_files() {
+            files.push(file);
+        }
+
+        // L1+ files
+        for level_meta in self.levels.iter().skip(1) {
+            for slot in &level_meta.slots {
+                for run in &slot.runs {
+                    files.push(run);
+                }
+            }
+        }
+
+        files
+    }
+
     /// Creates a new empty manifest snapshot.
     pub fn new() -> Self {
         Self {

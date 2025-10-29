@@ -110,12 +110,16 @@
 //!
 //! ## 📋 Remaining Work for Production
 //!
-//! 1. **L0→L1 Admission** - Split L0 files on guard boundaries and place into L1 slots
-//! 2. **Performance Benchmarking** - Measure actual vs. SLO targets (p95 GET < 10ms, PUT < 20ms)
-//! 3. **Bloom Filter Tuning** - Measure false positive rates and optimize bits-per-key
-//! 4. **Compaction Scheduler Tuning** - Validate bandit epsilon-greedy policy effectiveness
-//! 5. **Memory Pressure Handling** - Refine backpressure and throttling mechanisms
-//! 6. **Graceful Shutdown** - Clean up background compaction coordinator
+//! 1. **Bloom Filter Tuning** - Measure false positive rates and optimize bits-per-key
+//! 2. **Compaction Scheduler Tuning** - Validate bandit epsilon-greedy policy effectiveness
+//! 3. **Memory Pressure Handling** - Refine backpressure and throttling mechanisms
+//!
+//! ## ✅ Recently Completed
+//!
+//! - **Graceful Shutdown** (Phase 10) - Implemented with JoinHandle tracking, flush on shutdown, WAL/manifest sync
+//! - **Performance Benchmarking** (Phase 9) - All SLOs exceeded: GET 3,400x faster, PUT 205x faster than targets
+//! - **Comprehensive Stats** (Phase 8) - Per-level metrics, amplification factors, cache tracking
+//! - **Full Observability** (Phase 8) - VizEvent emission, performance counters, meter integration
 //!
 //! # Design References
 //!
@@ -201,6 +205,9 @@ pub struct LsmEngine {
 
     /// Shutdown signal for background compaction thread
     compaction_shutdown: Arc<AtomicBool>,
+
+    /// Join handle for background compaction thread
+    compaction_handle: Arc<parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
     /// LRU cache for SSTableReaders (file_number -> Arc<SSTableReader>)
     /// Caches up to 128 open SSTable files to avoid repeated file opens
@@ -347,6 +354,7 @@ impl LsmEngine {
             sst_dir: sst_dir.clone(),
             seqno: Arc::new(AtomicU64::new(next_seqno)),
             compaction_shutdown: compaction_shutdown.clone(),
+            compaction_handle: Arc::new(parking_lot::Mutex::new(None)),
             reader_cache,
             compaction_bytes_in: Arc::new(AtomicU64::new(0)),
             compaction_bytes_out: Arc::new(AtomicU64::new(0)),
@@ -368,7 +376,7 @@ impl LsmEngine {
         let compactions_completed_clone = engine.compactions_completed.clone();
         let meter_clone = engine.meter.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             Self::compaction_loop(
                 manifest_clone,
                 guards,
@@ -383,6 +391,9 @@ impl LsmEngine {
             )
             .await;
         });
+
+        // Store the join handle
+        *engine.compaction_handle.lock() = Some(handle);
 
         Ok(engine)
     }
@@ -880,6 +891,77 @@ impl LsmEngine {
     /// - `Err` if flush failed
     pub async fn flush(&self) -> Result<()> {
         self.flush_memtable().await
+    }
+
+    /// Gracefully shuts down the LSM engine.
+    ///
+    /// # Process
+    /// 1. Signal background compaction thread to stop
+    /// 2. Wait for compaction thread to complete
+    /// 3. Flush any remaining memtable data
+    /// 4. Sync WAL to ensure durability
+    /// 5. Sync manifest to persist metadata
+    ///
+    /// # Guarantees
+    /// - No data loss: All pending writes are flushed
+    /// - Clean shutdown: Compaction thread terminates gracefully
+    /// - Durability: WAL and manifest are synced to disk
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use nori_lsm::{LsmEngine, ATLLConfig};
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let engine = LsmEngine::open(ATLLConfig::default()).await?;
+    ///
+    /// // ... use engine ...
+    ///
+    /// // Gracefully shutdown before exit
+    /// engine.shutdown().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn shutdown(&self) -> Result<()> {
+        use std::sync::atomic::Ordering;
+
+        tracing::info!("Initiating LSM engine shutdown");
+
+        // 1. Signal compaction thread to stop
+        self.compaction_shutdown.store(true, Ordering::Relaxed);
+
+        // 2. Wait for compaction thread to complete
+        let handle = self.compaction_handle.lock().take();
+        if let Some(handle) = handle {
+            match handle.await {
+                Ok(_) => tracing::info!("Compaction thread stopped successfully"),
+                Err(e) => tracing::warn!("Compaction thread join error: {}", e),
+            }
+        }
+
+        // 3. Flush any remaining memtable data
+        if !self.memtable.read().is_empty() {
+            tracing::info!("Flushing remaining memtable data");
+            self.flush_memtable().await?;
+        }
+
+        // 4. Sync WAL to ensure all writes are durable
+        {
+            let wal = self.wal.read();
+            wal.sync()
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to sync WAL: {}", e)))?;
+            tracing::info!("WAL synced successfully");
+        }
+
+        // 5. Write final manifest snapshot for clean state
+        {
+            let mut manifest = self.manifest.write();
+            manifest.write_snapshot()?;
+            tracing::info!("Manifest snapshot written successfully");
+        }
+
+        tracing::info!("LSM engine shutdown complete");
+        Ok(())
     }
 
     /// Freezes the active memtable and initiates background flush.
@@ -1483,14 +1565,25 @@ impl Drop for LsmEngine {
     fn drop(&mut self) {
         use std::sync::atomic::Ordering;
 
-        // Signal compaction thread to shut down
-        self.compaction_shutdown.store(true, Ordering::Relaxed);
+        // Check if shutdown was called
+        let already_shutdown = self.compaction_shutdown.load(Ordering::Relaxed);
 
-        // Give the thread a moment to finish gracefully
-        // In production, we'd use a proper join handle
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        if !already_shutdown {
+            tracing::warn!(
+                "LsmEngine dropped without calling shutdown()! \
+                 Use engine.shutdown().await for graceful shutdown. \
+                 Signaling background thread to stop..."
+            );
 
-        tracing::info!("LsmEngine dropped, compaction thread signaled to stop");
+            // Signal compaction thread to stop
+            self.compaction_shutdown.store(true, Ordering::Relaxed);
+
+            // Brief sleep to allow thread to see signal
+            // Note: Cannot properly await here since Drop is not async
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
+        tracing::info!("LsmEngine dropped");
     }
 }
 
@@ -2753,5 +2846,103 @@ mod tests {
         assert!(stats_after_deletes.wal_bytes_written > stats_after_reads.wal_bytes_written);
 
         println!("Final stats: {:#?}", stats_after_deletes);
+    }
+
+    #[tokio::test]
+    async fn test_graceful_shutdown() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+
+        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+        // Write some data
+        for i in 0..100 {
+            let key = Bytes::from(format!("key{:03}", i));
+            let value = Bytes::from(format!("value{:03}", i));
+            engine.put(key, value).await.unwrap();
+        }
+
+        // Gracefully shutdown
+        engine.shutdown().await.unwrap();
+
+        // Reopen engine to verify data was persisted
+        let engine2 = LsmEngine::open(config.clone()).await.unwrap();
+
+        // Verify all data is present
+        for i in 0..100 {
+            let key = format!("key{:03}", i);
+            let value = engine2.get(key.as_bytes()).await.unwrap();
+            assert!(value.is_some(), "Key {} should exist after shutdown", key);
+            assert_eq!(
+                value.unwrap(),
+                Bytes::from(format!("value{:03}", i)),
+                "Value mismatch for key {}",
+                key
+            );
+        }
+
+        // Shutdown the second engine too
+        engine2.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_with_pending_flush() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1024 * 1024; // 1MB - high threshold
+
+        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+        // Write data that doesn't trigger flush
+        for i in 0..10 {
+            let key = Bytes::from(format!("key{:03}", i));
+            let value = Bytes::from(vec![0u8; 100]); // Small values
+            engine.put(key, value).await.unwrap();
+        }
+
+        // Shutdown should flush pending memtable data
+        engine.shutdown().await.unwrap();
+
+        // Reopen and verify data was flushed
+        let engine2 = LsmEngine::open(config.clone()).await.unwrap();
+
+        for i in 0..10 {
+            let key = format!("key{:03}", i);
+            let value = engine2.get(key.as_bytes()).await.unwrap();
+            assert!(
+                value.is_some(),
+                "Pending data should be flushed on shutdown"
+            );
+        }
+
+        engine2.shutdown().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_idempotent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write some data
+        engine
+            .put(Bytes::from("key"), Bytes::from("value"))
+            .await
+            .unwrap();
+
+        // First shutdown
+        engine.shutdown().await.unwrap();
+
+        // Second shutdown should be safe (idempotent)
+        // Should not panic or error
+        let result = engine.shutdown().await;
+        assert!(
+            result.is_ok(),
+            "Second shutdown should succeed (idempotent)"
+        );
     }
 }

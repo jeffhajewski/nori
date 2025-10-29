@@ -4,14 +4,14 @@
 
 ## Features
 
-- ✅ **MVCC Semantics**: Sequence number-based versioning
-- ✅ **Guard-Based Partitioning**: Adaptive slot-based range partitioning
-- ✅ **Dynamic K-Way Fanout**: Adapts to access patterns (hot = leveled, cold = tiered)
-- ✅ **Bandit-Based Compaction**: Intelligent scheduling using multi-armed bandit algorithm
-- ✅ **WAL Durability**: Write-ahead logging with crash recovery
-- ✅ **Bloom Filters**: Optimized point query performance
-- ✅ **Comprehensive Observability**: Stats tracking, VizEvent emission, performance metrics
-- ✅ **Production-Grade Performance**: Microsecond latencies (see benchmarks below)
+- **MVCC Semantics**: Sequence number-based versioning
+- **Guard-Based Partitioning**: Adaptive slot-based range partitioning
+- **Dynamic K-Way Fanout**: Adapts to access patterns (hot = leveled, cold = tiered)
+- **Bandit-Based Compaction**: Intelligent scheduling using multi-armed bandit algorithm
+- **WAL Durability**: Write-ahead logging with crash recovery
+- **Bloom Filters**: Optimized point query performance
+- **Comprehensive Observability**: Stats tracking, VizEvent emission, performance metrics
+- **Production-Grade Performance**: Microsecond latencies (see benchmarks below)
 
 ## Performance Benchmarks
 
@@ -20,19 +20,19 @@ Benchmark results on Apple Silicon (M-series), measured with Criterion:
 ### SLO Compliance
 
 **Target SLOs:**
-- ✅ p95 GET latency: < 10ms (10,000 µs)
-- ✅ p95 PUT latency: < 20ms (20,000 µs)
+- p95 GET latency: < 10ms (10,000 µs)
+- p95 PUT latency: < 20ms (20,000 µs)
 
 ### Basic Operations
 
 | Operation | Mean Latency | vs 20ms SLO | Status |
 |-----------|--------------|-------------|--------|
-| **PUT (1KB)** | 62.2 µs | 205x faster | ✅ **Exceeds** |
-| **PUT (4KB)** | 91.8 µs | 168x faster | ✅ **Exceeds** |
-| **GET (memtable)** | 0.30 µs | 30,000x faster | ✅ **Exceeds** |
-| **GET (L0)** | 2.67 µs | 3,400x faster | ✅ **Exceeds** |
-| **DELETE** | 16.8 µs | 565x faster | ✅ **Exceeds** |
-| **Mixed 80/20** | 9.28 µs | - | ✅ **Excellent** |
+| **PUT (1KB)** | 62.2 µs | 205x faster | **Exceeds** |
+| **PUT (4KB)** | 91.8 µs | 168x faster | **Exceeds** |
+| **GET (memtable)** | 0.30 µs | 30,000x faster | **Exceeds** |
+| **GET (L0)** | 2.67 µs | 3,400x faster | **Exceeds** |
+| **DELETE** | 16.8 µs | 565x faster | **Exceeds** |
+| **Mixed 80/20** | 9.28 µs | - | **Excellent** |
 
 ### Write Scaling by Value Size
 
@@ -58,7 +58,7 @@ Benchmark results on Apple Silicon (M-series), measured with Criterion:
 │  Memtable (skiplist)                                        │
 │  - In-memory writes with MVCC                               │
 │  - WAL durability                                           │
-│  - Flush trigger: 64MB or 30s WAL age                      │
+│  - Flush trigger: 64MB or 30s WAL age                       │
 └──────────────┬──────────────────────────────────────────────┘
                │ Flush
                ↓
@@ -73,7 +73,7 @@ Benchmark results on Apple Silicon (M-series), measured with Criterion:
 │  L1+ (guard-partitioned levels)                             │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │ Slot 0    │ Slot 1    │ Slot 2    │ ... │ Slot N       │ │
-│  │ [g₀, g₁)  │ [g₁, g₂)  │ [g₂, g₃)  │     │ [gₙ, +∞)    │ │
+│  │ [g₀, g₁)  │ [g₁, g₂)  │ [g₂, g₃)  │     │ [gₙ, +∞)     │ │
 │  │ K=1-3 runs│ K=1-3 runs│ K=1-3 runs│     │ K=1-3 runs   │ │
 │  └────────────────────────────────────────────────────────┘ │
 │  - Hot slots: K→1 (leveled, low read amp)                   │
@@ -165,6 +165,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Graceful Shutdown
+
+Always call `shutdown()` before dropping the engine to ensure data safety:
+
+```rust
+use nori_lsm::{LsmEngine, ATLLConfig};
+use bytes::Bytes;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = ATLLConfig::default();
+    let engine = LsmEngine::open(config).await?;
+
+    // Perform operations
+    engine.put(Bytes::from("key"), Bytes::from("value")).await?;
+
+    // Always shutdown gracefully before exit
+    engine.shutdown().await?;
+
+    Ok(())
+}
+```
+
+**What `shutdown()` does:**
+1. Signals the background compaction thread to stop
+2. Waits for compaction thread to complete gracefully
+3. Flushes any pending memtable data to disk
+4. Syncs the WAL to ensure all writes are durable
+5. Writes a final manifest snapshot for clean recovery
+
+**Best Practices:**
+- Always call `shutdown()` in production applications
+- Use `tokio::signal` for signal handling (SIGTERM, SIGINT)
+- The engine will log a warning if dropped without calling `shutdown()`
+
+```rust
+// Example: Shutdown on SIGTERM
+use tokio::signal;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let engine = LsmEngine::open(ATLLConfig::default()).await?;
+
+    // Spawn signal handler
+    tokio::spawn(async move {
+        signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+        println!("Received shutdown signal");
+    });
+
+    // Application logic...
+
+    // Graceful shutdown on exit
+    engine.shutdown().await?;
+    Ok(())
+}
+```
+
 ## Configuration
 
 Key configuration options in `ATLLConfig`:
@@ -197,7 +254,8 @@ cargo bench -p nori-lsm --bench heavy_workloads
 
 ## Current Status
 
-**✅ Production Features Implemented:**
+**Production Features Implemented:**
+
 - Core LSM structure (memtable, manifest, guards, heat tracking)
 - Multi-level reads across L0/L1+ with key range routing
 - L0→L1 admission with guard-based routing (physical splitting during compaction)
@@ -207,11 +265,12 @@ cargo bench -p nori-lsm --bench heavy_workloads
 - Full observability integration (VizEvents, metrics, counters)
 - Bloom filter support
 - Error recovery (graceful degradation on corrupted SSTables)
-- **99 passing tests** covering operations, recovery, compaction, and stress scenarios
+- **Graceful shutdown** with background thread cleanup, flush, and sync guarantees
+- **102 passing tests** covering operations, recovery, compaction, shutdown, and stress scenarios
 
 **⚠️ Known Limitations:**
+
 - Physical file splitting deferred to compaction phase (L0 files may span slots temporarily)
-- Graceful shutdown not yet implemented
 - Bloom filter tuning pending real-world workload analysis
 
 ## Benchmarking
@@ -225,6 +284,7 @@ open target/criterion/report/index.html
 ```
 
 Results show:
+
 - **Microsecond-level latencies** for all operations
 - **205x faster** than PUT SLO target (20ms)
 - **3,400x faster** than GET SLO target (10ms)

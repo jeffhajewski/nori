@@ -296,7 +296,7 @@ impl BanditScheduler {
                 let target_size_bytes = (base_size_mb * 1024 * 1024) * level_multiplier;
 
                 // Trigger if slot exceeds 1.5x target size
-                if slot.bytes > (target_size_bytes as u64 * 3 / 2) && slot.runs.len() >= 2 {
+                if slot.bytes > (target_size_bytes * 3 / 2) && slot.runs.len() >= 2 {
                     candidates.push(CompactionAction::Tier {
                         level: level_meta.level,
                         slot_id: slot.slot_id,
@@ -324,7 +324,7 @@ impl BanditScheduler {
                 // Trigger 6: Tombstone cleanup at bottom level
                 // Only clean tombstones at max_levels (no lower levels exist)
                 if level_meta.level == self.config.max_levels
-                    && slot.tombstone_density as f32 >= self.config.tombstone.density_threshold
+                    && slot.tombstone_density >= self.config.tombstone.density_threshold
                     && !slot.runs.is_empty()
                 {
                     candidates.push(CompactionAction::Cleanup {
@@ -887,21 +887,20 @@ impl CompactionExecutor {
 
         // For simplification in Phase 6: just move the run
         // In Phase 8, we'd merge with overlapping runs in L+1
-        let mut edits = Vec::new();
-
-        // Delete from current level
-        edits.push(ManifestEdit::DeleteFile {
-            level,
-            slot_id: Some(slot_id),
-            file_number,
-        });
-
-        // Add to next level (same slot)
-        edits.push(ManifestEdit::AddFile {
-            level: level + 1,
-            slot_id: Some(slot_id),
-            run: run_to_promote.clone(),
-        });
+        let edits = vec![
+            // Delete from current level
+            ManifestEdit::DeleteFile {
+                level,
+                slot_id: Some(slot_id),
+                file_number,
+            },
+            // Add to next level (same slot)
+            ManifestEdit::AddFile {
+                level: level + 1,
+                slot_id: Some(slot_id),
+                run: run_to_promote.clone(),
+            },
+        ];
 
         Ok((edits, 0)) // No actual bytes written (just metadata move)
     }

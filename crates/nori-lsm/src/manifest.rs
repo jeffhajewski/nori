@@ -355,7 +355,7 @@ impl ManifestSnapshot {
                         .slots
                         .iter_mut()
                         .find(|s| s.slot_id == slot_id)
-                        .ok_or_else(|| Error::SlotNotFound(level, slot_id))?;
+                        .ok_or(Error::SlotNotFound(level, slot_id))?;
 
                     if let Some(run) = slot.runs.iter().find(|r| r.file_number == file_number) {
                         slot.bytes = slot.bytes.saturating_sub(run.size);

@@ -31,6 +31,7 @@ pub struct Flusher {
     sst_dir: PathBuf,
 
     /// ATLL configuration
+    #[allow(dead_code)] // TODO: Will be used for configurable SSTable settings
     config: ATLLConfig,
 }
 
@@ -153,6 +154,7 @@ impl Flusher {
 /// L0 admitter handles L0→L1 admission with guard splitting.
 pub struct L0Admitter {
     /// Data directory for SST files
+    #[allow(dead_code)] // TODO: Will be used for physical file splitting in Phase 4
     sst_dir: PathBuf,
 
     /// Configuration
@@ -252,6 +254,7 @@ impl L0Admitter {
 /// Compactor handles slot-local tiering compaction.
 pub struct Compactor {
     /// Data directory for SST files
+    #[allow(dead_code)] // TODO: Will be used for physical merge implementation in Phase 6
     sst_dir: PathBuf,
 
     /// Configuration

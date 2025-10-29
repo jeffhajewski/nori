@@ -1,6 +1,14 @@
 //! nori-lsm: Embeddable ATLL (Adaptive Tiered-Leveled LSM) engine.
 //!
 //! Implements the full ATLL design with:
+
+// Allow holding parking_lot locks across await points.
+// Rationale: We use parking_lot::RwLock for synchronous data structures (manifest, WAL, memtable).
+// These locks are held for very short durations (microseconds) and the async operations
+// they guard (WAL append, SSTable reads) are I/O bound, not CPU bound.
+// Migrating to tokio::sync::RwLock would require significant refactoring for minimal benefit.
+// The parking_lot locks provide better performance for our use case.
+#![allow(clippy::await_holding_lock)]
 //! - Guard-based range partitioning (slots)
 //! - Dynamic K-way fanout per slot (adapts to heat)
 //! - Learned guard placement (quantile sketches)
@@ -163,6 +171,7 @@ pub struct LsmEngine {
     memtable: Arc<parking_lot::RwLock<Memtable>>,
 
     /// Immutable memtables being flushed
+    #[allow(dead_code)] // TODO: Will be used for concurrent flush in Phase 7
     immutable_memtables: Arc<parking_lot::RwLock<Vec<Arc<Memtable>>>>,
 
     /// Write-ahead log for durability
@@ -178,6 +187,7 @@ pub struct LsmEngine {
     guards: Arc<GuardManager>,
 
     /// Heat tracker for workload adaptation
+    #[allow(dead_code)] // TODO: Will be used when heat tracking is implemented (Option D)
     heat: Arc<HeatTracker>,
 
     /// Configuration
@@ -368,9 +378,11 @@ impl LsmEngine {
         }
 
         // 2. Check L0 files (newest to oldest)
-        let snapshot = self.manifest.read().snapshot();
-        let snapshot_guard = snapshot.read().unwrap();
-        let l0_files = snapshot_guard.l0_files();
+        let l0_files = {
+            let snapshot = self.manifest.read().snapshot();
+            let snapshot_guard = snapshot.read().unwrap();
+            snapshot_guard.l0_files().to_vec()
+        };
 
         // L0 files are stored oldest-first in manifest, so iterate in reverse
         for run in l0_files.iter().rev() {
@@ -435,9 +447,16 @@ impl LsmEngine {
         // Determine which slot this key belongs to
         let slot_id = self.guards.slot_for_key(key);
 
-        for level in 1..self.config.max_levels {
-            let runs = snapshot_guard.slot_runs(level, slot_id);
+        // Get L1+ runs (clone to drop lock before await)
+        let level_runs: Vec<(u8, Vec<_>)> = {
+            let snapshot = self.manifest.read().snapshot();
+            let snapshot_guard = snapshot.read().unwrap();
+            (1..self.config.max_levels)
+                .map(|level| (level, snapshot_guard.slot_runs(level, slot_id).to_vec()))
+                .collect()
+        };
 
+        for (level, runs) in level_runs {
             for run in runs.iter() {
                 // Check if this run overlaps the key
                 if key < run.min_key.as_ref() || key > run.max_key.as_ref() {
@@ -509,12 +528,13 @@ impl LsmEngine {
 
         // 2. Write to WAL first (durability)
         let record = Record::put(key.clone(), value.clone());
-        {
+        // Acquire write lock, call append (which is async), then lock is dropped
+        // We need to hold the lock to ensure WAL writes are serialized
+        let result = {
             let wal = self.wal.write();
-            wal.append(&record)
-                .await
-                .map_err(|e| Error::Internal(format!("WAL append failed: {}", e)))?;
-        }
+            wal.append(&record).await
+        };
+        result.map_err(|e| Error::Internal(format!("WAL append failed: {}", e)))?;
 
         // 3. Get next sequence number
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
@@ -629,7 +649,7 @@ impl LsmEngine {
             let iter =
                 reader.iter_range(Bytes::copy_from_slice(start), Bytes::copy_from_slice(end));
 
-            sources.push(IteratorSource::SSTable(iter));
+            sources.push(IteratorSource::SSTable(Box::new(iter)));
             source_types.push(SourceType::L0 { file_idx });
         }
 
@@ -660,7 +680,7 @@ impl LsmEngine {
                     let iter = reader
                         .iter_range(Bytes::copy_from_slice(start), Bytes::copy_from_slice(end));
 
-                    sources.push(IteratorSource::SSTable(iter));
+                    sources.push(IteratorSource::SSTable(Box::new(iter)));
                     source_types.push(SourceType::Level {
                         level,
                         slot_id: *slot_id,

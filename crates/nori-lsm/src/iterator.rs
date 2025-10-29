@@ -119,8 +119,8 @@ pub enum IteratorSource {
         pos: usize,
     },
 
-    /// SSTable iterator (L0 or L1+)
-    SSTable(SSTableIterator),
+    /// SSTable iterator (L0 or L1+), boxed to reduce enum size
+    SSTable(Box<SSTableIterator>),
 }
 
 impl IteratorSource {
@@ -257,7 +257,7 @@ impl LsmIterator {
 
             // Skip duplicates (same key as last returned)
             if let Some(ref last) = self.last_key {
-                if &candidate.key == last {
+                if candidate.key == *last {
                     continue; // Duplicate, skip
                 }
             }

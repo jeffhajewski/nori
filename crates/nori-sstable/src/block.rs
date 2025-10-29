@@ -95,6 +95,7 @@ impl Block {
             let shared_len = decode_varint(&mut buf)? as usize;
             let unshared_len = decode_varint(&mut buf)? as usize;
             let _value_len_encoded = decode_varint(&mut buf)?;
+            let _seqno = decode_varint(&mut buf)?; // IMPORTANT: skip seqno before reading key!
 
             if shared_len != 0 {
                 return Err(SSTableError::InvalidFormat(

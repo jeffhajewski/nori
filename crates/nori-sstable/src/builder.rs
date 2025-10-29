@@ -100,6 +100,8 @@ pub struct SSTableBuilder {
     entry_count: u64,
     last_key: Bytes,
     first_key: Option<Bytes>,
+    /// First key of the current block (reset after each flush)
+    block_first_key: Option<Bytes>,
     meter: Box<dyn Meter>,
     start_time: std::time::Instant,
 }
@@ -131,6 +133,7 @@ impl SSTableBuilder {
             entry_count: 0,
             last_key: Bytes::new(),
             first_key: None,
+            block_first_key: None,
             meter,
             start_time: std::time::Instant::now(),
         })
@@ -160,6 +163,11 @@ impl SSTableBuilder {
         // Try to add to current block
         self.block_builder.add(entry)?;
 
+        // Track first key of current block
+        if self.block_first_key.is_none() {
+            self.block_first_key = Some(entry.key.clone());
+        }
+
         // Check if we need to flush the block
         if self.block_builder.current_size() >= self.config.block_size as usize {
             self.flush_block().await?;
@@ -182,9 +190,9 @@ impl SSTableBuilder {
 
         // Get the first key in this block
         let first_key = self
-            .first_key
+            .block_first_key
             .clone()
-            .ok_or_else(|| SSTableError::InvalidFormat("no first key".to_string()))?;
+            .ok_or_else(|| SSTableError::InvalidFormat("no block first key".to_string()))?;
 
         // Finish the block (uncompressed)
         let block_data = self.block_builder.finish();
@@ -221,7 +229,7 @@ impl SSTableBuilder {
 
         // Reset for next block
         self.block_builder.reset();
-        self.first_key = None;
+        self.block_first_key = None;
 
         Ok(())
     }

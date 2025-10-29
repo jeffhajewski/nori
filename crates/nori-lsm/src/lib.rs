@@ -1876,11 +1876,11 @@ mod tests {
 
         println!("Creating SSTable at: {:?}", sst_path);
 
-        // Write phase - write 67 keys like the real flush
+        // Write phase - write 67 keys with SMALL block size to force multiple blocks
         let config = SSTableConfig {
             path: sst_path.clone(),
             estimated_entries: 67,
-            block_size: 4096,
+            block_size: 256, // Small block size to force multiple blocks
             restart_interval: 16,
             compression: Compression::None,
             bloom_bits_per_key: 10,

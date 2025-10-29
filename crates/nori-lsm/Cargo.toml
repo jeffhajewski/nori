@@ -28,3 +28,15 @@ tracing = "0.1"
 tempfile = "3"
 proptest = "1"
 criterion = "0.5"
+
+[[bench]]
+name = "lsm_operations"
+harness = false
+
+[[bench]]
+name = "range_scans"
+harness = false
+
+[[bench]]
+name = "heavy_workloads"
+harness = false

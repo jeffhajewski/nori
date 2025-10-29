@@ -79,6 +79,7 @@ impl Meter for NoopMeter {
 pub enum VizEvent {
     Wal(WalEvt),
     Compaction(CompEvt),
+    Lsm(LsmEvt),
     Raft(RaftEvt),
     Swim(SwimEvt),
     Shard(ShardEvt),
@@ -111,6 +112,43 @@ pub enum CompKind {
     Start,
     Progress { pct: u8 },
     Finish { in_bytes: u64, out_bytes: u64 },
+}
+
+#[derive(Clone, Debug)]
+pub struct LsmEvt {
+    pub node: u32,
+    pub kind: LsmKind,
+}
+#[derive(Clone, Debug)]
+pub enum LsmKind {
+    /// Memtable flush triggered (size or age threshold)
+    FlushTriggered {
+        reason: FlushReason,
+        memtable_bytes: usize,
+    },
+    /// Memtable flush started
+    FlushStart { seqno_min: u64, seqno_max: u64 },
+    /// Memtable flush completed
+    FlushComplete {
+        file_number: u64,
+        bytes: u64,
+        entries: usize,
+    },
+    /// L0 backpressure stalling writes
+    L0Stall { file_count: usize, threshold: usize },
+    /// L0 admission started (L0 → L1)
+    L0AdmissionStart { file_number: u64 },
+    /// L0 admission completed
+    L0AdmissionComplete { file_number: u64, target_slot: u32 },
+    /// Guard adjustment proposed
+    GuardAdjustment { level: u8, new_guard_count: usize },
+}
+
+#[derive(Clone, Debug)]
+pub enum FlushReason {
+    MemtableSize,
+    WalAge,
+    Manual,
 }
 
 #[derive(Clone, Debug)]

@@ -220,10 +220,21 @@ pub struct LsmEngine {
     cache_misses: Arc<AtomicU64>,
     /// Total WAL bytes written
     wal_bytes_written: Arc<AtomicU64>,
+
+    /// Observability meter for emitting events and metrics
+    meter: Arc<dyn Meter>,
 }
 
 impl LsmEngine {
     /// Opens an LSM engine with the given configuration.
+    ///
+    /// Uses a NoopMeter for observability. For production use with metrics,
+    /// use `open_with_meter()` instead.
+    pub async fn open(config: ATLLConfig) -> Result<Self> {
+        Self::open_with_meter(config, Arc::new(NoopMeter)).await
+    }
+
+    /// Opens an LSM engine with the given configuration and observability meter.
     ///
     /// Creates or loads the LSM engine from disk. If the directory doesn't exist,
     /// initializes a fresh engine with empty manifest and guard set.
@@ -239,7 +250,7 @@ impl LsmEngine {
     /// # TODO
     /// - Background compaction threads (Phase 6)
     /// - Persistent heat tracker state (Phase 8)
-    pub async fn open(config: ATLLConfig) -> Result<Self> {
+    pub async fn open_with_meter(config: ATLLConfig, meter: Arc<dyn Meter>) -> Result<Self> {
         use std::time::Duration;
 
         // Ensure SSTable directory exists
@@ -343,6 +354,7 @@ impl LsmEngine {
             cache_hits: Arc::new(AtomicU64::new(0)),
             cache_misses: Arc::new(AtomicU64::new(0)),
             wal_bytes_written: Arc::new(AtomicU64::new(0)),
+            meter,
         };
 
         // Spawn background compaction thread
@@ -354,6 +366,7 @@ impl LsmEngine {
         let compaction_bytes_in_clone = engine.compaction_bytes_in.clone();
         let compaction_bytes_out_clone = engine.compaction_bytes_out.clone();
         let compactions_completed_clone = engine.compactions_completed.clone();
+        let meter_clone = engine.meter.clone();
 
         tokio::spawn(async move {
             Self::compaction_loop(
@@ -366,6 +379,7 @@ impl LsmEngine {
                 compaction_bytes_in_clone,
                 compaction_bytes_out_clone,
                 compactions_completed_clone,
+                meter_clone,
             )
             .await;
         });
@@ -392,14 +406,30 @@ impl LsmEngine {
     pub async fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
         use crate::memtable::MemtableEntry;
 
+        // Track operation count
+        nori_observe::obs_count!(self.meter, "lsm_ops_total", &[("op", "get")], 1);
+
+        let start = std::time::Instant::now();
+
         // 1. Check memtable first (newest data)
         {
             let memtable = self.memtable.read();
             if let Some(entry) = memtable.get(key) {
-                return match entry {
+                let result = match entry {
                     MemtableEntry::Put { value, seqno: _ } => Ok(Some(value)),
                     MemtableEntry::Delete { seqno: _ } => Ok(None), // Tombstone
                 };
+
+                // Track latency before returning
+                let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                nori_observe::obs_hist!(
+                    self.meter,
+                    "lsm_op_latency_ms",
+                    &[("op", "get")],
+                    elapsed_ms
+                );
+
+                return result;
             }
         }
 
@@ -443,6 +473,15 @@ impl LsmEngine {
                     if key_in_range {
                         println!("  DEBUG get(): Found key in L0 file {}", run.file_number);
                     }
+                    // Track latency before returning
+                    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                    nori_observe::obs_hist!(
+                        self.meter,
+                        "lsm_op_latency_ms",
+                        &[("op", "get")],
+                        elapsed_ms
+                    );
+
                     return if entry.tombstone {
                         Ok(None)
                     } else {
@@ -506,6 +545,15 @@ impl LsmEngine {
 
                 match reader.get(key).await {
                     Ok(Some(entry)) => {
+                        // Track latency before returning
+                        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+                        nori_observe::obs_hist!(
+                            self.meter,
+                            "lsm_op_latency_ms",
+                            &[("op", "get")],
+                            elapsed_ms
+                        );
+
                         return if entry.tombstone {
                             Ok(None)
                         } else {
@@ -529,6 +577,15 @@ impl LsmEngine {
         // TODO: Heat tracking
         // self.heat.record_op(level, slot_id, heat::Operation::Get);
 
+        // Track latency
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        nori_observe::obs_hist!(
+            self.meter,
+            "lsm_op_latency_ms",
+            &[("op", "get")],
+            elapsed_ms
+        );
+
         // Key not found
         Ok(None)
     }
@@ -548,6 +605,11 @@ impl LsmEngine {
     /// Caller should retry after a short delay.
     pub async fn put(&self, key: Bytes, value: Bytes) -> Result<u64> {
         use std::sync::atomic::Ordering;
+
+        // Track operation count
+        nori_observe::obs_count!(self.meter, "lsm_ops_total", &[("op", "put")], 1);
+
+        let start = std::time::Instant::now();
 
         // 1. Check L0 backpressure
         self.check_l0_pressure()?;
@@ -579,6 +641,15 @@ impl LsmEngine {
         // 5. Check flush triggers
         self.check_flush_triggers().await?;
 
+        // Track latency
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        nori_observe::obs_hist!(
+            self.meter,
+            "lsm_op_latency_ms",
+            &[("op", "put")],
+            elapsed_ms
+        );
+
         Ok(seqno)
     }
 
@@ -595,6 +666,11 @@ impl LsmEngine {
     /// Returns `Error::L0Stall` if L0 file count exceeds threshold.
     pub async fn delete(&self, key: &[u8]) -> Result<()> {
         use std::sync::atomic::Ordering;
+
+        // Track operation count
+        nori_observe::obs_count!(self.meter, "lsm_ops_total", &[("op", "delete")], 1);
+
+        let start = std::time::Instant::now();
 
         // 1. Check L0 backpressure
         self.check_l0_pressure()?;
@@ -625,6 +701,15 @@ impl LsmEngine {
 
         // 5. Check flush triggers
         self.check_flush_triggers().await?;
+
+        // Track latency
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        nori_observe::obs_hist!(
+            self.meter,
+            "lsm_op_latency_ms",
+            &[("op", "delete")],
+            elapsed_ms
+        );
 
         Ok(())
     }
@@ -748,7 +833,7 @@ impl LsmEngine {
     /// - Size: memtable >= 64 MiB
     /// - Age: WAL age >= 30 seconds
     async fn check_flush_triggers(&self) -> Result<()> {
-        let should_flush = {
+        let (should_flush, flush_reason, memtable_bytes) = {
             let memtable = self.memtable.read();
             let size_bytes = memtable.size();
             let size_trigger = size_bytes >= self.config.memtable.flush_trigger_bytes;
@@ -756,10 +841,29 @@ impl LsmEngine {
             let wal_age = self.wal_create_time.read().elapsed();
             let age_trigger = wal_age.as_secs() >= self.config.memtable.wal_age_trigger_sec;
 
-            size_trigger || age_trigger
+            let should_flush = size_trigger || age_trigger;
+            let reason = if size_trigger {
+                nori_observe::FlushReason::MemtableSize
+            } else if age_trigger {
+                nori_observe::FlushReason::WalAge
+            } else {
+                nori_observe::FlushReason::Manual
+            };
+
+            (should_flush, reason, size_bytes)
         };
 
         if should_flush {
+            // Emit flush triggered event
+            self.meter
+                .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
+                    node: 0,
+                    kind: nori_observe::LsmKind::FlushTriggered {
+                        reason: flush_reason,
+                        memtable_bytes,
+                    },
+                }));
+
             self.flush_memtable().await?;
         }
 
@@ -812,6 +916,16 @@ impl LsmEngine {
             return Ok(());
         }
 
+        // Emit flush start event
+        self.meter
+            .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
+                node: 0,
+                kind: nori_observe::LsmKind::FlushStart {
+                    seqno_min: frozen_memtable.min_seqno(),
+                    seqno_max: frozen_memtable.max_seqno(),
+                },
+            }));
+
         // 3. Reset WAL create time
         {
             let mut wal_time = self.wal_create_time.write();
@@ -841,6 +955,17 @@ impl LsmEngine {
             run_meta
         };
 
+        // Emit flush complete event
+        self.meter
+            .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
+                node: 0,
+                kind: nori_observe::LsmKind::FlushComplete {
+                    file_number: run_meta.file_number,
+                    bytes: run_meta.size,
+                    entries: frozen_memtable.len(),
+                },
+            }));
+
         // 5. Check if L0 admission should be triggered
         let l0_admitter = flush::L0Admitter::new(&self.sst_dir, self.config.clone())?;
 
@@ -866,12 +991,33 @@ impl LsmEngine {
                 self.config.l0.max_files
             );
 
+            // Emit L0 admission start event
+            self.meter
+                .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
+                    node: 0,
+                    kind: nori_observe::LsmKind::L0AdmissionStart {
+                        file_number: run_meta.file_number,
+                    },
+                }));
+
             let edits = {
                 let mut manifest = self.manifest.write();
                 l0_admitter
                     .admit_to_l1(&run_meta, &self.guards, &mut manifest)
                     .await?
             };
+
+            // Extract target slot from edits for observability
+            let target_slot = edits
+                .iter()
+                .find_map(|edit| {
+                    if let manifest::ManifestEdit::AddFile { slot_id, .. } = edit {
+                        *slot_id
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(0);
 
             // Apply admission edits to manifest
             {
@@ -880,6 +1026,16 @@ impl LsmEngine {
                     manifest.append(edit)?;
                 }
             }
+
+            // Emit L0 admission complete event
+            self.meter
+                .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
+                    node: 0,
+                    kind: nori_observe::LsmKind::L0AdmissionComplete {
+                        file_number: run_meta.file_number,
+                        target_slot,
+                    },
+                }));
 
             tracing::debug!("L0 admission completed for file {}", run_meta.file_number);
         }
@@ -982,6 +1138,16 @@ impl LsmEngine {
         let max_files = self.config.l0.max_files;
 
         if l0_count > max_files {
+            // Emit L0 stall event
+            self.meter
+                .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
+                    node: 0,
+                    kind: nori_observe::LsmKind::L0Stall {
+                        file_count: l0_count,
+                        threshold: max_files,
+                    },
+                }));
+
             return Err(Error::L0Stall(l0_count, max_files));
         }
 
@@ -1146,6 +1312,7 @@ impl LsmEngine {
         compaction_bytes_in: Arc<AtomicU64>,
         compaction_bytes_out: Arc<AtomicU64>,
         compactions_completed: Arc<AtomicU64>,
+        meter: Arc<dyn Meter>,
     ) {
         use std::sync::atomic::Ordering;
         use tokio::time::{sleep, Duration};
@@ -1181,6 +1348,22 @@ impl LsmEngine {
             if !matches!(action, compaction::CompactionAction::DoNothing) {
                 tracing::debug!("Executing compaction action: {:?}", action);
 
+                // Extract level for observability
+                let action_level = match &action {
+                    compaction::CompactionAction::Tier { level, .. }
+                    | compaction::CompactionAction::Promote { level, .. }
+                    | compaction::CompactionAction::EagerLevel { level, .. }
+                    | compaction::CompactionAction::Cleanup { level, .. } => *level,
+                    _ => 0,
+                };
+
+                // Emit compaction start event
+                meter.emit(nori_observe::VizEvent::Compaction(nori_observe::CompEvt {
+                    node: 0, // TODO: Get node ID from config
+                    level: action_level,
+                    kind: nori_observe::CompKind::Start,
+                }));
+
                 // Track files to delete after successful edit
                 let mut old_files = Vec::new();
 
@@ -1212,6 +1395,18 @@ impl LsmEngine {
                                 compaction_bytes_in.fetch_add(bytes_written, Ordering::Relaxed);
                                 compaction_bytes_out.fetch_add(bytes_written, Ordering::Relaxed);
                                 compactions_completed.fetch_add(1, Ordering::Relaxed);
+
+                                // Emit compaction finish event
+                                meter.emit(nori_observe::VizEvent::Compaction(
+                                    nori_observe::CompEvt {
+                                        node: 0,
+                                        level: action_level,
+                                        kind: nori_observe::CompKind::Finish {
+                                            in_bytes: bytes_written, // Approximation
+                                            out_bytes: bytes_written,
+                                        },
+                                    },
+                                ));
 
                                 // Update scheduler with reward
                                 // For now, use simple heuristics:

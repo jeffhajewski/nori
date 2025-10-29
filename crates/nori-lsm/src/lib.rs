@@ -962,7 +962,7 @@ impl LsmEngine {
 
         // Initialize compaction components
         let mut scheduler = compaction::BanditScheduler::new(config.clone());
-        let mut executor = match compaction::CompactionExecutor::new(&sst_dir, config.clone()) {
+        let executor = match compaction::CompactionExecutor::new(&sst_dir, config.clone()) {
             Ok(exec) => exec,
             Err(e) => {
                 tracing::error!("Failed to create CompactionExecutor: {}", e);

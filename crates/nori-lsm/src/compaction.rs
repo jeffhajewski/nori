@@ -726,7 +726,7 @@ impl CompactionExecutor {
     /// - Vec<ManifestEdit>: Edits to apply to manifest
     /// - u64: Bytes written during compaction
     pub async fn execute(
-        &mut self,
+        &self,
         action: &CompactionAction,
         manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
     ) -> Result<(Vec<crate::manifest::ManifestEdit>, u64)> {
@@ -768,7 +768,7 @@ impl CompactionExecutor {
 
     /// Executes horizontal tiering: merge K oldest runs in a slot.
     async fn execute_tier(
-        &mut self,
+        &self,
         level: u8,
         slot_id: u32,
         run_count: usize,
@@ -852,7 +852,7 @@ impl CompactionExecutor {
 
     /// Executes vertical promotion: move run from level L to L+1.
     async fn execute_promote(
-        &mut self,
+        &self,
         level: u8,
         slot_id: u32,
         file_number: u64,
@@ -908,7 +908,7 @@ impl CompactionExecutor {
 
     /// Executes eager leveling: converge hot slot to K=1.
     async fn execute_eager_level(
-        &mut self,
+        &self,
         level: u8,
         slot_id: u32,
         manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
@@ -934,7 +934,7 @@ impl CompactionExecutor {
 
     /// Executes cleanup: drop tombstones and expired keys.
     async fn execute_cleanup(
-        &mut self,
+        &self,
         level: u8,
         slot_id: u32,
         manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
@@ -1025,11 +1025,14 @@ impl CompactionExecutor {
 /// Manages a pool of compaction workers, selects actions via the bandit scheduler,
 /// and respects IO budget constraints.
 ///
-/// TODO Phase 4 continuation: Complete implementation when executor is ready
+/// # Concurrency Model
+/// - Spawns multiple concurrent compaction tasks (up to max_background_compactions)
+/// - Uses shared scheduler (Arc<Mutex<BanditScheduler>>) for reward updates
+/// - Automatically cleans up old SSTable files after successful compaction
 #[allow(dead_code)]
 pub struct CompactionCoordinator {
-    /// Bandit scheduler for action selection
-    scheduler: BanditScheduler,
+    /// Bandit scheduler for action selection (shared for reward updates from tasks)
+    scheduler: Arc<parking_lot::Mutex<BanditScheduler>>,
 
     /// Compaction executor
     executor: CompactionExecutor,
@@ -1039,6 +1042,9 @@ pub struct CompactionCoordinator {
 
     /// Manifest reference
     manifest: Arc<parking_lot::RwLock<ManifestLog>>,
+
+    /// SSTable directory for file cleanup
+    sst_dir: std::path::PathBuf,
 
     /// Maximum concurrent background compactions
     max_concurrent: usize,
@@ -1059,15 +1065,19 @@ impl CompactionCoordinator {
         heat_tracker: Arc<HeatTracker>,
         manifest: Arc<parking_lot::RwLock<ManifestLog>>,
     ) -> Result<Self> {
+        let sst_dir = sst_dir.as_ref().to_path_buf();
         let max_concurrent = config.io.max_background_compactions;
-        let scheduler = BanditScheduler::new(config.clone());
-        let executor = CompactionExecutor::new(sst_dir, config)?;
+        let scheduler = Arc::new(parking_lot::Mutex::new(BanditScheduler::new(
+            config.clone(),
+        )));
+        let executor = CompactionExecutor::new(&sst_dir, config)?;
 
         Ok(Self {
             scheduler,
             executor,
             heat_tracker,
             manifest,
+            sst_dir,
             max_concurrent,
             active_count: Arc::new(parking_lot::RwLock::new(0)),
             shutdown: Arc::new(parking_lot::RwLock::new(false)),
@@ -1095,10 +1105,14 @@ impl CompactionCoordinator {
                     continue; // At capacity, wait
                 }
 
-                // TODO: Fix API mismatch - need ManifestSnapshot not ManifestLog
-                // let manifest = self.manifest.read();
-                // let action = self.scheduler.select_action(&manifest.snapshot().read().unwrap(), &self.heat_tracker);
-                let action = CompactionAction::DoNothing;
+                // Select compaction action using proper snapshot access
+                let action = {
+                    let manifest_guard = self.manifest.read();
+                    let snapshot = manifest_guard.snapshot();
+                    let snapshot_guard = snapshot.read().unwrap();
+                    let scheduler_guard = self.scheduler.lock();
+                    scheduler_guard.select_action(&snapshot_guard, &self.heat_tracker)
+                };
 
                 if matches!(action, CompactionAction::DoNothing) {
                     continue; // No work to do
@@ -1110,8 +1124,10 @@ impl CompactionCoordinator {
                 // Spawn compaction task
                 let executor = self.executor.clone_for_task();
                 let manifest_clone = self.manifest.clone();
+                let scheduler_clone = self.scheduler.clone();
                 let heat_tracker = self.heat_tracker.clone();
                 let active_count = self.active_count.clone();
+                let sst_dir = self.sst_dir.clone();
                 let action_clone = action.clone();
 
                 tokio::spawn(async move {
@@ -1120,32 +1136,58 @@ impl CompactionCoordinator {
                         .execute_action(&action_clone, &manifest_clone)
                         .await;
 
-                    // Update rewards based on result
-                    if let Ok((edits, _bytes_written)) = result {
-                        // Apply manifest edits
-                        let mut manifest = manifest_clone.write();
-                        for edit in edits {
-                            let _ = manifest.append(edit);
+                    match result {
+                        Ok((edits, bytes_written)) => {
+                            // Track old files for deletion
+                            let mut old_files = Vec::new();
+                            for edit in &edits {
+                                if let crate::manifest::ManifestEdit::DeleteFile {
+                                    file_number,
+                                    ..
+                                } = edit
+                                {
+                                    old_files.push(*file_number);
+                                }
+                            }
+
+                            // Apply manifest edits
+                            let edit_result = {
+                                let mut manifest = manifest_clone.write();
+                                edits.into_iter().try_for_each(|edit| manifest.append(edit))
+                            };
+
+                            if edit_result.is_ok() {
+                                // Delete old SSTable files
+                                for file_number in old_files {
+                                    let file_path =
+                                        sst_dir.join(format!("sst-{:06}.sst", file_number));
+                                    let _ = std::fs::remove_file(file_path);
+                                }
+
+                                // Update scheduler rewards
+                                let latency_reduction =
+                                    Self::estimate_latency_reduction(&action_clone);
+                                let (level, slot_id) = Self::extract_slot(&action_clone);
+                                let heat_score = heat_tracker.get_heat(level, slot_id);
+
+                                let mut scheduler = scheduler_clone.lock();
+                                scheduler.update_reward(
+                                    &action_clone,
+                                    bytes_written,
+                                    latency_reduction,
+                                    heat_score,
+                                );
+
+                                tracing::debug!(
+                                    "Completed compaction {:?}: {} bytes written",
+                                    action_clone,
+                                    bytes_written
+                                );
+                            }
                         }
-
-                        // Estimate latency reduction (placeholder heuristic)
-                        let _latency_reduction = Self::estimate_latency_reduction(&action_clone);
-
-                        // Get heat score
-                        let (level, slot_id) = Self::extract_slot(&action_clone);
-                        let _heat_score = heat_tracker.get_heat(level, slot_id);
-
-                        // Update scheduler rewards (would need access to scheduler)
-                        // This is a design challenge - scheduler is owned by coordinator
-                        // In Phase 8, we'd use message passing or shared state
-                        drop(manifest);
-
-                        // Log completion (commented out - would need log crate)
-                        // log::info!(
-                        //     "Completed compaction {:?}: {} bytes written",
-                        //     action_clone,
-                        //     bytes_written
-                        // );
+                        Err(e) => {
+                            tracing::error!("Compaction failed for {:?}: {}", action_clone, e);
+                        }
                     }
 
                     // Decrement active count
@@ -1214,14 +1256,11 @@ impl ExecutorClone for CompactionExecutor {
 
     async fn execute_action(
         &self,
-        _action: &CompactionAction,
+        action: &CompactionAction,
         manifest: &Arc<parking_lot::RwLock<ManifestLog>>,
     ) -> Result<(Vec<crate::manifest::ManifestEdit>, u64)> {
-        let manifest_read = manifest.read();
-        // Note: This is simplified - real impl needs mutable executor
-        // For now, this demonstrates the pattern
-        drop(manifest_read);
-        Ok((vec![], 0))
+        // Execute the compaction action using the main execute method
+        self.execute(action, manifest).await
     }
 }
 

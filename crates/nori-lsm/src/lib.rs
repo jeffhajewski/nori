@@ -88,43 +88,26 @@
 //!
 //! ## ⚠️ Known Limitations (Not Production Ready)
 //!
-//! ### CRITICAL BUG: SSTable Flush/Read Path
-//!
-//! **Status**: SSTable files are created during flush, but keys cannot be read back.
-//!
-//! **Symptoms**:
-//! - Manifest correctly tracks file metadata (file numbers, key ranges)
-//! - Physical SST files exist on disk with reasonable sizes (1-2 KB)
-//! - SSTableReader.get() returns None for keys that should exist
-//! - Even direct SSTableReader::open() + get() fails
-//!
-//! **Impact**: Engine is **memtable-only** currently. Flush works but data is unreadable.
-//!
-//! **Investigation**: Lines 1612-1635 document the bug with test case evidence.
-//!
-//! **TODO (Phase 9)**: Debug SSTable encoding/decoding, bloom filter, or flush logic.
-//!
 //! ## 🧪 Test Coverage
 //!
-//! - **92 passing tests** covering:
-//!   - Basic put/get/delete operations
+//! - **98 passing tests** covering:
+//!   - Basic put/get/delete operations with MVCC semantics
+//!   - SSTable write/read with multi-block files
 //!   - WAL recovery and cleanup
 //!   - Memtable stress tests (heavy read/write workloads)
 //!   - Manifest operations (file tracking, snapshots)
 //!   - Guard management and slot routing
 //!   - Compaction planning (bandit scheduler)
-//!
-//! - **1 ignored test**: `test_compaction_under_load_disabled` (requires SSTable fix)
+//!   - Compaction integration tests (tiering, merging, tombstone removal)
 //!
 //! ## 📋 Remaining Work for Production
 //!
-//! 1. **Fix SSTable bug** (Phase 9 priority)
-//! 2. Physical compaction implementation (Phase 6 deferred)
-//! 3. Bloom filter tuning and false positive measurement (Phase 6)
-//! 4. Performance benchmarking vs. SLO targets
-//! 5. Comprehensive integration tests with flush/compaction
-//! 6. Memory pressure handling and backpressure refinement
-//! 7. Background compaction coordinator shutdown cleanup
+//! 1. **L0→L1 Admission** - Split L0 files on guard boundaries and place into L1 slots
+//! 2. **Performance Benchmarking** - Measure actual vs. SLO targets (p95 GET < 10ms, PUT < 20ms)
+//! 3. **Bloom Filter Tuning** - Measure false positive rates and optimize bits-per-key
+//! 4. **Compaction Scheduler Tuning** - Validate bandit epsilon-greedy policy effectiveness
+//! 5. **Memory Pressure Handling** - Refine backpressure and throttling mechanisms
+//! 6. **Graceful Shutdown** - Clean up background compaction coordinator
 //!
 //! # Design References
 //!
@@ -389,8 +372,8 @@ impl LsmEngine {
         let snapshot_guard = snapshot.read().unwrap();
         let l0_files = snapshot_guard.l0_files();
 
-        // L0 files are ordered newest first in the manifest
-        for run in l0_files.iter() {
+        // L0 files are stored oldest-first in manifest, so iterate in reverse
+        for run in l0_files.iter().rev() {
             // Debug: check if key should be in this file
             let key_in_range = key >= run.min_key.as_ref() && key <= run.max_key.as_ref();
             if key_in_range {

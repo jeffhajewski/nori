@@ -261,18 +261,17 @@ impl BanditScheduler {
     ) -> Vec<CompactionAction> {
         let mut candidates = Vec::new();
 
-        // Trigger 1: L0 tiering (merge L0 files to reduce read amplification)
-        // TODO: Re-enable after fixing MVCC deduplication in MultiWayMerger for L0
-        // Currently disabled because it doesn't properly preserve newest version
-        // let l0_count = snapshot.l0_file_count();
-        // if l0_count >= 4 {
-        //     let run_count = l0_count.min(4);
-        //     candidates.push(CompactionAction::Tier {
-        //         level: 0,
-        //         slot_id: 0,
-        //         run_count,
-        //     });
-        // }
+        // Trigger 1: L0 tiering (merge ALL L0 files to reduce read amplification)
+        let l0_count = snapshot.l0_file_count();
+        if l0_count >= 4 {
+            // Merge ALL L0 files, not just a subset
+            // This ensures MVCC correctness: newest version must be preserved
+            candidates.push(CompactionAction::Tier {
+                level: 0,
+                slot_id: 0,          // L0 is treated as a single virtual slot
+                run_count: l0_count, // Merge all files
+            });
+        }
 
         // Iterate over L1+ slots and check for compaction triggers
         for level_meta in snapshot.levels.iter().skip(1) {
@@ -1011,7 +1010,9 @@ impl CompactionExecutor {
     }
 
     /// Allocates a new file number from the manifest.
-    fn allocate_file_number(manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>) -> u64 {
+    fn allocate_file_number(
+        manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
+    ) -> u64 {
         let manifest_guard = manifest.read();
         let snapshot = manifest_guard.snapshot();
         let mut snap_guard = snapshot.write().unwrap();

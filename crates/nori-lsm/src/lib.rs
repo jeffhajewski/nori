@@ -377,11 +377,13 @@ impl LsmEngine {
             // Debug: check if key should be in this file
             let key_in_range = key >= run.min_key.as_ref() && key <= run.max_key.as_ref();
             if key_in_range {
-                println!("  DEBUG get(): Key {:?} should be in L0 file {} (range: {} to {})",
+                println!(
+                    "  DEBUG get(): Key {:?} should be in L0 file {} (range: {} to {})",
                     String::from_utf8_lossy(key),
                     run.file_number,
                     String::from_utf8_lossy(&run.min_key),
-                    String::from_utf8_lossy(&run.max_key));
+                    String::from_utf8_lossy(&run.max_key)
+                );
             }
 
             // Get cached reader (bloom filter check happens inside reader.get())
@@ -411,7 +413,10 @@ impl LsmEngine {
                 }
                 Ok(None) => {
                     if key_in_range {
-                        println!("  DEBUG get(): Key NOT found in L0 file {} (bloom filter or missing)", run.file_number);
+                        println!(
+                            "  DEBUG get(): Key NOT found in L0 file {} (bloom filter or missing)",
+                            run.file_number
+                        );
                     }
                     continue; // Key not in this SSTable
                 }
@@ -1014,8 +1019,14 @@ impl LsmEngine {
                                 // - latency_reduction = bytes_written (rough proxy for read speedup)
                                 // - heat_score = average heat for the action's target
                                 let (level, slot_id) = match action {
-                                    compaction::CompactionAction::Tier { level, slot_id, .. }
-                                    | compaction::CompactionAction::Promote { level, slot_id, .. }
+                                    compaction::CompactionAction::Tier {
+                                        level, slot_id, ..
+                                    }
+                                    | compaction::CompactionAction::Promote {
+                                        level,
+                                        slot_id,
+                                        ..
+                                    }
                                     | compaction::CompactionAction::EagerLevel { level, slot_id }
                                     | compaction::CompactionAction::Cleanup { level, slot_id } => {
                                         (level, slot_id)
@@ -1897,7 +1908,8 @@ mod tests {
         let l0_files = snap_guard.l0_files();
         println!("L0 files: {}", l0_files.len());
         for run in l0_files.iter() {
-            println!("  L0 file {}: {} to {}",
+            println!(
+                "  L0 file {}: {} to {}",
                 run.file_number,
                 String::from_utf8_lossy(&run.min_key),
                 String::from_utf8_lossy(&run.max_key)
@@ -1911,10 +1923,12 @@ mod tests {
                 if !slot.runs.is_empty() {
                     println!("  Slot {}: {} runs", slot_id, slot.runs.len());
                     for run in &slot.runs {
-                        println!("    File {}: {} to {}",
+                        println!(
+                            "    File {}: {} to {}",
                             run.file_number,
                             String::from_utf8_lossy(&run.min_key),
-                            String::from_utf8_lossy(&run.max_key));
+                            String::from_utf8_lossy(&run.max_key)
+                        );
                     }
                 }
             }
@@ -1926,13 +1940,14 @@ mod tests {
         println!("Trying to open: {:?}", test_path);
         println!("File exists: {}", test_path.exists());
         match nori_sstable::SSTableReader::open(test_path).await {
-            Ok(reader) => {
-                match reader.get(b"round0_key0000").await {
-                    Ok(Some(entry)) => println!("Manual read: SUCCESS - found key with {} bytes", entry.value.len()),
-                    Ok(None) => println!("Manual read: Key not found in SSTable"),
-                    Err(e) => println!("Manual read: ERROR - {}", e),
-                }
-            }
+            Ok(reader) => match reader.get(b"round0_key0000").await {
+                Ok(Some(entry)) => println!(
+                    "Manual read: SUCCESS - found key with {} bytes",
+                    entry.value.len()
+                ),
+                Ok(None) => println!("Manual read: Key not found in SSTable"),
+                Err(e) => println!("Manual read: ERROR - {}", e),
+            },
             Err(e) => println!("Failed to open SST: {}", e),
         }
 
@@ -2083,7 +2098,11 @@ mod tests {
             for i in 0..100 {
                 let key = format!("key{:04}", batch * 100 + i);
                 let result = engine.get(key.as_bytes()).await.unwrap();
-                assert!(result.is_some(), "Key {} should be readable after compaction", key);
+                assert!(
+                    result.is_some(),
+                    "Key {} should be readable after compaction",
+                    key
+                );
             }
         }
     }
@@ -2124,9 +2143,12 @@ mod tests {
         };
 
         // Compaction should reduce file count (or keep it same if no action was taken)
-        assert!(final_file_count <= initial_file_count,
-                "Expected file count to be reduced or stay same: {} -> {}",
-                initial_file_count, final_file_count);
+        assert!(
+            final_file_count <= initial_file_count,
+            "Expected file count to be reduced or stay same: {} -> {}",
+            initial_file_count,
+            final_file_count
+        );
 
         // Verify data integrity
         for i in 0..10 {
@@ -2200,14 +2222,22 @@ mod tests {
         for i in 0..25 {
             let key = format!("key{:04}", i);
             let result = engine.get(key.as_bytes()).await.unwrap();
-            assert!(result.is_none(), "Deleted key {} should remain deleted", key);
+            assert!(
+                result.is_none(),
+                "Deleted key {} should remain deleted",
+                key
+            );
         }
 
         // Verify non-deleted keys are still readable
         for i in 25..50 {
             let key = format!("key{:04}", i);
             let result = engine.get(key.as_bytes()).await.unwrap();
-            assert!(result.is_some(), "Non-deleted key {} should be readable", key);
+            assert!(
+                result.is_some(),
+                "Non-deleted key {} should be readable",
+                key
+            );
         }
     }
 }

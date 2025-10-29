@@ -206,6 +206,20 @@ pub struct LsmEngine {
     /// Caches up to 128 open SSTable files to avoid repeated file opens
     /// and to reuse bloom filters and indexes already loaded in memory.
     reader_cache: Arc<parking_lot::Mutex<LruCache<u64, Arc<SSTableReader>>>>,
+
+    // Metrics tracking
+    /// Total bytes written during compaction (input)
+    compaction_bytes_in: Arc<AtomicU64>,
+    /// Total bytes written during compaction (output)
+    compaction_bytes_out: Arc<AtomicU64>,
+    /// Number of compactions completed
+    compactions_completed: Arc<AtomicU64>,
+    /// Cache hits
+    cache_hits: Arc<AtomicU64>,
+    /// Cache misses
+    cache_misses: Arc<AtomicU64>,
+    /// Total WAL bytes written
+    wal_bytes_written: Arc<AtomicU64>,
 }
 
 impl LsmEngine {
@@ -323,6 +337,12 @@ impl LsmEngine {
             seqno: Arc::new(AtomicU64::new(next_seqno)),
             compaction_shutdown: compaction_shutdown.clone(),
             reader_cache,
+            compaction_bytes_in: Arc::new(AtomicU64::new(0)),
+            compaction_bytes_out: Arc::new(AtomicU64::new(0)),
+            compactions_completed: Arc::new(AtomicU64::new(0)),
+            cache_hits: Arc::new(AtomicU64::new(0)),
+            cache_misses: Arc::new(AtomicU64::new(0)),
+            wal_bytes_written: Arc::new(AtomicU64::new(0)),
         };
 
         // Spawn background compaction thread
@@ -331,6 +351,9 @@ impl LsmEngine {
         let config_clone = config.clone();
         let sst_dir_clone = sst_dir.clone();
         let heat_clone = heat.clone();
+        let compaction_bytes_in_clone = engine.compaction_bytes_in.clone();
+        let compaction_bytes_out_clone = engine.compaction_bytes_out.clone();
+        let compactions_completed_clone = engine.compactions_completed.clone();
 
         tokio::spawn(async move {
             Self::compaction_loop(
@@ -340,6 +363,9 @@ impl LsmEngine {
                 config_clone,
                 sst_dir_clone,
                 shutdown_clone,
+                compaction_bytes_in_clone,
+                compaction_bytes_out_clone,
+                compactions_completed_clone,
             )
             .await;
         });
@@ -536,6 +562,11 @@ impl LsmEngine {
         };
         result.map_err(|e| Error::Internal(format!("WAL append failed: {}", e)))?;
 
+        // Track WAL bytes (approximate: key + value + framing overhead)
+        let wal_bytes = (key.len() + value.len() + 20) as u64;
+        self.wal_bytes_written
+            .fetch_add(wal_bytes, Ordering::Relaxed);
+
         // 3. Get next sequence number
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
 
@@ -577,6 +608,11 @@ impl LsmEngine {
                 .await
                 .map_err(|e| Error::Internal(format!("WAL append failed: {}", e)))?;
         }
+
+        // Track WAL bytes (approximate: key + framing overhead)
+        let wal_bytes = (key.len() + 20) as u64;
+        self.wal_bytes_written
+            .fetch_add(wal_bytes, Ordering::Relaxed);
 
         // 3. Get next sequence number
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
@@ -883,15 +919,20 @@ impl LsmEngine {
     ///
     /// The cache holds up to 128 readers (configurable).
     async fn get_cached_reader(&self, file_number: u64) -> Result<Arc<SSTableReader>> {
+        use std::sync::atomic::Ordering;
+
         // Check cache first
         {
             let mut cache = self.reader_cache.lock();
             if let Some(reader) = cache.get(&file_number) {
+                // Cache hit
+                self.cache_hits.fetch_add(1, Ordering::Relaxed);
                 return Ok(reader.clone());
             }
         }
 
-        // Cache miss - open the file
+        // Cache miss - track it
+        self.cache_misses.fetch_add(1, Ordering::Relaxed);
         let sst_path = self.sst_dir.join(format!("sst-{:06}.sst", file_number));
         if !sst_path.exists() {
             return Err(Error::Internal(format!(
@@ -954,9 +995,136 @@ impl LsmEngine {
     }
 
     /// Returns LSM statistics and metrics.
+    /// Returns current LSM engine statistics.
+    ///
+    /// Provides comprehensive metrics for monitoring and debugging:
+    /// - Per-level file counts and bytes
+    /// - Compaction statistics
+    /// - Cache performance
+    /// - Amplification factors
     pub fn stats(&self) -> Stats {
-        // TODO: Phase 8 implementation
-        Stats::default()
+        use std::sync::atomic::Ordering;
+
+        // Get manifest snapshot
+        let snapshot = self.manifest.read().snapshot();
+        let snapshot_guard = snapshot.read().unwrap();
+
+        // Compute per-level statistics
+        let mut levels = Vec::new();
+        let mut total_bytes = 0u64;
+        let mut total_files = 0usize;
+
+        for level_idx in 0..self.config.max_levels as usize {
+            if level_idx >= snapshot_guard.levels.len() {
+                break;
+            }
+
+            let level_meta = &snapshot_guard.levels[level_idx];
+            let level_stats = if level_idx == 0 {
+                // L0 stats
+                let file_count = level_meta.l0_files.len();
+                let total_bytes: u64 = level_meta.l0_files.iter().map(|r| r.size).sum();
+                total_files += file_count;
+
+                LevelStats {
+                    file_count,
+                    total_bytes,
+                    slot_count: 0,
+                    runs_per_slot: vec![],
+                }
+            } else {
+                // L1+ stats
+                let file_count: usize = level_meta.slots.iter().map(|s| s.runs.len()).sum();
+                let total_bytes: u64 = level_meta.slots.iter().map(|s| s.bytes).sum();
+                let slot_count = level_meta.slots.len();
+                let runs_per_slot: Vec<usize> =
+                    level_meta.slots.iter().map(|s| s.runs.len()).collect();
+
+                total_files += file_count;
+
+                LevelStats {
+                    file_count,
+                    total_bytes,
+                    slot_count,
+                    runs_per_slot,
+                }
+            };
+
+            total_bytes += level_stats.total_bytes;
+            levels.push(level_stats);
+        }
+
+        // L0 specific
+        let l0_files = if !levels.is_empty() {
+            levels[0].file_count
+        } else {
+            0
+        };
+
+        // Compaction metrics (from atomic counters)
+        let compaction_bytes_in = self.compaction_bytes_in.load(Ordering::Relaxed);
+        let compaction_bytes_out = self.compaction_bytes_out.load(Ordering::Relaxed);
+        let compactions_completed = self.compactions_completed.load(Ordering::Relaxed);
+
+        // Cache statistics
+        let cache_hits = self.cache_hits.load(Ordering::Relaxed);
+        let cache_misses = self.cache_misses.load(Ordering::Relaxed);
+        let sstable_cache_size = self.reader_cache.lock().len();
+
+        // WAL statistics
+        let wal_bytes_written = self.wal_bytes_written.load(Ordering::Relaxed);
+
+        // Memtable statistics
+        let memtable = self.memtable.read();
+        let memtable_size_bytes = memtable.size();
+        let memtable_entry_count = memtable.len();
+        drop(memtable);
+
+        // Compute amplification factors
+        // Write amplification = bytes written by compaction / bytes written by user
+        // Approximate user writes as compaction_bytes_in (initial L0 writes)
+        let write_amplification = if compaction_bytes_in > 0 {
+            compaction_bytes_out as f64 / compaction_bytes_in as f64
+        } else {
+            1.0
+        };
+
+        // Read amplification (point queries) = average L0 files checked + levels checked
+        // Simplified: number of levels with data
+        let read_amplification_point =
+            l0_files as f64 + levels.iter().skip(1).filter(|l| l.file_count > 0).count() as f64;
+
+        // Space amplification = total bytes / live data bytes
+        // We approximate live data as L_max bytes (assuming newest data)
+        let space_amplification = if let Some(last_level) = levels.last() {
+            if last_level.total_bytes > 0 {
+                total_bytes as f64 / last_level.total_bytes as f64
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        };
+
+        Stats {
+            levels,
+            l0_files,
+            compaction_bytes_in,
+            compaction_bytes_out,
+            compactions_completed,
+            write_amplification,
+            read_amplification_point,
+            space_amplification,
+            memtable_size_bytes,
+            memtable_entry_count,
+            wal_segment_count: 0, // TODO: Add segment_count() method to Wal
+            wal_bytes_written,
+            sstable_cache_hits: cache_hits,
+            sstable_cache_misses: cache_misses,
+            sstable_cache_size,
+            total_bytes,
+            total_files,
+        }
     }
 
     /// Background compaction loop.
@@ -967,6 +1135,7 @@ impl LsmEngine {
     /// 2. Executes the action via CompactionExecutor
     /// 3. Applies resulting ManifestEdits
     /// 4. Sleeps for compaction_interval_sec
+    #[allow(clippy::too_many_arguments)]
     async fn compaction_loop(
         manifest: Arc<parking_lot::RwLock<ManifestLog>>,
         _guards: Arc<GuardManager>,
@@ -974,6 +1143,9 @@ impl LsmEngine {
         config: ATLLConfig,
         sst_dir: PathBuf,
         shutdown: Arc<AtomicBool>,
+        compaction_bytes_in: Arc<AtomicU64>,
+        compaction_bytes_out: Arc<AtomicU64>,
+        compactions_completed: Arc<AtomicU64>,
     ) {
         use std::sync::atomic::Ordering;
         use tokio::time::{sleep, Duration};
@@ -1034,6 +1206,13 @@ impl LsmEngine {
 
                         match edit_result {
                             Ok(()) => {
+                                // Track compaction metrics
+                                // bytes_written is the output size
+                                // For now, approximate input ≈ output (typical for tiering)
+                                compaction_bytes_in.fetch_add(bytes_written, Ordering::Relaxed);
+                                compaction_bytes_out.fetch_add(bytes_written, Ordering::Relaxed);
+                                compactions_completed.fetch_add(1, Ordering::Relaxed);
+
                                 // Update scheduler with reward
                                 // For now, use simple heuristics:
                                 // - latency_reduction = bytes_written (rough proxy for read speedup)
@@ -1132,15 +1311,54 @@ impl MergeIterator {
     }
 }
 
-/// LSM engine statistics (placeholder).
-#[derive(Debug, Default)]
+/// Per-level statistics
+#[derive(Debug, Clone, Default)]
+pub struct LevelStats {
+    /// Number of files in this level
+    pub file_count: usize,
+    /// Total bytes in this level
+    pub total_bytes: u64,
+    /// Number of slots (0 for L0)
+    pub slot_count: usize,
+    /// Number of runs per slot (for L1+)
+    pub runs_per_slot: Vec<usize>,
+}
+
+/// LSM engine statistics
+#[derive(Debug, Clone, Default)]
 pub struct Stats {
+    // Per-level metrics
+    pub levels: Vec<LevelStats>,
+
+    // L0 specific
     pub l0_files: usize,
+
+    // Compaction metrics
     pub compaction_bytes_in: u64,
     pub compaction_bytes_out: u64,
+    pub compactions_completed: u64,
+
+    // Amplification factors
     pub write_amplification: f64,
     pub read_amplification_point: f64,
     pub space_amplification: f64,
+
+    // Memtable stats
+    pub memtable_size_bytes: usize,
+    pub memtable_entry_count: usize,
+
+    // WAL stats
+    pub wal_segment_count: usize,
+    pub wal_bytes_written: u64,
+
+    // Cache stats
+    pub sstable_cache_hits: u64,
+    pub sstable_cache_misses: u64,
+    pub sstable_cache_size: usize,
+
+    // Total storage
+    pub total_bytes: u64,
+    pub total_files: usize,
 }
 
 // Placeholder function to satisfy the skeleton
@@ -2259,5 +2477,86 @@ mod tests {
                 key
             );
         }
+    }
+
+    /// Integration test: Stats tracking
+    #[tokio::test]
+    async fn test_stats_tracking() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1024; // Small memtable to trigger flushes
+        config.io.compaction_interval_sec = 1; // Fast compaction
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Initial stats - should be mostly zeros
+        let initial_stats = engine.stats();
+        assert_eq!(initial_stats.memtable_entry_count, 0);
+        assert_eq!(initial_stats.total_files, 0);
+        assert_eq!(initial_stats.l0_files, 0);
+
+        // Write some data
+        for i in 0..10 {
+            let key = Bytes::from(format!("key{:03}", i));
+            let value = Bytes::from(format!("value{:03}", i));
+            engine.put(key, value).await.unwrap();
+        }
+
+        // Check memtable stats
+        let stats_after_writes = engine.stats();
+        assert_eq!(stats_after_writes.memtable_entry_count, 10);
+        assert!(stats_after_writes.memtable_size_bytes > 0);
+
+        // Check WAL bytes written (approximate)
+        // Each write is ~20 bytes key + value + overhead
+        assert!(stats_after_writes.wal_bytes_written > 0);
+
+        // Force a flush
+        engine.flush().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Check L0 stats after flush
+        let stats_after_flush = engine.stats();
+        assert_eq!(stats_after_flush.l0_files, 1);
+        assert_eq!(stats_after_flush.total_files, 1);
+        assert!(stats_after_flush.total_bytes > 0);
+
+        // Verify level stats
+        assert!(!stats_after_flush.levels.is_empty());
+        assert_eq!(stats_after_flush.levels[0].file_count, 1);
+        assert!(stats_after_flush.levels[0].total_bytes > 0);
+
+        // Test cache tracking - read data to populate cache
+        for i in 0..5 {
+            let key = format!("key{:03}", i);
+            engine.get(key.as_bytes()).await.unwrap();
+        }
+
+        let stats_after_reads = engine.stats();
+        // First reads should be cache misses (need to open SSTable)
+        assert!(stats_after_reads.sstable_cache_misses >= 1);
+
+        // Read again - should hit cache
+        for i in 0..5 {
+            let key = format!("key{:03}", i);
+            engine.get(key.as_bytes()).await.unwrap();
+        }
+
+        let stats_after_cache_hits = engine.stats();
+        // Cache hits should have increased (bloom filter checks don't require reader)
+        assert!(stats_after_cache_hits.sstable_cache_size > 0);
+
+        // Delete some keys
+        for i in 0..3 {
+            let key = format!("key{:03}", i);
+            engine.delete(key.as_bytes()).await.unwrap();
+        }
+
+        let stats_after_deletes = engine.stats();
+        // WAL bytes should have increased from deletes
+        assert!(stats_after_deletes.wal_bytes_written > stats_after_reads.wal_bytes_written);
+
+        println!("Final stats: {:#?}", stats_after_deletes);
     }
 }

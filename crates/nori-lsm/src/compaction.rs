@@ -261,13 +261,51 @@ impl BanditScheduler {
     ) -> Vec<CompactionAction> {
         let mut candidates = Vec::new();
 
-        // TODO Phase 4 continuation: Implement candidate generation
-        // For now, iterate over L1+ slots and check for basic compaction triggers
+        // Trigger 1: L0 tiering (merge L0 files to reduce read amplification)
+        // TODO: Re-enable after fixing MVCC deduplication in MultiWayMerger for L0
+        // Currently disabled because it doesn't properly preserve newest version
+        // let l0_count = snapshot.l0_file_count();
+        // if l0_count >= 4 {
+        //     let run_count = l0_count.min(4);
+        //     candidates.push(CompactionAction::Tier {
+        //         level: 0,
+        //         slot_id: 0,
+        //         run_count,
+        //     });
+        // }
+
+        // Iterate over L1+ slots and check for compaction triggers
         for level_meta in snapshot.levels.iter().skip(1) {
             for slot in &level_meta.slots {
                 let heat = heat_tracker.get_heat(level_meta.level, slot.slot_id);
 
-                // Candidate 1: Tier if too many runs
+                // Trigger 2: Single-run promotion (free tier transition)
+                // If slot has exactly 1 run, promote it to next level (zero-cost metadata move)
+                if slot.runs.len() == 1 && level_meta.level < self.config.max_levels {
+                    candidates.push(CompactionAction::Promote {
+                        level: level_meta.level,
+                        slot_id: slot.slot_id,
+                        file_number: slot.runs[0].file_number,
+                    });
+                }
+
+                // Trigger 3: Size-based tiering (slot too large)
+                // Target size grows exponentially: L1=64MB, L2=640MB, L3=6.4GB, etc.
+                // Each level is fanout (default 10x) larger than previous
+                let base_size_mb = 64; // L1 base size
+                let level_multiplier = self.config.fanout.pow((level_meta.level - 1) as u32) as u64;
+                let target_size_bytes = (base_size_mb * 1024 * 1024) * level_multiplier;
+
+                // Trigger if slot exceeds 1.5x target size
+                if slot.bytes > (target_size_bytes as u64 * 3 / 2) && slot.runs.len() >= 2 {
+                    candidates.push(CompactionAction::Tier {
+                        level: level_meta.level,
+                        slot_id: slot.slot_id,
+                        run_count: slot.runs.len().min(4),
+                    });
+                }
+
+                // Trigger 4: Run count threshold (too many runs)
                 if slot.runs.len() > slot.k as usize {
                     candidates.push(CompactionAction::Tier {
                         level: level_meta.level,
@@ -276,11 +314,40 @@ impl BanditScheduler {
                     });
                 }
 
-                // Candidate 2: EagerLevel for hot slots with multiple runs
+                // Trigger 5: EagerLevel for hot slots with multiple runs
                 if heat >= self.config.heat_thresholds.hot && slot.runs.len() > 1 {
                     candidates.push(CompactionAction::EagerLevel {
                         level: level_meta.level,
                         slot_id: slot.slot_id,
+                    });
+                }
+
+                // Trigger 6: Tombstone cleanup at bottom level
+                // Only clean tombstones at max_levels (no lower levels exist)
+                if level_meta.level == self.config.max_levels
+                    && slot.tombstone_density as f32 >= self.config.tombstone.density_threshold
+                    && !slot.runs.is_empty()
+                {
+                    candidates.push(CompactionAction::Cleanup {
+                        level: level_meta.level,
+                        slot_id: slot.slot_id,
+                    });
+                }
+
+                // Trigger 7: Age-based compaction (stale slots need refresh)
+                // If a slot hasn't been compacted in 24 hours and has multiple runs, compact it
+                let max_age_sec = 24 * 3600; // 24 hours
+                let now_sec = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+                let age_sec = now_sec.saturating_sub(slot.last_compaction_ts);
+
+                if age_sec > max_age_sec && slot.runs.len() >= 2 {
+                    candidates.push(CompactionAction::Tier {
+                        level: level_meta.level,
+                        slot_id: slot.slot_id,
+                        run_count: slot.runs.len().min(4),
                     });
                 }
             }

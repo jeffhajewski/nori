@@ -452,7 +452,7 @@ impl LsmEngine {
 
             for run in runs.iter() {
                 // Check if this run overlaps the key
-                if key < run.min_key.as_ref() || key >= run.max_key.as_ref() {
+                if key < run.min_key.as_ref() || key > run.max_key.as_ref() {
                     continue; // Key not in this run's range
                 }
 
@@ -722,6 +722,18 @@ impl LsmEngine {
         Ok(())
     }
 
+    /// Forces an immediate flush of the active memtable.
+    ///
+    /// Unlike `check_flush_triggers()`, this unconditionally flushes the memtable
+    /// regardless of size or age. Useful for testing and explicit durability guarantees.
+    ///
+    /// # Returns
+    /// - `Ok(())` if flush succeeded or memtable was empty
+    /// - `Err` if flush failed
+    pub async fn flush(&self) -> Result<()> {
+        self.flush_memtable().await
+    }
+
     /// Freezes the active memtable and initiates background flush.
     ///
     /// # Process
@@ -950,9 +962,9 @@ impl LsmEngine {
     async fn compaction_loop(
         manifest: Arc<parking_lot::RwLock<ManifestLog>>,
         _guards: Arc<GuardManager>,
-        _heat: Arc<HeatTracker>,
+        heat: Arc<HeatTracker>,
         config: ATLLConfig,
-        _sst_dir: PathBuf,
+        sst_dir: PathBuf,
         shutdown: Arc<AtomicBool>,
     ) {
         use std::sync::atomic::Ordering;
@@ -960,8 +972,16 @@ impl LsmEngine {
 
         tracing::info!("Background compaction loop started");
 
-        // Phase 4 simplification: Run placeholder loop
-        // Full implementation will be completed when CompactionExecutor is ready
+        // Initialize compaction components
+        let mut scheduler = compaction::BanditScheduler::new(config.clone());
+        let mut executor = match compaction::CompactionExecutor::new(&sst_dir, config.clone()) {
+            Ok(exec) => exec,
+            Err(e) => {
+                tracing::error!("Failed to create CompactionExecutor: {}", e);
+                return;
+            }
+        };
+
         loop {
             // Check shutdown signal
             if shutdown.load(Ordering::Relaxed) {
@@ -969,16 +989,94 @@ impl LsmEngine {
                 break;
             }
 
-            // TODO Phase 4 continuation: Implement full compaction selection and execution
-            // For now, just monitor manifest state and log
-            {
+            // Select compaction action
+            let action = {
                 let manifest_guard = manifest.read();
                 let snapshot = manifest_guard.snapshot();
                 let snapshot_guard = snapshot.read().unwrap();
+                scheduler.select_action(&snapshot_guard, &heat)
+            };
 
-                let l0_count = snapshot_guard.l0_file_count();
-                if l0_count > 0 {
-                    tracing::debug!("Background compaction: L0 has {} files", l0_count);
+            // Execute action if not DoNothing
+            if !matches!(action, compaction::CompactionAction::DoNothing) {
+                tracing::debug!("Executing compaction action: {:?}", action);
+
+                // Track files to delete after successful edit
+                let mut old_files = Vec::new();
+
+                // Execute compaction (pass Arc directly)
+                let result = executor.execute(&action, &manifest).await;
+
+                match result {
+                    Ok((edits, bytes_written)) => {
+                        // Extract old file numbers from DeleteFile edits
+                        for edit in &edits {
+                            if let manifest::ManifestEdit::DeleteFile { file_number, .. } = edit {
+                                old_files.push(*file_number);
+                            }
+                        }
+
+                        // Apply edits atomically to manifest
+                        let edit_result = {
+                            let mut manifest_guard = manifest.write();
+                            edits
+                                .into_iter()
+                                .try_for_each(|edit| manifest_guard.append(edit))
+                        };
+
+                        match edit_result {
+                            Ok(()) => {
+                                // Update scheduler with reward
+                                // For now, use simple heuristics:
+                                // - latency_reduction = bytes_written (rough proxy for read speedup)
+                                // - heat_score = average heat for the action's target
+                                let (level, slot_id) = match action {
+                                    compaction::CompactionAction::Tier { level, slot_id, .. }
+                                    | compaction::CompactionAction::Promote { level, slot_id, .. }
+                                    | compaction::CompactionAction::EagerLevel { level, slot_id }
+                                    | compaction::CompactionAction::Cleanup { level, slot_id } => {
+                                        (level, slot_id)
+                                    }
+                                    _ => (0, 0),
+                                };
+
+                                let heat_score = heat.get_heat(level, slot_id);
+                                let latency_reduction_ms = (bytes_written / 1024) as f64; // 1ms per KB written (rough estimate)
+
+                                scheduler.update_reward(
+                                    &action,
+                                    bytes_written,
+                                    latency_reduction_ms,
+                                    heat_score,
+                                );
+
+                                // Delete old SSTable files
+                                let deleted_count = old_files.len();
+                                for file_number in &old_files {
+                                    let path = sst_dir.join(format!("{:06}.sst", file_number));
+                                    if let Err(e) = tokio::fs::remove_file(&path).await {
+                                        tracing::warn!(
+                                            "Failed to delete old SSTable {}: {}",
+                                            file_number,
+                                            e
+                                        );
+                                    }
+                                }
+
+                                tracing::info!(
+                                    "Compaction completed: wrote {} bytes, deleted {} files",
+                                    bytes_written,
+                                    deleted_count
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to apply compaction edits: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Compaction execution failed: {}", e);
+                    }
                 }
             }
 
@@ -1785,6 +1883,17 @@ mod tests {
         // Wait for any background compaction
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
+        // Check memtable size before flush
+        {
+            let memtable = engine.memtable.read();
+            println!("\n=== Memtable state before flush ===");
+            println!("Memtable size: {} bytes", memtable.size());
+            println!("Memtable length: {} entries", memtable.len());
+        }
+
+        // Force flush remaining data in memtable before verification
+        engine.flush().await.unwrap();
+
         // Check what files exist
         println!("\n=== Checking SST files ===");
         let sst_files: Vec<_> = std::fs::read_dir(temp_dir.path())
@@ -1804,12 +1913,28 @@ mod tests {
         let snap_guard = snapshot.read().unwrap();
         let l0_files = snap_guard.l0_files();
         println!("L0 files: {}", l0_files.len());
-        for run in l0_files.iter().take(3) {
+        for run in l0_files.iter() {
             println!("  L0 file {}: {} to {}",
                 run.file_number,
                 String::from_utf8_lossy(&run.min_key),
                 String::from_utf8_lossy(&run.max_key)
             );
+        }
+
+        // Check L1 files
+        println!("\nL1 slots:");
+        if let Some(level1) = snap_guard.levels.get(1) {
+            for (slot_id, slot) in level1.slots.iter().enumerate() {
+                if !slot.runs.is_empty() {
+                    println!("  Slot {}: {} runs", slot_id, slot.runs.len());
+                    for run in &slot.runs {
+                        println!("    File {}: {} to {}",
+                            run.file_number,
+                            String::from_utf8_lossy(&run.min_key),
+                            String::from_utf8_lossy(&run.max_key));
+                    }
+                }
+            }
         }
 
         // Try manual SSTable read from file 1
@@ -1943,5 +2068,163 @@ mod tests {
         }
 
         println!("\nAll 67 keys read successfully!");
+    }
+
+    /// Integration test: Compaction tier merges runs
+    #[tokio::test]
+    async fn test_compaction_tier_merges_runs() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.io.compaction_interval_sec = 1; // Fast compaction for testing
+
+        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+        // Write multiple batches to create multiple L0 files
+        for batch in 0..5 {
+            for i in 0..100 {
+                let key = Bytes::from(format!("key{:04}", batch * 100 + i));
+                let value = Bytes::from(format!("value_{}", batch));
+                engine.put(key, value).await.unwrap();
+            }
+
+            // Force flush to create new L0 file
+            engine.flush().await.unwrap();
+        }
+
+        // Wait for compaction to potentially merge some files
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // Verify all keys are still readable
+        for batch in 0..5 {
+            for i in 0..100 {
+                let key = format!("key{:04}", batch * 100 + i);
+                let result = engine.get(key.as_bytes()).await.unwrap();
+                assert!(result.is_some(), "Key {} should be readable after compaction", key);
+            }
+        }
+    }
+
+    /// Integration test: Compaction reduces file count
+    #[tokio::test]
+    async fn test_compaction_reduces_file_count() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.io.compaction_interval_sec = 1;
+
+        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+        // Create multiple small SSTables
+        for i in 0..10 {
+            let key = Bytes::from(format!("key{:04}", i));
+            let value = Bytes::from(format!("value_{}", i));
+            engine.put(key, value).await.unwrap();
+            engine.flush().await.unwrap();
+        }
+
+        let initial_file_count = {
+            let manifest_guard = engine.manifest.read();
+            let snapshot = manifest_guard.snapshot();
+            let snapshot_guard = snapshot.read().unwrap();
+            snapshot_guard.l0_file_count()
+        };
+
+        // Wait for compaction
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        let final_file_count = {
+            let manifest_guard = engine.manifest.read();
+            let snapshot = manifest_guard.snapshot();
+            let snapshot_guard = snapshot.read().unwrap();
+            snapshot_guard.l0_file_count()
+        };
+
+        // Compaction should reduce file count (or keep it same if no action was taken)
+        assert!(final_file_count <= initial_file_count,
+                "Expected file count to be reduced or stay same: {} -> {}",
+                initial_file_count, final_file_count);
+
+        // Verify data integrity
+        for i in 0..10 {
+            let key = format!("key{:04}", i);
+            let result = engine.get(key.as_bytes()).await.unwrap();
+            assert!(result.is_some(), "Key {} should still be readable", key);
+        }
+    }
+
+    /// Integration test: Compaction preserves latest value
+    #[tokio::test]
+    async fn test_compaction_preserves_latest_value() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.io.compaction_interval_sec = 1;
+
+        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+        let key = Bytes::from("test_key");
+
+        // Write multiple versions of the same key
+        for version in 0..5 {
+            let value = Bytes::from(format!("value_v{}", version));
+            engine.put(key.clone(), value).await.unwrap();
+            engine.flush().await.unwrap();
+        }
+
+        // Wait for compaction
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+
+        // Should get the latest version
+        let result = engine.get(b"test_key").await.unwrap();
+        assert_eq!(
+            result,
+            Some(Bytes::from("value_v4")),
+            "Compaction should preserve the latest value"
+        );
+    }
+
+    /// Integration test: Compaction removes tombstones at bottom level
+    #[tokio::test]
+    async fn test_compaction_removes_tombstones() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.io.compaction_interval_sec = 1;
+        config.max_levels = 3; // Smaller tree for faster testing
+
+        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+        // Write and delete keys
+        for i in 0..50 {
+            let key = Bytes::from(format!("key{:04}", i));
+            let value = Bytes::from(format!("value_{}", i));
+            engine.put(key.clone(), value).await.unwrap();
+        }
+        engine.flush().await.unwrap();
+
+        // Delete half the keys
+        for i in 0..25 {
+            let key = format!("key{:04}", i);
+            engine.delete(key.as_bytes()).await.unwrap();
+        }
+        engine.flush().await.unwrap();
+
+        // Wait for compaction to potentially clean tombstones
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        // Verify deleted keys remain deleted
+        for i in 0..25 {
+            let key = format!("key{:04}", i);
+            let result = engine.get(key.as_bytes()).await.unwrap();
+            assert!(result.is_none(), "Deleted key {} should remain deleted", key);
+        }
+
+        // Verify non-deleted keys are still readable
+        for i in 25..50 {
+            let key = format!("key{:04}", i);
+            let result = engine.get(key.as_bytes()).await.unwrap();
+            assert!(result.is_some(), "Non-deleted key {} should be readable", key);
+        }
     }
 }

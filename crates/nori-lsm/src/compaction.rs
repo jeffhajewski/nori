@@ -574,14 +574,62 @@ trait ManifestExt {
 }
 
 impl ManifestExt for ManifestLog {
-    fn level_state(&self, _level: u8) -> Vec<LevelSlotState> {
-        // TODO: Implement in Phase 7 when integrating with full manifest
-        vec![LevelSlotState {
-            run_count: 0,
-            total_bytes: 0,
-            tombstone_density: 0.0,
-            runs: vec![],
-        }]
+    fn level_state(&self, level: u8) -> Vec<LevelSlotState> {
+        let snapshot = self.snapshot();
+        let snap_guard = snapshot.read().unwrap();
+
+        if level >= snap_guard.levels.len() as u8 {
+            return vec![]; // Level doesn't exist yet
+        }
+
+        let level_meta = &snap_guard.levels[level as usize];
+
+        // L0 is special: no slots, just a collection of overlapping files
+        if level == 0 {
+            let total_bytes: u64 = level_meta.l0_files.iter().map(|r| r.size).sum();
+            let run_count = level_meta.l0_files.len();
+
+            // Calculate tombstone density
+            let total_tombstones: u32 = level_meta.l0_files.iter().map(|r| r.tombstone_count).sum();
+            let total_entries: u64 = level_meta
+                .l0_files
+                .iter()
+                .map(|r| {
+                    // Estimate entries from file size (rough approximation)
+                    r.size / 100 // Assume ~100 bytes per entry on average
+                })
+                .sum();
+            let tombstone_density = if total_entries > 0 {
+                (total_tombstones as f64) / (total_entries as f64)
+            } else {
+                0.0
+            };
+
+            return vec![LevelSlotState {
+                run_count,
+                total_bytes,
+                tombstone_density,
+                runs: level_meta.l0_files.clone(),
+            }];
+        }
+
+        // L1+: return state for each slot
+        level_meta
+            .slots
+            .iter()
+            .map(|slot| {
+                let run_count = slot.runs.len();
+                let total_bytes = slot.bytes;
+                let tombstone_density = slot.tombstone_density as f64;
+
+                LevelSlotState {
+                    run_count,
+                    total_bytes,
+                    tombstone_density,
+                    runs: slot.runs.clone(),
+                }
+            })
+            .collect()
     }
 }
 
@@ -595,9 +643,6 @@ pub struct CompactionExecutor {
 
     /// Configuration
     config: ATLLConfig,
-
-    /// Next file number allocator (shared with manifest)
-    next_file_number: u64,
 }
 
 impl CompactionExecutor {
@@ -606,11 +651,7 @@ impl CompactionExecutor {
         let sst_dir = sst_dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&sst_dir)?;
 
-        Ok(Self {
-            sst_dir,
-            config,
-            next_file_number: 1000, // Start after flush file numbers
-        })
+        Ok(Self { sst_dir, config })
     }
 
     /// Executes a compaction action and returns manifest edits.
@@ -621,7 +662,7 @@ impl CompactionExecutor {
     pub async fn execute(
         &mut self,
         action: &CompactionAction,
-        manifest: &ManifestLog,
+        manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
     ) -> Result<(Vec<crate::manifest::ManifestEdit>, u64)> {
         match action {
             CompactionAction::Tier {
@@ -665,12 +706,15 @@ impl CompactionExecutor {
         level: u8,
         slot_id: u32,
         run_count: usize,
-        manifest: &ManifestLog,
+        manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
     ) -> Result<(Vec<crate::manifest::ManifestEdit>, u64)> {
         use crate::manifest::ManifestEdit;
 
         // Get slot state from manifest
-        let level_state = manifest.level_state(level);
+        let level_state = {
+            let manifest_guard = manifest.read();
+            manifest_guard.level_state(level)
+        };
         if slot_id as usize >= level_state.len() {
             return Err(Error::Internal(format!(
                 "Slot {} not found in level {}",
@@ -701,8 +745,8 @@ impl CompactionExecutor {
             .map(|run| self.sst_path(run.file_number))
             .collect();
 
-        // Allocate new file number
-        let output_file_number = self.allocate_file_number();
+        // Allocate new file number from manifest
+        let output_file_number = Self::allocate_file_number(manifest);
         let output_path = self.sst_path(output_file_number);
 
         // Can drop tombstones only if this is the last level
@@ -746,7 +790,7 @@ impl CompactionExecutor {
         level: u8,
         slot_id: u32,
         file_number: u64,
-        manifest: &ManifestLog,
+        manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
     ) -> Result<(Vec<crate::manifest::ManifestEdit>, u64)> {
         use crate::manifest::ManifestEdit;
 
@@ -757,7 +801,10 @@ impl CompactionExecutor {
         }
 
         // Get the run to promote
-        let level_state = manifest.level_state(level);
+        let level_state = {
+            let manifest_guard = manifest.read();
+            manifest_guard.level_state(level)
+        };
         if slot_id as usize >= level_state.len() {
             return Err(Error::Internal(format!(
                 "Slot {} not found in level {}",
@@ -798,10 +845,13 @@ impl CompactionExecutor {
         &mut self,
         level: u8,
         slot_id: u32,
-        manifest: &ManifestLog,
+        manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
     ) -> Result<(Vec<crate::manifest::ManifestEdit>, u64)> {
         // Eager leveling is essentially tiering with run_count = all runs
-        let level_state = manifest.level_state(level);
+        let level_state = {
+            let manifest_guard = manifest.read();
+            manifest_guard.level_state(level)
+        };
         if slot_id as usize >= level_state.len() {
             return Err(Error::Internal(format!(
                 "Slot {} not found in level {}",
@@ -821,12 +871,15 @@ impl CompactionExecutor {
         &mut self,
         level: u8,
         slot_id: u32,
-        manifest: &ManifestLog,
+        manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
     ) -> Result<(Vec<crate::manifest::ManifestEdit>, u64)> {
         use crate::manifest::ManifestEdit;
 
         // Get slot runs
-        let level_state = manifest.level_state(level);
+        let level_state = {
+            let manifest_guard = manifest.read();
+            manifest_guard.level_state(level)
+        };
         if slot_id as usize >= level_state.len() {
             return Err(Error::Internal(format!(
                 "Slot {} not found in level {}",
@@ -846,8 +899,8 @@ impl CompactionExecutor {
             .map(|run| self.sst_path(run.file_number))
             .collect();
 
-        // Allocate new file number
-        let output_file_number = self.allocate_file_number();
+        // Allocate new file number from manifest
+        let output_file_number = Self::allocate_file_number(manifest);
         let output_path = self.sst_path(output_file_number);
 
         // Force tombstone dropping for cleanup
@@ -890,11 +943,12 @@ impl CompactionExecutor {
         self.sst_dir.join(format!("sst-{:06}.sst", file_number))
     }
 
-    /// Allocates a new file number.
-    fn allocate_file_number(&mut self) -> u64 {
-        let num = self.next_file_number;
-        self.next_file_number += 1;
-        num
+    /// Allocates a new file number from the manifest.
+    fn allocate_file_number(manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>) -> u64 {
+        let manifest_guard = manifest.read();
+        let snapshot = manifest_guard.snapshot();
+        let mut snap_guard = snapshot.write().unwrap();
+        snap_guard.alloc_file_number()
     }
 }
 
@@ -1087,7 +1141,6 @@ impl ExecutorClone for CompactionExecutor {
         Self {
             sst_dir: self.sst_dir.clone(),
             config: self.config.clone(),
-            next_file_number: self.next_file_number, // Shared counter needs Arc in real impl
         }
     }
 
@@ -1422,27 +1475,31 @@ mod tests {
         let sst_dir = temp_dir.path().join("sst");
 
         let config = ATLLConfig::default();
-        let executor = CompactionExecutor::new(&sst_dir, config).unwrap();
+        let _executor = CompactionExecutor::new(&sst_dir, config).unwrap();
 
         assert!(sst_dir.exists());
-        assert_eq!(executor.next_file_number, 1000);
     }
 
     #[test]
     fn test_executor_file_number_allocation() {
         let temp_dir = tempfile::tempdir().unwrap();
         let sst_dir = temp_dir.path().join("sst");
+        let manifest_dir = temp_dir.path().join("manifest");
 
         let config = ATLLConfig::default();
-        let mut executor = CompactionExecutor::new(&sst_dir, config).unwrap();
+        let _executor = CompactionExecutor::new(&sst_dir, config.clone()).unwrap();
 
-        let num1 = executor.allocate_file_number();
-        let num2 = executor.allocate_file_number();
-        let num3 = executor.allocate_file_number();
+        let manifest = Arc::new(parking_lot::RwLock::new(
+            ManifestLog::open(&manifest_dir, config.max_levels).unwrap(),
+        ));
 
-        assert_eq!(num1, 1000);
-        assert_eq!(num2, 1001);
-        assert_eq!(num3, 1002);
+        let num1 = CompactionExecutor::allocate_file_number(&manifest);
+        let num2 = CompactionExecutor::allocate_file_number(&manifest);
+        let num3 = CompactionExecutor::allocate_file_number(&manifest);
+
+        // File numbers should be sequential
+        assert!(num2 > num1);
+        assert!(num3 > num2);
     }
 
     #[test]

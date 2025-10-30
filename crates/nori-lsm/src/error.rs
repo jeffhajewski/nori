@@ -26,6 +26,9 @@ pub enum Error {
     #[error("L0 stall: too many files ({0} > {1})")]
     L0Stall(usize, usize),
 
+    #[error("System pressure critical: {0}")]
+    SystemPressure(String),
+
     #[error("Key not found")]
     KeyNotFound,
 

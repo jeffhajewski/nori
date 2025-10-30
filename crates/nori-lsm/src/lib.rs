@@ -58,7 +58,7 @@
 //!     let engine = LsmEngine::open(config).await?;
 //!
 //!     // Write
-//!     engine.put(Bytes::from("key"), Bytes::from("value")).await?;
+//!     engine.put(Bytes::from("key"), Bytes::from("value"), None).await?;
 //!
 //!     // Read
 //!     if let Some(value) = engine.get(b"key").await? {
@@ -159,7 +159,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Main LSM engine implementing the ATLL (Adaptive Tiered-Leveled LSM) design.
 ///
@@ -317,7 +317,7 @@ impl LsmEngine {
                         if record.tombstone {
                             memtable.delete(record.key, seqno)?;
                         } else {
-                            memtable.put(record.key, record.value, seqno)?;
+                            memtable.put(record.key, record.value, seqno, None)?;
                         }
                     }
                     Ok(None) => break,
@@ -427,8 +427,8 @@ impl LsmEngine {
             let memtable = self.memtable.read();
             if let Some(entry) = memtable.get(key) {
                 let result = match entry {
-                    MemtableEntry::Put { value, seqno: _ } => Ok(Some(value)),
-                    MemtableEntry::Delete { seqno: _ } => Ok(None), // Tombstone
+                    MemtableEntry::Put { value, .. } => Ok(Some(value)),
+                    MemtableEntry::Delete { .. } => Ok(None), // Tombstone
                 };
 
                 // Track latency before returning
@@ -614,7 +614,7 @@ impl LsmEngine {
     /// # Errors
     /// Returns `Error::L0Stall` only if L0 stall persists after all retry attempts.
     /// Retries are automatic with exponential backoff (configurable via L0Config).
-    pub async fn put(&self, key: Bytes, value: Bytes) -> Result<u64> {
+    pub async fn put(&self, key: Bytes, value: Bytes, ttl: Option<Duration>) -> Result<u64> {
         use std::sync::atomic::Ordering;
 
         // Track operation count
@@ -626,7 +626,11 @@ impl LsmEngine {
         self.check_system_pressure_with_retry().await?;
 
         // 2. Write to WAL first (durability)
-        let record = Record::put(key.clone(), value.clone());
+        let record = if let Some(ttl) = ttl {
+            Record::put_with_ttl(key.clone(), value.clone(), ttl)
+        } else {
+            Record::put(key.clone(), value.clone())
+        };
         // Acquire write lock, call append (which is async), then lock is dropped
         // We need to hold the lock to ensure WAL writes are serialized
         let result = {
@@ -646,7 +650,7 @@ impl LsmEngine {
         // 4. Insert into memtable
         {
             let memtable = self.memtable.read();
-            memtable.put(key, value, seqno)?;
+            memtable.put(key, value, seqno, ttl)?;
         }
 
         // 5. Check flush triggers
@@ -2173,7 +2177,7 @@ mod tests {
         // Write a key-value pair
         let key = Bytes::from("test_key");
         let value = Bytes::from("test_value");
-        engine.put(key.clone(), value.clone()).await.unwrap();
+        engine.put(key.clone(), value.clone(), None).await.unwrap();
 
         // Read it back
         let result = engine.get(b"test_key").await.unwrap();
@@ -2196,7 +2200,7 @@ mod tests {
         // Write and then delete
         let key = Bytes::from("delete_key");
         let value = Bytes::from("delete_value");
-        engine.put(key.clone(), value.clone()).await.unwrap();
+        engine.put(key.clone(), value.clone(), None).await.unwrap();
 
         // Verify it exists
         assert_eq!(engine.get(b"delete_key").await.unwrap(), Some(value));
@@ -2219,15 +2223,15 @@ mod tests {
 
         let key = Bytes::from("key");
         engine
-            .put(key.clone(), Bytes::from("value1"))
+            .put(key.clone(), Bytes::from("value1"), None)
             .await
             .unwrap();
         engine
-            .put(key.clone(), Bytes::from("value2"))
+            .put(key.clone(), Bytes::from("value2"), None)
             .await
             .unwrap();
         engine
-            .put(key.clone(), Bytes::from("value3"))
+            .put(key.clone(), Bytes::from("value3"), None)
             .await
             .unwrap();
 
@@ -2249,7 +2253,7 @@ mod tests {
         for ch in b'a'..=b'e' {
             let key = Bytes::from(vec![ch]);
             let value = Bytes::from(format!("value_{}", ch as char));
-            engine.put(key, value).await.unwrap();
+            engine.put(key, value, None).await.unwrap();
         }
 
         // Scan range [b, d)
@@ -2280,7 +2284,7 @@ mod tests {
         for ch in b'a'..=b'd' {
             let key = Bytes::from(vec![ch]);
             let value = Bytes::from(format!("value_{}", ch as char));
-            engine.put(key, value).await.unwrap();
+            engine.put(key, value, None).await.unwrap();
         }
 
         // Delete 'b'
@@ -2313,7 +2317,7 @@ mod tests {
         for ch in b'a'..=b'c' {
             let key = Bytes::from(vec![ch]);
             let value = Bytes::from(format!("value_{}", ch as char));
-            engine.put(key, value).await.unwrap();
+            engine.put(key, value, None).await.unwrap();
         }
 
         // Scan non-overlapping range [x, z)
@@ -2337,15 +2341,15 @@ mod tests {
         let engine = LsmEngine::open(config).await.unwrap();
 
         let seqno1 = engine
-            .put(Bytes::from("key1"), Bytes::from("value1"))
+            .put(Bytes::from("key1"), Bytes::from("value1"), None)
             .await
             .unwrap();
         let seqno2 = engine
-            .put(Bytes::from("key2"), Bytes::from("value2"))
+            .put(Bytes::from("key2"), Bytes::from("value2"), None)
             .await
             .unwrap();
         let seqno3 = engine
-            .put(Bytes::from("key3"), Bytes::from("value3"))
+            .put(Bytes::from("key3"), Bytes::from("value3"), None)
             .await
             .unwrap();
 
@@ -2367,6 +2371,7 @@ mod tests {
                 .put(
                     Bytes::from("persistent_key"),
                     Bytes::from("persistent_value"),
+                    None,
                 )
                 .await
                 .unwrap();
@@ -2394,7 +2399,7 @@ mod tests {
             for i in 0..100 {
                 let key = Bytes::from(format!("key{:03}", i));
                 let value = Bytes::from(format!("value{:03}", i));
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
         }
 
@@ -2421,16 +2426,16 @@ mod tests {
         {
             let engine = LsmEngine::open(config.clone()).await.unwrap();
             engine
-                .put(Bytes::from("key1"), Bytes::from("value1"))
+                .put(Bytes::from("key1"), Bytes::from("value1"), None)
                 .await
                 .unwrap();
             engine
-                .put(Bytes::from("key2"), Bytes::from("value2"))
+                .put(Bytes::from("key2"), Bytes::from("value2"), None)
                 .await
                 .unwrap();
             engine.delete(b"key1").await.unwrap();
             engine
-                .put(Bytes::from("key3"), Bytes::from("value3"))
+                .put(Bytes::from("key3"), Bytes::from("value3"), None)
                 .await
                 .unwrap();
         }
@@ -2466,7 +2471,7 @@ mod tests {
         for i in 0..30 {
             let key = Bytes::from(format!("large_key_{:010}", i));
             let value = Bytes::from(vec![b'x'; 100]); // 100 byte value
-            engine.put(key, value).await.unwrap();
+            engine.put(key, value, None).await.unwrap();
         }
 
         // Check manifest for L0 files (flush should have occurred)
@@ -2493,19 +2498,19 @@ mod tests {
         {
             let engine = LsmEngine::open(config.clone()).await.unwrap();
             engine
-                .put(Bytes::from("key"), Bytes::from("v1"))
+                .put(Bytes::from("key"), Bytes::from("v1"), None)
                 .await
                 .unwrap();
             engine
-                .put(Bytes::from("key"), Bytes::from("v2"))
+                .put(Bytes::from("key"), Bytes::from("v2"), None)
                 .await
                 .unwrap();
             engine
-                .put(Bytes::from("key"), Bytes::from("v3"))
+                .put(Bytes::from("key"), Bytes::from("v3"), None)
                 .await
                 .unwrap();
             engine
-                .put(Bytes::from("key"), Bytes::from("v4"))
+                .put(Bytes::from("key"), Bytes::from("v4"), None)
                 .await
                 .unwrap();
         }
@@ -2554,7 +2559,7 @@ mod tests {
                 let key = format!("key_{}_{}", batch, i);
                 let value = vec![b'x'; 100]; // 100 bytes per value
                 engine
-                    .put(Bytes::from(key), Bytes::from(value))
+                    .put(Bytes::from(key), Bytes::from(value), None)
                     .await
                     .unwrap();
             }
@@ -2605,7 +2610,7 @@ mod tests {
                 let key = format!("key_{}_{}", batch, i);
                 let value = vec![b'x'; 100];
 
-                let result = engine.put(Bytes::from(key), Bytes::from(value)).await;
+                let result = engine.put(Bytes::from(key), Bytes::from(value), None).await;
 
                 // After L0 exceeds threshold, writes should stall
                 if batch == 1 && i > 5 {
@@ -2641,7 +2646,7 @@ mod tests {
         let start = std::time::Instant::now();
         for i in 0..100 {
             engine
-                .put(Bytes::from(format!("key-{}", i)), Bytes::from(vec![0u8; 100]))
+                .put(Bytes::from(format!("key-{}", i)), Bytes::from(vec![0u8; 100]), None)
                 .await
                 .unwrap();
         }
@@ -2679,7 +2684,7 @@ mod tests {
                 let value = vec![b'x'; 100]; // 100 bytes each
 
                 let start = std::time::Instant::now();
-                engine.put(Bytes::from(key), Bytes::from(value)).await.unwrap();
+                engine.put(Bytes::from(key), Bytes::from(value), None).await.unwrap();
                 let write_time = start.elapsed();
 
                 // Get current L0 count
@@ -2752,7 +2757,7 @@ mod tests {
                 };
 
                 let start = std::time::Instant::now();
-                let result = engine.put(Bytes::from(key), Bytes::from(value)).await;
+                let result = engine.put(Bytes::from(key), Bytes::from(value), None).await;
                 let write_time = start.elapsed();
 
                 match result {
@@ -2815,6 +2820,7 @@ mod tests {
                     .put(
                         Bytes::from(format!("key_{}_{}", batch, i)),
                         Bytes::from(vec![b'x'; 100]),
+                        None,
                     )
                     .await
                     .unwrap();
@@ -2840,7 +2846,7 @@ mod tests {
             // Perform a write and measure delay
             let start = std::time::Instant::now();
             engine
-                .put(Bytes::from("test_key"), Bytes::from(vec![b'y'; 100]))
+                .put(Bytes::from("test_key"), Bytes::from(vec![b'y'; 100]), None)
                 .await
                 .unwrap();
             let write_time = start.elapsed();
@@ -2896,6 +2902,7 @@ mod tests {
                 .put(
                     Bytes::from(format!("setup_key_{}", i)),
                     Bytes::from(vec![b'x'; 100]),
+                    None,
                 )
                 .await
                 .unwrap_or_else(|_| 0);
@@ -2907,7 +2914,7 @@ mod tests {
         // Try one more write - if L0 is stalled, retries will add measurable delay
         let start = std::time::Instant::now();
         let _result = engine
-            .put(Bytes::from("backoff_test_key"), Bytes::from(vec![b'y'; 100]))
+            .put(Bytes::from("backoff_test_key"), Bytes::from(vec![b'y'; 100]), None)
             .await;
         let elapsed = start.elapsed();
 
@@ -2940,6 +2947,7 @@ mod tests {
                 .put(
                     Bytes::from(format!("setup_key_{}", i)),
                     Bytes::from(vec![b'x'; 80]),
+                    None,
                 )
                 .await
                 .unwrap_or_else(|_| 0);
@@ -2950,7 +2958,7 @@ mod tests {
         // Expected delays if stalls occur: 30×2^0=30, 30×2^1=60 (capped), 30×2^2=60 (capped)
         let start = std::time::Instant::now();
         let _result = engine
-            .put(Bytes::from("cap_test_key"), Bytes::from(vec![b'y'; 80]))
+            .put(Bytes::from("cap_test_key"), Bytes::from(vec![b'y'; 80]), None)
             .await;
         let elapsed = start.elapsed();
 
@@ -2982,6 +2990,7 @@ mod tests {
                 .put(
                     Bytes::from(format!("setup_key_{}", i)),
                     Bytes::from(vec![b'x'; 70]),
+                    None,
                 )
                 .await; // May succeed or fail, both are OK
         }
@@ -2990,7 +2999,7 @@ mod tests {
 
         // Attempt write - may succeed or fail depending on compaction timing
         let result = engine
-            .put(Bytes::from("error_test_key"), Bytes::from(vec![b'y'; 70]))
+            .put(Bytes::from("error_test_key"), Bytes::from(vec![b'y'; 70]), None)
             .await;
 
         // Verify error structure if L0Stall occurred
@@ -3023,7 +3032,7 @@ mod tests {
             };
             let value = vec![b'x'; 100];
             engine
-                .put(Bytes::from(key), Bytes::from(value))
+                .put(Bytes::from(key), Bytes::from(value), None)
                 .await
                 .unwrap();
         }
@@ -3073,7 +3082,7 @@ mod tests {
             let key = format!("key{:03}", i);
             let value = vec![b'x'; 50]; // 50 bytes per value
             engine
-                .put(Bytes::from(key), Bytes::from(value))
+                .put(Bytes::from(key), Bytes::from(value), None)
                 .await
                 .unwrap();
         }
@@ -3131,7 +3140,7 @@ mod tests {
                 let key = format!("batch{}_key{}", batch, i);
                 let value = vec![b'x'; 40];
                 engine
-                    .put(Bytes::from(key), Bytes::from(value))
+                    .put(Bytes::from(key), Bytes::from(value), None)
                     .await
                     .unwrap();
             }
@@ -3166,7 +3175,7 @@ mod tests {
                 let key = format!("writer{}_key{}", writer_id, i);
                 let value = format!("value{}", i);
                 engine
-                    .put(Bytes::from(key), Bytes::from(value))
+                    .put(Bytes::from(key), Bytes::from(value), None)
                     .await
                     .unwrap();
             }
@@ -3220,7 +3229,7 @@ mod tests {
             let key = format!("key{:04}", i);
             let value = vec![b'x'; 100]; // 100 bytes per value
             engine
-                .put(Bytes::from(key), Bytes::from(value))
+                .put(Bytes::from(key), Bytes::from(value), None)
                 .await
                 .unwrap();
         }
@@ -3253,7 +3262,7 @@ mod tests {
                 let key = format!("round{}_key{:04}", round, i);
                 let value = format!("value_{}", i);
                 engine
-                    .put(Bytes::from(key), Bytes::from(value))
+                    .put(Bytes::from(key), Bytes::from(value), None)
                     .await
                     .unwrap();
             }
@@ -3470,7 +3479,7 @@ mod tests {
             for i in 0..100 {
                 let key = Bytes::from(format!("key{:04}", batch * 100 + i));
                 let value = Bytes::from(format!("value_{}", batch));
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
 
             // Force flush to create new L0 file
@@ -3508,7 +3517,7 @@ mod tests {
         for i in 0..10 {
             let key = Bytes::from(format!("key{:04}", i));
             let value = Bytes::from(format!("value_{}", i));
-            engine.put(key, value).await.unwrap();
+            engine.put(key, value, None).await.unwrap();
             engine.flush().await.unwrap();
         }
 
@@ -3560,7 +3569,7 @@ mod tests {
         // Write multiple versions of the same key
         for version in 0..5 {
             let value = Bytes::from(format!("value_v{}", version));
-            engine.put(key.clone(), value).await.unwrap();
+            engine.put(key.clone(), value, None).await.unwrap();
             engine.flush().await.unwrap();
         }
 
@@ -3591,7 +3600,7 @@ mod tests {
         for i in 0..50 {
             let key = Bytes::from(format!("key{:04}", i));
             let value = Bytes::from(format!("value_{}", i));
-            engine.put(key.clone(), value).await.unwrap();
+            engine.put(key.clone(), value, None).await.unwrap();
         }
         engine.flush().await.unwrap();
 
@@ -3649,7 +3658,7 @@ mod tests {
         for i in 0..10 {
             let key = Bytes::from(format!("key{:03}", i));
             let value = Bytes::from(format!("value{:03}", i));
-            engine.put(key, value).await.unwrap();
+            engine.put(key, value, None).await.unwrap();
         }
 
         // Check memtable stats
@@ -3721,7 +3730,7 @@ mod tests {
         for i in 0..100 {
             let key = Bytes::from(format!("key{:03}", i));
             let value = Bytes::from(format!("value{:03}", i));
-            engine.put(key, value).await.unwrap();
+            engine.put(key, value, None).await.unwrap();
         }
 
         // Gracefully shutdown
@@ -3760,7 +3769,7 @@ mod tests {
         for i in 0..10 {
             let key = Bytes::from(format!("key{:03}", i));
             let value = Bytes::from(vec![0u8; 100]); // Small values
-            engine.put(key, value).await.unwrap();
+            engine.put(key, value, None).await.unwrap();
         }
 
         // Shutdown should flush pending memtable data
@@ -3791,7 +3800,7 @@ mod tests {
 
         // Write some data
         engine
-            .put(Bytes::from("key"), Bytes::from("value"))
+            .put(Bytes::from("key"), Bytes::from("value"), None)
             .await
             .unwrap();
 
@@ -3824,7 +3833,7 @@ mod tests {
         // Write some data to populate memtable
         for i in 0..10 {
             engine
-                .put(Bytes::from(format!("key{}", i)), Bytes::from(vec![b'x'; 50]))
+                .put(Bytes::from(format!("key{}", i)), Bytes::from(vec![b'x'; 50]), None)
                 .await
                 .unwrap();
         }
@@ -3886,6 +3895,7 @@ mod tests {
                 .put(
                     Bytes::from(format!("key{:03}", i)),
                     Bytes::from(vec![b'x'; 40]),
+                    None,
                 )
                 .await
                 .unwrap();
@@ -3923,7 +3933,7 @@ mod tests {
         // Write some data
         for i in 0..5 {
             engine
-                .put(Bytes::from(format!("key{}", i)), Bytes::from(vec![b'y'; 30]))
+                .put(Bytes::from(format!("key{}", i)), Bytes::from(vec![b'y'; 30]), None)
                 .await
                 .unwrap();
         }
@@ -3956,6 +3966,7 @@ mod tests {
                 .put(
                     Bytes::from(format!("key{:03}", i)),
                     Bytes::from(vec![b'z'; 40]),
+                    None,
                 )
                 .await
                 .unwrap();
@@ -4280,6 +4291,7 @@ mod tests {
                 .put(
                     Bytes::from(format!("key{:03}", i)),
                     Bytes::from(vec![b'x'; 30]),
+                    None,
                 )
                 .await
                 .unwrap();
@@ -4319,6 +4331,7 @@ mod tests {
                 .put(
                     Bytes::from(format!("k{:03}", i)),
                     Bytes::from(vec![b'x'; 20]),
+                    None,
                 )
                 .await
                 .unwrap();
@@ -4337,6 +4350,7 @@ mod tests {
                 .put(
                     Bytes::from(format!("k{:03}", i)),
                     Bytes::from(vec![b'x'; 20]),
+                    None,
                 )
                 .await
                 .unwrap();
@@ -4395,7 +4409,7 @@ mod tests {
             let value = Bytes::from(vec![b'x'; 100]);
 
             let start = std::time::Instant::now();
-            let result = engine.put(key, value).await;
+            let result = engine.put(key, value, None).await;
             let duration = start.elapsed();
 
             write_count += 1;
@@ -4457,7 +4471,7 @@ mod tests {
             for j in 0..5 {
                 let key = Bytes::from(format!("storm_{}_{}", i, j));
                 let value = Bytes::from(vec![b'y'; 50]);
-                let _ = engine.put(key, value).await;
+                let _ = engine.put(key, value, None).await;
             }
 
             // Trigger flush to create L0 files
@@ -4535,7 +4549,7 @@ mod tests {
             for i in 0..10 {
                 let key = Bytes::from(format!("zone_test_{}_{}", batch, i));
                 let value = Bytes::from(vec![b'z'; 80]);
-                let _ = engine.put(key, value).await;
+                let _ = engine.put(key, value, None).await;
             }
 
             // Force flush occasionally to create L0 files
@@ -4610,7 +4624,7 @@ mod tests {
             for j in 0..5 {
                 let key = Bytes::from(format!("recovery_test_{}_{}", i, j));
                 let value = Bytes::from(vec![b'r'; 60]);
-                let _ = engine.put(key, value).await;
+                let _ = engine.put(key, value, None).await;
             }
 
             if i % 5 == 0 {
@@ -4642,7 +4656,7 @@ mod tests {
         // Verify system still accepts writes after recovery
         let key = Bytes::from("post_recovery_write");
         let value = Bytes::from("test");
-        let result = engine.put(key, value).await;
+        let result = engine.put(key, value, None).await;
         assert!(
             result.is_ok(),
             "System should accept writes after recovery"
@@ -4671,7 +4685,7 @@ mod tests {
             let key = Bytes::from(format!("multi_pressure_{:04}", i));
             let value = Bytes::from(vec![b'm'; 150]);
 
-            let _ = engine.put(key, value).await;
+            let _ = engine.put(key, value, None).await;
 
             // Occasional flush to stress L0
             if i % 10 == 0 && i > 0 {
@@ -4717,5 +4731,71 @@ mod tests {
             peak_composite > 0.2,
             "Composite score should reflect combined pressure"
         );
+    }
+
+    #[tokio::test]
+    async fn test_put_with_ttl() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        let key = Bytes::from("ttl_key");
+        let value = Bytes::from("ttl_value");
+
+        // Put with TTL
+        let ttl = Some(Duration::from_secs(60));
+        engine.put(key.clone(), value.clone(), ttl).await.unwrap();
+
+        // Should be able to read it immediately
+        let result = engine.get(b"ttl_key").await.unwrap();
+        assert_eq!(result, Some(value.clone()));
+    }
+
+    #[tokio::test]
+    async fn test_ttl_expiration() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        let key = Bytes::from("expiring_key");
+        let value = Bytes::from("expiring_value");
+
+        // Put with very short TTL (100ms)
+        let ttl = Some(Duration::from_millis(100));
+        engine.put(key.clone(), value.clone(), ttl).await.unwrap();
+
+        // Should be readable immediately
+        let result = engine.get(b"expiring_key").await.unwrap();
+        assert_eq!(result, Some(value));
+
+        // Wait for expiration
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // Should now return None (expired)
+        let result = engine.get(b"expiring_key").await.unwrap();
+        assert_eq!(result, None, "Expired key should return None");
+    }
+
+    #[tokio::test]
+    async fn test_ttl_without_expiration() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        let key = Bytes::from("persistent_key");
+        let value = Bytes::from("persistent_value");
+
+        // Put without TTL
+        engine.put(key.clone(), value.clone(), None).await.unwrap();
+
+        // Wait a bit
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Should still be readable (no TTL)
+        let result = engine.get(b"persistent_key").await.unwrap();
+        assert_eq!(result, Some(value));
     }
 }

@@ -85,7 +85,7 @@ impl Flusher {
         let mut entry_count = 0;
         for (key, entry) in memtable.iter() {
             let sst_entry = match entry {
-                MemtableEntry::Put { value, seqno } => {
+                MemtableEntry::Put { value, seqno, .. } => {
                     Entry::put_with_seqno(key.clone(), value.clone(), seqno)
                 }
                 MemtableEntry::Delete { seqno } => {
@@ -347,9 +347,9 @@ mod tests {
 
         // Create memtable with some entries
         let mt = Memtable::new(1);
-        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1)
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1, None)
             .unwrap();
-        mt.put(Bytes::from("key2"), Bytes::from("value2"), 2)
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), 2, None)
             .unwrap();
         mt.delete(Bytes::from("key3"), 3).unwrap();
 

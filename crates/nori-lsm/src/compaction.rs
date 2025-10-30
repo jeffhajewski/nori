@@ -1621,11 +1621,11 @@ mod tests {
 
         // Create a memtable with entries
         let mt = Memtable::new(1);
-        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1)
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1, None)
             .unwrap();
-        mt.put(Bytes::from("key2"), Bytes::from("value2"), 2)
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), 2, None)
             .unwrap();
-        mt.put(Bytes::from("key3"), Bytes::from("value3"), 3)
+        mt.put(Bytes::from("key3"), Bytes::from("value3"), 3, None)
             .unwrap();
 
         // Flush to SSTable
@@ -1657,22 +1657,22 @@ mod tests {
 
         // Create first memtable (keys 1, 3, 5)
         let mt1 = Memtable::new(1);
-        mt1.put(Bytes::from("key1"), Bytes::from("value1"), 1)
+        mt1.put(Bytes::from("key1"), Bytes::from("value1"), 1, None)
             .unwrap();
-        mt1.put(Bytes::from("key3"), Bytes::from("value3"), 3)
+        mt1.put(Bytes::from("key3"), Bytes::from("value3"), 3, None)
             .unwrap();
-        mt1.put(Bytes::from("key5"), Bytes::from("value5"), 5)
+        mt1.put(Bytes::from("key5"), Bytes::from("value5"), 5, None)
             .unwrap();
 
         flusher.flush_to_l0(&mt1, 1).await.unwrap();
 
         // Create second memtable (keys 2, 4, 6)
         let mt2 = Memtable::new(10);
-        mt2.put(Bytes::from("key2"), Bytes::from("value2"), 10)
+        mt2.put(Bytes::from("key2"), Bytes::from("value2"), 10, None)
             .unwrap();
-        mt2.put(Bytes::from("key4"), Bytes::from("value4"), 11)
+        mt2.put(Bytes::from("key4"), Bytes::from("value4"), 11, None)
             .unwrap();
-        mt2.put(Bytes::from("key6"), Bytes::from("value6"), 12)
+        mt2.put(Bytes::from("key6"), Bytes::from("value6"), 12, None)
             .unwrap();
 
         flusher.flush_to_l0(&mt2, 2).await.unwrap();
@@ -1720,10 +1720,10 @@ mod tests {
 
         // Create memtable with tombstones
         let mt = Memtable::new(1);
-        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1)
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1, None)
             .unwrap();
         mt.delete(Bytes::from("key2"), 2).unwrap();
-        mt.put(Bytes::from("key3"), Bytes::from("value3"), 3)
+        mt.put(Bytes::from("key3"), Bytes::from("value3"), 3, None)
             .unwrap();
 
         flusher.flush_to_l0(&mt, 1).await.unwrap();
@@ -1784,13 +1784,13 @@ mod tests {
 
         // Create two memtables with overlapping keys (newer one should win)
         let mt1 = Memtable::new(1);
-        mt1.put(Bytes::from("key1"), Bytes::from("old_value"), 1)
+        mt1.put(Bytes::from("key1"), Bytes::from("old_value"), 1, None)
             .unwrap();
 
         flusher.flush_to_l0(&mt1, 1).await.unwrap();
 
         let mt2 = Memtable::new(10);
-        mt2.put(Bytes::from("key1"), Bytes::from("new_value"), 10)
+        mt2.put(Bytes::from("key1"), Bytes::from("new_value"), 10, None)
             .unwrap();
 
         flusher.flush_to_l0(&mt2, 2).await.unwrap();

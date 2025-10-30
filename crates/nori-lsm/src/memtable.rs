@@ -2,13 +2,20 @@ use crate::error::Result;
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 /// Entry in the memtable representing a single key-value operation.
 /// Each entry is tagged with a sequence number for MVCC ordering.
 #[derive(Debug, Clone)]
 pub enum MemtableEntry {
     /// A put operation: key → value
-    Put { value: Bytes, seqno: u64 },
+    Put {
+        value: Bytes,
+        seqno: u64,
+        /// Optional expiration time (absolute timestamp)
+        /// If present, this entry expires after this time
+        expires_at: Option<SystemTime>,
+    },
     /// A delete operation (tombstone)
     Delete { seqno: u64 },
 }
@@ -61,15 +68,20 @@ impl Memtable {
     /// * `key` - The key to insert
     /// * `value` - The value to associate with the key
     /// * `seqno` - Sequence number for this operation (must be monotonically increasing)
+    /// * `ttl` - Optional time-to-live duration; entry expires after this duration
     ///
     /// # Returns
     /// The approximate size of the memtable after insertion
-    pub fn put(&self, key: Bytes, value: Bytes, seqno: u64) -> Result<usize> {
+    pub fn put(&self, key: Bytes, value: Bytes, seqno: u64, ttl: Option<Duration>) -> Result<usize> {
         let entry_size = key.len() + value.len() + std::mem::size_of::<MemtableEntry>();
+
+        // Calculate expiration time if TTL is provided
+        let expires_at = ttl.map(|duration| SystemTime::now() + duration);
 
         let entry = MemtableEntry::Put {
             value: value.clone(),
             seqno,
+            expires_at,
         };
 
         self.data.insert(key, entry);
@@ -119,8 +131,27 @@ impl Memtable {
     ///
     /// Returns the most recent entry for the key. The caller is responsible
     /// for interpreting tombstones.
+    ///
+    /// # TTL Handling
+    /// If the entry has expired (TTL), returns None as if the key doesn't exist.
     pub fn get(&self, key: &[u8]) -> Option<MemtableEntry> {
-        self.data.get(key).map(|entry| entry.value().clone())
+        self.data.get(key).and_then(|entry| {
+            let entry = entry.value().clone();
+
+            // Check if entry has expired
+            match &entry {
+                MemtableEntry::Put { expires_at, .. } => {
+                    if let Some(expiration) = expires_at {
+                        if SystemTime::now() >= *expiration {
+                            // Entry has expired, treat as not found
+                            return None;
+                        }
+                    }
+                    Some(entry)
+                }
+                MemtableEntry::Delete { .. } => Some(entry),
+            }
+        })
     }
 
     /// Returns the approximate size of this memtable in bytes.
@@ -201,12 +232,13 @@ mod tests {
         let key = Bytes::from("key1");
         let value = Bytes::from("value1");
 
-        mt.put(key.clone(), value.clone(), 1).unwrap();
+        mt.put(key.clone(), value.clone(), 1, None).unwrap();
 
         match mt.get(&key) {
-            Some(MemtableEntry::Put { value: v, seqno }) => {
+            Some(MemtableEntry::Put { value: v, seqno, expires_at }) => {
                 assert_eq!(v, value);
                 assert_eq!(seqno, 1);
+                assert_eq!(expires_at, None);
             }
             _ => panic!("Expected Put entry"),
         }
@@ -232,12 +264,12 @@ mod tests {
         let mt = Memtable::new(0);
 
         let key = Bytes::from("key1");
-        mt.put(key.clone(), Bytes::from("value1"), 1).unwrap();
-        mt.put(key.clone(), Bytes::from("value2"), 2).unwrap();
+        mt.put(key.clone(), Bytes::from("value1"), 1, None).unwrap();
+        mt.put(key.clone(), Bytes::from("value2"), 2, None).unwrap();
 
         // Should get the most recent write (seqno 2)
         match mt.get(&key) {
-            Some(MemtableEntry::Put { value: v, seqno }) => {
+            Some(MemtableEntry::Put { value: v, seqno, .. }) => {
                 assert_eq!(v, Bytes::from("value2"));
                 assert_eq!(seqno, 2);
             }
@@ -255,7 +287,7 @@ mod tests {
         let key = Bytes::from("key1");
         let value = Bytes::from("value1");
 
-        let size_after_put = mt.put(key.clone(), value.clone(), 1).unwrap();
+        let size_after_put = mt.put(key.clone(), value.clone(), 1, None).unwrap();
         assert!(size_after_put > 0);
         assert_eq!(mt.size(), size_after_put);
     }
@@ -267,11 +299,11 @@ mod tests {
         assert_eq!(mt.min_seqno(), 100);
         assert_eq!(mt.max_seqno(), 100);
 
-        mt.put(Bytes::from("key1"), Bytes::from("value1"), 101)
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), 101, None)
             .unwrap();
         assert_eq!(mt.max_seqno(), 101);
 
-        mt.put(Bytes::from("key2"), Bytes::from("value2"), 105)
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), 105, None)
             .unwrap();
         assert_eq!(mt.max_seqno(), 105);
 
@@ -282,9 +314,9 @@ mod tests {
     fn test_memtable_iterator() {
         let mt = Memtable::new(0);
 
-        mt.put(Bytes::from("c"), Bytes::from("value_c"), 3).unwrap();
-        mt.put(Bytes::from("a"), Bytes::from("value_a"), 1).unwrap();
-        mt.put(Bytes::from("b"), Bytes::from("value_b"), 2).unwrap();
+        mt.put(Bytes::from("c"), Bytes::from("value_c"), 3, None).unwrap();
+        mt.put(Bytes::from("a"), Bytes::from("value_a"), 1, None).unwrap();
+        mt.put(Bytes::from("b"), Bytes::from("value_b"), 2, None).unwrap();
 
         let entries: Vec<_> = mt.iter().collect();
 
@@ -301,7 +333,7 @@ mod tests {
         assert!(mt.is_empty());
         assert_eq!(mt.len(), 0);
 
-        mt.put(Bytes::from("key"), Bytes::from("value"), 1).unwrap();
+        mt.put(Bytes::from("key"), Bytes::from("value"), 1, None).unwrap();
         assert!(!mt.is_empty());
         assert_eq!(mt.len(), 1);
     }

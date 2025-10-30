@@ -808,9 +808,9 @@ impl CompactionExecutor {
                 self.execute_cleanup(*level, *slot_id, manifest).await
             }
 
-            CompactionAction::GuardMove { .. } => {
-                // GuardMove deferred to Phase 7
-                Ok((vec![], 0))
+            CompactionAction::GuardMove { level, new_guards } => {
+                self.execute_guard_move(*level, new_guards.clone(), manifest)
+                    .await
             }
 
             CompactionAction::DoNothing => Ok((vec![], 0)),
@@ -1052,6 +1052,247 @@ impl CompactionExecutor {
         });
 
         Ok((edits, bytes_written))
+    }
+
+    /// Executes guard move: rebalances slot boundaries by moving guard keys.
+    ///
+    /// # Phase 7 Implementation
+    /// Physically reorganizes data in a level according to new guard boundaries.
+    /// This is triggered when key distribution skew is detected.
+    ///
+    /// # Algorithm
+    /// 1. Create temporary GuardManager with new guards
+    /// 2. For each file in the level:
+    ///    - Determine which new slots it overlaps
+    ///    - Split file on new guard boundaries (similar to L0→L1 admission)
+    ///    - Create fragments for each overlapping slot
+    /// 3. Generate manifest edits:
+    ///    - DeleteFile for all old files
+    ///    - AddFile for all new fragments
+    ///    - UpdateGuards to apply new guard configuration
+    ///
+    /// # Returns
+    /// Vector of manifest edits and total bytes written
+    async fn execute_guard_move(
+        &self,
+        level: u8,
+        new_guards: Vec<Bytes>,
+        manifest: &Arc<parking_lot::RwLock<crate::manifest::ManifestLog>>,
+    ) -> Result<(Vec<crate::manifest::ManifestEdit>, u64)> {
+        use crate::manifest::ManifestEdit;
+
+        println!(
+            "=== GUARD MOVE: Rebalancing level {} with {} new guards ===",
+            level,
+            new_guards.len()
+        );
+
+        // Get all files in this level
+        let level_state = {
+            let manifest_guard = manifest.read();
+            manifest_guard.level_state(level)
+        };
+
+        // Collect all runs from all slots in this level
+        let mut all_runs = Vec::new();
+        for slot_state in &level_state {
+            for run in &slot_state.runs {
+                all_runs.push(run.clone());
+            }
+        }
+
+        if all_runs.is_empty() {
+            println!("  Level {} is empty, only updating guards", level);
+            // Still need to update guards even if level is empty
+            return Ok((
+                vec![ManifestEdit::UpdateGuards {
+                    level,
+                    guards: new_guards,
+                }],
+                0,
+            ));
+        }
+
+        // Create temporary GuardManager with new guards
+        let temp_guard_manager = crate::guards::GuardManager::with_guards(level, new_guards.clone())?;
+
+        let mut edits = Vec::new();
+        let mut total_bytes_written = 0u64;
+
+        // Process each file: split according to new guards
+        for run in &all_runs {
+            println!(
+                "  Processing file {} ({}..{})",
+                run.file_number,
+                String::from_utf8_lossy(&run.min_key),
+                String::from_utf8_lossy(&run.max_key)
+            );
+
+            // Find which new slots this file overlaps
+            let overlapping_slots =
+                temp_guard_manager.overlapping_slots(&run.min_key, &run.max_key);
+
+            println!("    Overlaps {} new slots: {:?}", overlapping_slots.len(), overlapping_slots);
+
+            // If file only overlaps one slot, no splitting needed - just move it
+            if overlapping_slots.len() == 1 {
+                let new_slot_id = overlapping_slots[0];
+
+                // Delete from old location (we'll re-add to new slot)
+                edits.push(ManifestEdit::DeleteFile {
+                    level,
+                    slot_id: None, // Don't specify old slot
+                    file_number: run.file_number,
+                });
+
+                // Add to new slot
+                edits.push(ManifestEdit::AddFile {
+                    level,
+                    slot_id: Some(new_slot_id),
+                    run: run.clone(),
+                });
+
+                continue;
+            }
+
+            // File spans multiple slots - need physical splitting
+
+            // Create one fragment per overlapping slot
+            for slot_id in &overlapping_slots {
+                let new_file_number = Self::allocate_file_number(manifest);
+                let output_path = self.sst_path(new_file_number);
+
+                // Get slot boundaries
+                let (slot_min, slot_max) = temp_guard_manager.slot_boundaries(*slot_id);
+
+                let config = nori_sstable::SSTableConfig {
+                    path: output_path,
+                    estimated_entries: 1000,
+                    block_size: 4096,
+                    restart_interval: 16,
+                    compression: nori_sstable::Compression::None,
+                    bloom_bits_per_key: 10,
+                    block_cache_mb: 64,
+                };
+
+                let mut builder = nori_sstable::SSTableBuilder::new(config)
+                    .await
+                    .map_err(|e| Error::Internal(format!("Failed to create builder: {}", e)))?;
+
+                // Iterate and filter entries within slot bounds
+                let reader_clone = nori_sstable::SSTableReader::open(self.sst_path(run.file_number))
+                    .await
+                    .map_err(|e| Error::Internal(format!("Failed to reopen file: {}", e)))?;
+                let reader_clone_arc = std::sync::Arc::new(reader_clone);
+                let mut iter = reader_clone_arc.iter();
+
+                let mut min_key: Option<Bytes> = None;
+                let mut max_key: Option<Bytes> = None;
+                let mut tombstone_count = 0u32;
+                let mut entry_count = 0usize;
+                let mut min_seqno = u64::MAX;
+                let mut max_seqno = 0u64;
+
+                while let Some(entry) = iter
+                    .try_next()
+                    .await
+                    .map_err(|e| Error::Internal(format!("Iterator error: {}", e)))?
+                {
+                    // Check if entry is within slot bounds
+                    let in_range = match (&slot_min, &slot_max) {
+                        (Some(min), Some(max)) => {
+                            entry.key.as_ref() >= min.as_ref()
+                                && entry.key.as_ref() < max.as_ref()
+                        }
+                        (Some(min), None) => entry.key.as_ref() >= min.as_ref(),
+                        (None, Some(max)) => entry.key.as_ref() < max.as_ref(),
+                        (None, None) => true,
+                    };
+
+                    if !in_range {
+                        continue;
+                    }
+
+                    builder
+                        .add(&entry)
+                        .await
+                        .map_err(|e| Error::Internal(format!("Failed to add entry: {}", e)))?;
+
+                    if min_key.is_none() {
+                        min_key = Some(entry.key.clone());
+                    }
+                    max_key = Some(entry.key.clone());
+
+                    if entry.tombstone {
+                        tombstone_count += 1;
+                    }
+
+                    min_seqno = min_seqno.min(entry.seqno);
+                    max_seqno = max_seqno.max(entry.seqno);
+                    entry_count += 1;
+                }
+
+                // Skip empty fragments
+                if entry_count == 0 {
+                    println!("      Slot {} fragment is empty, skipping", slot_id);
+                    continue;
+                }
+
+                // Finalize fragment
+                let metadata = builder
+                    .finish()
+                    .await
+                    .map_err(|e| Error::Internal(format!("Failed to finish fragment: {}", e)))?;
+
+                println!(
+                    "      Slot {} fragment: {} entries, {} bytes (file {})",
+                    slot_id, entry_count, metadata.file_size, new_file_number
+                );
+
+                total_bytes_written += metadata.file_size;
+
+                // Create run metadata for fragment
+                let fragment_run = crate::manifest::RunMeta {
+                    file_number: new_file_number,
+                    size: metadata.file_size,
+                    min_key: min_key.ok_or_else(|| Error::Internal("No min key".to_string()))?,
+                    max_key: max_key.ok_or_else(|| Error::Internal("No max key".to_string()))?,
+                    min_seqno,
+                    max_seqno,
+                    tombstone_count,
+                    filter_fp: 0.001,
+                    heat_hint: 0.0,
+                    value_log_segment_id: None,
+                };
+
+                edits.push(ManifestEdit::AddFile {
+                    level,
+                    slot_id: Some(*slot_id),
+                    run: fragment_run,
+                });
+            }
+
+            // Delete original file
+            edits.push(ManifestEdit::DeleteFile {
+                level,
+                slot_id: None, // Don't specify old slot
+                file_number: run.file_number,
+            });
+        }
+
+        // Finally, update the guards themselves
+        edits.push(ManifestEdit::UpdateGuards {
+            level,
+            guards: new_guards.clone(),
+        });
+
+        println!(
+            "=== GUARD MOVE COMPLETE: {} files reorganized, {} bytes written ===",
+            all_runs.len(),
+            total_bytes_written
+        );
+
+        Ok((edits, total_bytes_written))
     }
 
     /// Returns the SSTable file path for a given file number.

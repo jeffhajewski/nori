@@ -106,8 +106,16 @@ pub struct TombstoneConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct L0Config {
-    /// Maximum L0 files before write stall (default: 12)
+    /// Maximum L0 files before hard stall (default: 12)
     pub max_files: usize,
+
+    /// Soft throttling threshold (default: 6, 50% of max_files)
+    /// When L0 count exceeds this, writes experience progressive delays
+    pub soft_throttle_threshold: usize,
+
+    /// Base delay in milliseconds for soft throttling (default: 1ms)
+    /// Delay = base_delay_ms × (l0_count - soft_threshold)
+    pub soft_throttle_base_delay_ms: u64,
 
     /// Split L0 flushes on L1 guard boundaries (default: true)
     pub admission_split_on_guards: bool,
@@ -259,6 +267,8 @@ impl Default for L0Config {
     fn default() -> Self {
         Self {
             max_files: 12,
+            soft_throttle_threshold: 6, // 50% of max_files
+            soft_throttle_base_delay_ms: 1, // 1ms base delay
             admission_split_on_guards: true,
         }
     }

@@ -622,8 +622,8 @@ impl LsmEngine {
 
         let start = std::time::Instant::now();
 
-        // 1. Check L0 backpressure
-        self.check_l0_pressure()?;
+        // 1. Check L0 backpressure (may apply soft throttling)
+        self.check_l0_pressure().await?;
 
         // 2. Write to WAL first (durability)
         let record = Record::put(key.clone(), value.clone());
@@ -683,8 +683,8 @@ impl LsmEngine {
 
         let start = std::time::Instant::now();
 
-        // 1. Check L0 backpressure
-        self.check_l0_pressure()?;
+        // 1. Check L0 backpressure (may apply soft throttling)
+        self.check_l0_pressure().await?;
 
         // 2. Write to WAL first (durability)
         let key_bytes = Bytes::copy_from_slice(key);
@@ -1194,31 +1194,39 @@ impl LsmEngine {
         Ok(reader)
     }
 
-    /// Checks L0 backpressure and returns an error if threshold exceeded.
+    /// Checks L0 backpressure and applies soft throttling or hard stall.
     ///
     /// # Algorithm
-    /// L0 backpressure prevents unbounded L0 growth by blocking writes when:
-    /// - L0 file count > max_files (default: 8)
+    /// Three-zone backpressure model:
     ///
-    /// This gives the background compaction thread time to admit L0→L1
-    /// and reduce backlog before accepting more writes.
+    /// **Green Zone** (L0 < soft_threshold):
+    /// - No delays, writes proceed at full speed
+    ///
+    /// **Yellow Zone** (soft_threshold ≤ L0 < max_files):
+    /// - Soft throttling with progressive delays
+    /// - Delay = base_delay_ms × (l0_count - soft_threshold)
+    /// - Gives compaction time to catch up without hard blocking
+    ///
+    /// **Red Zone** (L0 ≥ max_files):
+    /// - Hard stall, returns Error::L0Stall
+    /// - Caller must retry with exponential backoff
     ///
     /// # Errors
-    /// Returns `Error::L0Stall` if L0 file count exceeds threshold.
-    /// Caller should:
-    /// 1. Retry after a short delay (e.g., 10ms exponential backoff)
-    /// 2. Log warning if stall persists (indicates compaction can't keep up)
+    /// Returns `Error::L0Stall` if L0 file count exceeds max_files.
     ///
     /// # Observability
-    /// Emit VizEvent::WriteStall for dashboard visualization.
-    fn check_l0_pressure(&self) -> Result<()> {
+    /// Emits VizEvent::L0Stall for hard stalls (dashboard visualization).
+    async fn check_l0_pressure(&self) -> Result<()> {
         let manifest = self.manifest.read();
         let snapshot = manifest.snapshot();
         let snapshot = snapshot.read().unwrap();
 
         let l0_count = snapshot.l0_file_count();
+        let soft_threshold = self.config.l0.soft_throttle_threshold;
         let max_files = self.config.l0.max_files;
+        let base_delay_ms = self.config.l0.soft_throttle_base_delay_ms;
 
+        // Red Zone: Hard stall
         if l0_count > max_files {
             // Emit L0 stall event
             self.meter
@@ -1233,6 +1241,22 @@ impl LsmEngine {
             return Err(Error::L0Stall(l0_count, max_files));
         }
 
+        // Yellow Zone: Soft throttling with progressive delay
+        if l0_count > soft_threshold {
+            let excess = l0_count - soft_threshold;
+            let delay_ms = base_delay_ms * excess as u64;
+
+            tracing::debug!(
+                "L0 soft throttling: {} files (threshold: {}), applying {}ms delay",
+                l0_count,
+                soft_threshold,
+                delay_ms
+            );
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+        }
+
+        // Green Zone: No delay
         Ok(())
     }
 

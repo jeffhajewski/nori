@@ -173,16 +173,20 @@ pub struct BanditScheduler {
 
     /// Configuration
     config: ATLLConfig,
+
+    /// Observability meter for emitting bandit events
+    meter: Arc<dyn nori_observe::Meter>,
 }
 
 impl BanditScheduler {
     /// Creates a new bandit scheduler.
-    pub fn new(config: ATLLConfig) -> Self {
+    pub fn new(config: ATLLConfig, meter: Arc<dyn nori_observe::Meter>) -> Self {
         Self {
             arms: HashMap::new(),
             epsilon: 0.1,
             total_selections: 0,
             config,
+            meter,
         }
     }
 
@@ -217,7 +221,40 @@ impl BanditScheduler {
             self.best_ucb_action(&candidates)
         };
 
-        candidates[chosen_idx].clone()
+        let chosen_action = &candidates[chosen_idx];
+
+        // Emit bandit selection event for observability
+        if let Some((level, slot_id)) = Self::extract_level_slot(chosen_action) {
+            let arm = self.arms.get(&(level, slot_id)).cloned().unwrap_or_else(|| BanditArm::new(level, slot_id));
+            let ucb_score = arm.ucb_score(self.total_selections, 2.0);
+
+            self.meter.emit(nori_observe::VizEvent::Compaction(
+                nori_observe::CompEvt {
+                    node: 0, // TODO: Pass node_id through config
+                    level,
+                    kind: nori_observe::CompKind::BanditSelection {
+                        slot_id,
+                        explored: explore,
+                        ucb_score,
+                        avg_reward: arm.avg_reward,
+                        selection_count: arm.selection_count,
+                    },
+                },
+            ));
+        }
+
+        chosen_action.clone()
+    }
+
+    /// Extracts (level, slot_id) from a CompactionAction.
+    fn extract_level_slot(action: &CompactionAction) -> Option<(u8, u32)> {
+        match action {
+            CompactionAction::Tier { level, slot_id, .. }
+            | CompactionAction::Promote { level, slot_id, .. }
+            | CompactionAction::EagerLevel { level, slot_id }
+            | CompactionAction::Cleanup { level, slot_id } => Some((*level, *slot_id)),
+            _ => None,
+        }
     }
 
     /// Updates the bandit state after executing an action.
@@ -251,6 +288,20 @@ impl BanditScheduler {
 
         arm.update(reward);
         self.total_selections += 1;
+
+        // Emit bandit reward event for observability
+        self.meter.emit(nori_observe::VizEvent::Compaction(
+            nori_observe::CompEvt {
+                node: 0, // TODO: Pass node_id through config
+                level,
+                kind: nori_observe::CompKind::BanditReward {
+                    slot_id,
+                    reward,
+                    bytes_written,
+                    heat_score,
+                },
+            },
+        ));
     }
 
     /// Generates candidate compaction actions from current LSM state.
@@ -1066,8 +1117,10 @@ impl CompactionCoordinator {
     ) -> Result<Self> {
         let sst_dir = sst_dir.as_ref().to_path_buf();
         let max_concurrent = config.io.max_background_compactions;
+        let meter = Arc::new(nori_observe::NoopMeter);
         let scheduler = Arc::new(parking_lot::Mutex::new(BanditScheduler::new(
             config.clone(),
+            meter,
         )));
         let executor = CompactionExecutor::new(&sst_dir, config)?;
 
@@ -1326,7 +1379,8 @@ mod tests {
     #[test]
     fn test_bandit_scheduler_creation() {
         let config = ATLLConfig::default();
-        let scheduler = BanditScheduler::new(config);
+        let meter = Arc::new(nori_observe::NoopMeter);
+        let scheduler = BanditScheduler::new(config, meter);
         assert_eq!(scheduler.epsilon, 0.1);
         assert_eq!(scheduler.total_selections, 0);
     }
@@ -1334,7 +1388,8 @@ mod tests {
     #[test]
     fn test_bandit_scheduler_reward_update() {
         let config = ATLLConfig::default();
-        let mut scheduler = BanditScheduler::new(config);
+        let meter = Arc::new(nori_observe::NoopMeter);
+        let mut scheduler = BanditScheduler::new(config, meter);
 
         let action = CompactionAction::Tier {
             level: 1,
@@ -1348,6 +1403,196 @@ mod tests {
         assert_eq!(arm.selection_count, 1);
         assert!(arm.avg_reward > 0.0);
         assert_eq!(scheduler.total_selections, 1);
+    }
+
+    // Test meter that captures VizEvents for analysis
+    struct CapturingMeter {
+        events: Arc<parking_lot::Mutex<Vec<nori_observe::VizEvent>>>,
+    }
+
+    impl CapturingMeter {
+        fn new() -> Self {
+            Self {
+                events: Arc::new(parking_lot::Mutex::new(Vec::new())),
+            }
+        }
+
+        fn get_events(&self) -> Vec<nori_observe::VizEvent> {
+            self.events.lock().clone()
+        }
+    }
+
+    struct TestCounter;
+    impl nori_observe::Counter for TestCounter {
+        fn inc(&self, _v: u64) {}
+    }
+
+    struct TestGauge;
+    impl nori_observe::Gauge for TestGauge {
+        fn set(&self, _v: i64) {}
+    }
+
+    struct TestHistogram;
+    impl nori_observe::Histogram for TestHistogram {
+        fn observe(&self, _v: f64) {}
+    }
+
+    impl nori_observe::Meter for CapturingMeter {
+        fn counter(
+            &self,
+            _name: &'static str,
+            _labels: &'static [(&'static str, &'static str)],
+        ) -> Box<dyn nori_observe::Counter> {
+            Box::new(TestCounter)
+        }
+
+        fn gauge(
+            &self,
+            _name: &'static str,
+            _labels: &'static [(&'static str, &'static str)],
+        ) -> Box<dyn nori_observe::Gauge> {
+            Box::new(TestGauge)
+        }
+
+        fn histo(
+            &self,
+            _name: &'static str,
+            _buckets: &'static [f64],
+            _labels: &'static [(&'static str, &'static str)],
+        ) -> Box<dyn nori_observe::Histogram> {
+            Box::new(TestHistogram)
+        }
+
+        fn emit(&self, evt: nori_observe::VizEvent) {
+            self.events.lock().push(evt);
+        }
+    }
+
+    #[test]
+    fn test_bandit_viz_event_emission() {
+        use nori_observe::CompKind;
+
+        let config = ATLLConfig::default();
+        let meter = Arc::new(CapturingMeter::new());
+        let mut scheduler = BanditScheduler::new(config, meter.clone());
+
+        // Simulate multiple compaction actions and rewards
+        let actions = vec![
+            CompactionAction::Tier {
+                level: 1,
+                slot_id: 0,
+                run_count: 3,
+            },
+            CompactionAction::Tier {
+                level: 1,
+                slot_id: 1,
+                run_count: 3,
+            },
+        ];
+
+        // Apply rewards for different actions
+        for action in &actions {
+            for _ in 0..10 {
+                scheduler.update_reward(action, 1024, 5.0, 0.8);
+            }
+        }
+
+        // Analyze captured events
+        let events = meter.get_events();
+
+        // Count reward events
+        let reward_events: Vec<_> = events
+            .iter()
+            .filter(|evt| {
+                matches!(
+                    evt,
+                    nori_observe::VizEvent::Compaction(nori_observe::CompEvt {
+                        kind: CompKind::BanditReward { .. },
+                        ..
+                    })
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            reward_events.len(),
+            20,
+            "Should have 20 reward events (10 per action)"
+        );
+
+        // Verify reward event structure
+        for event in &reward_events {
+            if let nori_observe::VizEvent::Compaction(comp_evt) = event {
+                if let CompKind::BanditReward {
+                    slot_id,
+                    reward,
+                    bytes_written,
+                    heat_score,
+                } = comp_evt.kind
+                {
+                    assert!(slot_id <= 1, "Slot ID should be 0 or 1");
+                    assert!(reward > 0.0, "Reward should be positive");
+                    assert_eq!(bytes_written, 1024, "Bytes written should match");
+                    assert_eq!(heat_score, 0.8, "Heat score should match");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_bandit_reward_convergence() {
+        use nori_observe::CompKind;
+
+        let config = ATLLConfig::default();
+        let meter = Arc::new(CapturingMeter::new());
+        let mut scheduler = BanditScheduler::new(config, meter.clone());
+
+        let action = CompactionAction::Tier {
+            level: 1,
+            slot_id: 0,
+            run_count: 3,
+        };
+
+        // Apply consistent rewards
+        for _ in 0..50 {
+            scheduler.update_reward(&action, 1024, 10.0, 0.5);
+        }
+
+        // Check reward events
+        let events = meter.get_events();
+        let reward_events: Vec<_> = events
+            .iter()
+            .filter_map(|evt| {
+                if let nori_observe::VizEvent::Compaction(comp_evt) = evt {
+                    if let CompKind::BanditReward { reward, .. } = comp_evt.kind {
+                        Some(reward)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert!(reward_events.len() > 0, "Should have reward events");
+
+        // Check that rewards are converging (later rewards should be similar)
+        if reward_events.len() >= 10 {
+            let last_10: Vec<f64> = reward_events.iter().rev().take(10).copied().collect();
+            let avg_recent = last_10.iter().sum::<f64>() / last_10.len() as f64;
+
+            // All recent rewards should be within 20% of average (convergence)
+            for &reward in &last_10 {
+                let diff = (reward - avg_recent).abs() / avg_recent;
+                assert!(
+                    diff < 0.2,
+                    "Recent rewards should converge: {} vs avg {}",
+                    reward,
+                    avg_recent
+                );
+            }
+        }
     }
 
     #[tokio::test]

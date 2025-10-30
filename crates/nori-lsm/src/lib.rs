@@ -1402,7 +1402,7 @@ impl LsmEngine {
         tracing::info!("Background compaction loop started");
 
         // Initialize compaction components
-        let mut scheduler = compaction::BanditScheduler::new(config.clone());
+        let mut scheduler = compaction::BanditScheduler::new(config.clone(), meter.clone());
         let executor = match compaction::CompactionExecutor::new(&sst_dir, config.clone()) {
             Ok(exec) => exec,
             Err(e) => {

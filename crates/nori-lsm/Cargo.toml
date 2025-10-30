@@ -42,5 +42,5 @@ name = "heavy_workloads"
 harness = false
 
 [[bench]]
-name = "bloom_filter_impact"
+name = "compaction_scheduler"
 harness = false

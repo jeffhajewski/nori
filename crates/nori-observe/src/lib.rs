@@ -112,6 +112,21 @@ pub enum CompKind {
     Start,
     Progress { pct: u8 },
     Finish { in_bytes: u64, out_bytes: u64 },
+    /// Bandit scheduler selected an action
+    BanditSelection {
+        slot_id: u32,
+        explored: bool, // true = exploration, false = exploitation
+        ucb_score: f64,
+        avg_reward: f64,
+        selection_count: u64,
+    },
+    /// Bandit reward updated after compaction
+    BanditReward {
+        slot_id: u32,
+        reward: f64,
+        bytes_written: u64,
+        heat_score: f32,
+    },
 }
 
 #[derive(Clone, Debug)]

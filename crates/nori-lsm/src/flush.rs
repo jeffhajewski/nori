@@ -243,6 +243,201 @@ impl L0Admitter {
         Ok(edits)
     }
 
+    /// Admits L0 file to L1 with physical file splitting on guard boundaries.
+    ///
+    /// # Phase 6 Implementation
+    /// Physically splits the L0 file into multiple L1 fragments, one per overlapping slot.
+    /// Each fragment is written as a separate SSTable aligned to guard boundaries.
+    ///
+    /// # Arguments
+    /// - `l0_run`: L0 run to admit
+    /// - `guard_manager`: Guard manager for slot boundaries
+    /// - `new_file_numbers`: Pre-allocated file numbers for output fragments (one per overlapping slot)
+    ///
+    /// # Returns
+    /// Vector of ManifestEdits: [DeleteFile(L0), AddFile(L1, slot1), AddFile(L1, slot2), ...]
+    pub async fn admit_to_l1_with_split(
+        &self,
+        l0_run: &RunMeta,
+        guard_manager: &GuardManager,
+        new_file_numbers: &[u64],
+    ) -> Result<Vec<ManifestEdit>> {
+        // Find which L1 slot(s) this run overlaps
+        let overlapping_slots = guard_manager.overlapping_slots(&l0_run.min_key, &l0_run.max_key);
+
+        if overlapping_slots.is_empty() {
+            return Err(Error::Internal(
+                "L0 admission: No overlapping L1 slots found".to_string(),
+            ));
+        }
+
+        if overlapping_slots.len() != new_file_numbers.len() {
+            return Err(Error::Internal(format!(
+                "L0 admission: File number count mismatch (slots={}, file_numbers={})",
+                overlapping_slots.len(),
+                new_file_numbers.len()
+            )));
+        }
+
+        println!(
+            "=== L0→L1 SPLIT: Splitting L0 file {} into {} fragments across slots {:?} ===",
+            l0_run.file_number,
+            overlapping_slots.len(),
+            overlapping_slots
+        );
+
+        // If file only overlaps one slot, no splitting needed - use fast path
+        if overlapping_slots.len() == 1 {
+            let mut edits = Vec::new();
+            edits.push(ManifestEdit::AddFile {
+                level: 1,
+                slot_id: Some(overlapping_slots[0]),
+                run: l0_run.clone(),
+            });
+            edits.push(ManifestEdit::DeleteFile {
+                level: 0,
+                slot_id: None,
+                file_number: l0_run.file_number,
+            });
+            return Ok(edits);
+        }
+
+        // Physical splitting path: read L0 file and split on guard boundaries
+        let mut edits = Vec::new();
+
+        // Create one fragment per overlapping slot
+        for (idx, &slot_id) in overlapping_slots.iter().enumerate() {
+            let file_number = new_file_numbers[idx];
+            let output_path = self.sst_path(file_number);
+
+            // Get guard boundaries for this slot
+            let (slot_min, slot_max) = guard_manager.slot_boundaries(slot_id);
+
+            let config = nori_sstable::SSTableConfig {
+                path: output_path,
+                estimated_entries: 1000, // Rough estimate, will adjust
+                block_size: 4096,
+                restart_interval: 16,
+                compression: nori_sstable::Compression::None,
+                bloom_bits_per_key: 10,
+                block_cache_mb: 64,
+            };
+
+            let mut builder = nori_sstable::SSTableBuilder::new(config)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to create builder: {}", e)))?;
+
+            // Filter entries within this slot's guard range
+            let mut min_key: Option<Bytes> = None;
+            let mut max_key: Option<Bytes> = None;
+            let mut tombstone_count = 0u32;
+            let mut entry_count = 0usize;
+            let mut min_seqno = u64::MAX;
+            let mut max_seqno = 0u64;
+
+            // Iterate through all entries and write those within slot bounds
+            // Note: This requires re-reading the file for each slot (inefficient)
+            // A better implementation would buffer entries or use range iterators
+            let reader2 = nori_sstable::SSTableReader::open(self.sst_path(l0_run.file_number))
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to re-open L0 file: {}", e)))?;
+            let reader2_arc = std::sync::Arc::new(reader2);
+            let mut slot_iter = reader2_arc.iter();
+
+            while let Some(entry) = slot_iter.try_next()
+                .await
+                .map_err(|e| Error::Internal(format!("Iterator error: {}", e)))?
+            {
+                // Check if entry is within this slot's bounds
+                let in_range = match (&slot_min, &slot_max) {
+                    (Some(min), Some(max)) => {
+                        entry.key.as_ref() >= min.as_ref() && entry.key.as_ref() < max.as_ref()
+                    }
+                    (Some(min), None) => entry.key.as_ref() >= min.as_ref(),
+                    (None, Some(max)) => entry.key.as_ref() < max.as_ref(),
+                    (None, None) => true,
+                };
+
+                if !in_range {
+                    continue;
+                }
+
+                // Add entry to this slot's fragment
+                builder.add(&entry)
+                    .await
+                    .map_err(|e| Error::Internal(format!("Failed to add entry: {}", e)))?;
+
+                if min_key.is_none() {
+                    min_key = Some(entry.key.clone());
+                }
+                max_key = Some(entry.key.clone());
+
+                if entry.tombstone {
+                    tombstone_count += 1;
+                }
+
+                min_seqno = min_seqno.min(entry.seqno);
+                max_seqno = max_seqno.max(entry.seqno);
+                entry_count += 1;
+            }
+
+            // Skip empty fragments
+            if entry_count == 0 {
+                println!("  Slot {} fragment is empty, skipping", slot_id);
+                continue;
+            }
+
+            // Finalize fragment
+            let metadata = builder.finish()
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to finish fragment: {}", e)))?;
+
+            println!(
+                "  Slot {} fragment: {} entries, {} bytes (file {})",
+                slot_id, entry_count, metadata.file_size, file_number
+            );
+
+            // Create run metadata for this fragment
+            let fragment_run = RunMeta {
+                file_number,
+                size: metadata.file_size,
+                min_key: min_key.ok_or_else(|| Error::Internal("No min key".to_string()))?,
+                max_key: max_key.ok_or_else(|| Error::Internal("No max key".to_string()))?,
+                min_seqno,
+                max_seqno,
+                tombstone_count,
+                filter_fp: 0.001,
+                heat_hint: 0.0,
+                value_log_segment_id: None,
+            };
+
+            edits.push(ManifestEdit::AddFile {
+                level: 1,
+                slot_id: Some(slot_id),
+                run: fragment_run,
+            });
+        }
+
+        // Delete original L0 file
+        edits.push(ManifestEdit::DeleteFile {
+            level: 0,
+            slot_id: None,
+            file_number: l0_run.file_number,
+        });
+
+        println!(
+            "=== L0→L1 SPLIT COMPLETE: {} fragments created ===",
+            overlapping_slots.len()
+        );
+
+        Ok(edits)
+    }
+
+    /// Helper to construct SSTable file path
+    fn sst_path(&self, file_number: u64) -> PathBuf {
+        self.sst_dir.join(format!("sst-{:06}.sst", file_number))
+    }
+
     /// Checks if L0 admission should be triggered.
     ///
     /// Triggers when L0 file count exceeds threshold.
@@ -278,27 +473,217 @@ impl Compactor {
     /// merge into one run within same slot; install; drop inputs.
     /// ```
     ///
-    /// # Simplification for Phase 4
-    /// Merges the oldest N runs in a slot into a single run.
-    /// Physical merge implementation deferred to Phase 6.
+    /// # Phase 6 Implementation
+    /// Physically merges the oldest N runs in a slot into a single run.
+    /// Performs K-way merge, writes output SSTable, and updates manifest.
+    ///
+    /// # Arguments
+    /// - `level`: Target level for compaction
+    /// - `slot_id`: Slot identifier within the level
+    /// - `runs`: All runs in this slot (sorted oldest to newest)
+    /// - `target_runs`: Number of runs to merge
+    /// - `new_file_number`: File number for the output SSTable
+    ///
+    /// # Returns
+    /// ManifestEdits: AddFile for merged output + DeleteFile for inputs
     pub async fn compact_slot(
         &self,
         level: u8,
         slot_id: u32,
         runs: &[RunMeta],
         target_runs: usize,
+        new_file_number: u64,
     ) -> Result<Vec<ManifestEdit>> {
         if runs.len() <= target_runs {
             return Ok(Vec::new()); // No compaction needed
         }
 
-        // For Phase 4: just plan the operation
-        // Phase 6 will add physical merge logic
+        // Select runs to merge (oldest N runs)
+        let runs_to_merge = &runs[..target_runs.min(runs.len())];
 
+        println!(
+            "=== COMPACTION: Merging {} runs in L{} slot {} ===",
+            runs_to_merge.len(),
+            level,
+            slot_id
+        );
+
+        // Phase 6: Physical merge implementation
+        // Step 1: Open all input SSTables
+        let mut iterators = Vec::new();
+        for run in runs_to_merge {
+            let sst_path = self.sst_path(run.file_number);
+
+            // Open SSTable for reading
+            let reader = nori_sstable::SSTableReader::open(sst_path)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to open SSTable {}: {}", run.file_number, e)))?;
+
+            // Wrap in Arc and create iterator
+            let reader_arc = std::sync::Arc::new(reader);
+            let iter = reader_arc.iter();
+
+            iterators.push(iter);
+        }
+
+        // Step 2: Perform K-way merge and write to new SSTable
+        let output_path = self.sst_path(new_file_number);
+
+        let config = nori_sstable::SSTableConfig {
+            path: output_path,
+            estimated_entries: runs_to_merge.iter().map(|r| r.size / 100).sum::<u64>() as usize, // Rough estimate
+            block_size: 4096,
+            restart_interval: 16,
+            compression: nori_sstable::Compression::None,
+            bloom_bits_per_key: 10,
+            block_cache_mb: 64,
+        };
+
+        let mut builder = nori_sstable::SSTableBuilder::new(config)
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to create SSTable builder: {}", e)))?;
+
+        // Merge all entries using K-way merge with min-heap
+        let mut min_key: Option<Bytes> = None;
+        let mut max_key: Option<Bytes> = None;
+        let mut tombstone_count = 0u32;
+        let mut entry_count = 0usize;
+        let mut min_seqno = u64::MAX;
+        let mut max_seqno = 0u64;
+
+        // Use K-way merge with deduplication
+        use std::collections::BinaryHeap;
+        use std::cmp::Ordering;
+
+        #[derive(Debug)]
+        struct MergeCandidate {
+            entry: nori_sstable::Entry,
+            source_idx: usize,
+        }
+
+        impl PartialEq for MergeCandidate {
+            fn eq(&self, other: &Self) -> bool {
+                self.entry.key == other.entry.key
+            }
+        }
+
+        impl Eq for MergeCandidate {}
+
+        impl PartialOrd for MergeCandidate {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+
+        impl Ord for MergeCandidate {
+            fn cmp(&self, other: &Self) -> Ordering {
+                // Min-heap: reverse key comparison for ascending order
+                match other.entry.key.cmp(&self.entry.key) {
+                    Ordering::Equal => {
+                        // Same key: prioritize higher seqno (newer wins)
+                        // For compaction within same level, higher seqno = newer
+                        other.entry.seqno.cmp(&self.entry.seqno)
+                    }
+                    ord => ord,
+                }
+            }
+        }
+
+        // Initialize heap with first entry from each iterator
+        let mut heap: BinaryHeap<MergeCandidate> = BinaryHeap::new();
+        for (idx, iter) in iterators.iter_mut().enumerate() {
+            if let Some(entry) = iter.try_next()
+                .await
+                .map_err(|e| Error::Internal(format!("Iterator error: {}", e)))?
+            {
+                heap.push(MergeCandidate {
+                    entry,
+                    source_idx: idx,
+                });
+            }
+        }
+
+        let mut last_key: Option<Bytes> = None;
+
+        while let Some(candidate) = heap.pop() {
+            let source_idx = candidate.source_idx;
+            let entry = candidate.entry;
+
+            // Advance the iterator that produced this entry
+            if let Some(next_entry) = iterators[source_idx].try_next()
+                .await
+                .map_err(|e| Error::Internal(format!("Iterator error: {}", e)))?
+            {
+                heap.push(MergeCandidate {
+                    entry: next_entry,
+                    source_idx,
+                });
+            }
+
+            // Deduplicate: skip if same key as last emitted
+            if let Some(ref last) = last_key {
+                if entry.key == *last {
+                    continue; // Duplicate - skip
+                }
+            }
+
+            // Write entry to output SSTable
+            builder.add(&entry)
+                .await
+                .map_err(|e| Error::Internal(format!("Failed to add entry: {}", e)))?;
+
+            // Track metadata
+            if min_key.is_none() {
+                min_key = Some(entry.key.clone());
+            }
+            max_key = Some(entry.key.clone());
+
+            if entry.tombstone {
+                tombstone_count += 1;
+            }
+
+            min_seqno = min_seqno.min(entry.seqno);
+            max_seqno = max_seqno.max(entry.seqno);
+            entry_count += 1;
+
+            last_key = Some(entry.key);
+        }
+
+        // Step 3: Finalize new SSTable
+        let metadata = builder.finish()
+            .await
+            .map_err(|e| Error::Internal(format!("Failed to finish SSTable: {}", e)))?;
+
+        println!(
+            "=== COMPACTION: Wrote {} entries to SSTable {} ({} bytes) ===",
+            entry_count, new_file_number, metadata.file_size
+        );
+
+        // Step 4: Create manifest edits
         let mut edits = Vec::new();
 
-        // Mark old runs for deletion (simplified)
-        for run in runs.iter().take(target_runs) {
+        // Add new merged file
+        let new_run = RunMeta {
+            file_number: new_file_number,
+            size: metadata.file_size,
+            min_key: min_key.ok_or_else(|| Error::Internal("No min key".to_string()))?,
+            max_key: max_key.ok_or_else(|| Error::Internal("No max key".to_string()))?,
+            min_seqno,
+            max_seqno,
+            tombstone_count,
+            filter_fp: 0.001,
+            heat_hint: 0.0,
+            value_log_segment_id: None,
+        };
+
+        edits.push(ManifestEdit::AddFile {
+            level,
+            slot_id: Some(slot_id),
+            run: new_run,
+        });
+
+        // Delete old input files
+        for run in runs_to_merge {
             edits.push(ManifestEdit::DeleteFile {
                 level,
                 slot_id: Some(slot_id),
@@ -307,6 +692,11 @@ impl Compactor {
         }
 
         Ok(edits)
+    }
+
+    /// Returns the SSTable file path for a given file number.
+    fn sst_path(&self, file_number: u64) -> PathBuf {
+        self.sst_dir.join(format!("sst-{:06}.sst", file_number))
     }
 
     /// Checks if compaction should be triggered for a slot.

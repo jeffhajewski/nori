@@ -1505,7 +1505,26 @@ impl LsmEngine {
         }
     }
 
-    /// Emits memory usage metrics for observability.
+    /// Computes current system pressure metrics.
+    ///
+    /// Returns a `PressureMetrics` struct that combines L0, memtable, and memory
+    /// pressure into a unified view of system health.
+    ///
+    /// # Use Cases
+    /// - Adaptive backpressure decisions
+    /// - Monitoring and alerting
+    /// - Auto-tuning compaction aggressiveness
+    /// - Load shedding decisions
+    pub fn pressure(&self) -> PressureMetrics {
+        let stats = self.stats();
+        PressureMetrics::compute(
+            &stats,
+            self.config.l0.max_files,
+            self.config.memtable.flush_trigger_bytes,
+        )
+    }
+
+    /// Emits memory usage and pressure metrics for observability.
     ///
     /// This method should be called periodically (e.g., every few seconds)
     /// to track memory consumption and detect pressure conditions.
@@ -1548,8 +1567,57 @@ impl LsmEngine {
             stats.memory_usage_ratio
         );
 
-        // Emit warning if memory usage exceeds 80% of budget
-        if stats.memory_usage_ratio > 0.8 {
+        // Compute and emit pressure metrics
+        let pressure = self.pressure();
+
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_pressure_composite_score",
+            &[],
+            pressure.composite_score
+        );
+
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_pressure_l0",
+            &[],
+            pressure.l0_pressure.score()
+        );
+
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_pressure_memtable",
+            &[],
+            pressure.memtable_pressure.score()
+        );
+
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_pressure_memory",
+            &[],
+            pressure.memory_pressure.score()
+        );
+
+        // Log pressure status at appropriate levels
+        if pressure.is_critical() {
+            tracing::error!(
+                "Critical system pressure: {}",
+                pressure.description()
+            );
+        } else if pressure.overall_pressure >= MemoryPressure::High {
+            tracing::warn!(
+                "High system pressure: {}",
+                pressure.description()
+            );
+        } else if pressure.is_under_pressure() {
+            tracing::info!(
+                "Moderate system pressure: {}",
+                pressure.description()
+            );
+        }
+
+        // Legacy warnings for backward compatibility
+        if stats.memory_usage_ratio > 0.8 && stats.memory_usage_ratio < 1.0 {
             tracing::warn!(
                 "High memory usage: {:.1}% of budget ({} / {} bytes)",
                 stats.memory_usage_ratio * 100.0,
@@ -1558,8 +1626,7 @@ impl LsmEngine {
             );
         }
 
-        // Emit critical warning if memory usage exceeds 100% of budget
-        if stats.memory_usage_ratio > 1.0 {
+        if stats.memory_usage_ratio >= 1.0 {
             tracing::error!(
                 "Memory budget exceeded: {:.1}% over limit ({} / {} bytes)",
                 (stats.memory_usage_ratio - 1.0) * 100.0,
@@ -1853,6 +1920,168 @@ pub struct Stats {
     // Total storage
     pub total_bytes: u64,
     pub total_files: usize,
+}
+
+/// Memory pressure level classification.
+///
+/// Categorizes the current system pressure based on multiple factors:
+/// - L0 file count relative to thresholds
+/// - Memtable size relative to flush trigger
+/// - Total memory usage relative to budget
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MemoryPressure {
+    /// No pressure - system operating normally
+    /// - L0 < soft_threshold
+    /// - Memtable < 50% of flush trigger
+    /// - Memory < 50% of budget
+    None = 0,
+
+    /// Low pressure - minor resource contention
+    /// - L0 at soft_threshold
+    /// - Memtable 50-75% of flush trigger
+    /// - Memory 50-75% of budget
+    Low = 1,
+
+    /// Moderate pressure - noticeable resource pressure
+    /// - L0 approaching max_files
+    /// - Memtable 75-90% of flush trigger
+    /// - Memory 75-90% of budget
+    Moderate = 2,
+
+    /// High pressure - significant resource constraints
+    /// - L0 near or at max_files
+    /// - Memtable 90-100% of flush trigger
+    /// - Memory 90-100% of budget
+    High = 3,
+
+    /// Critical pressure - system at capacity
+    /// - L0 at or exceeding max_files
+    /// - Memtable at or exceeding flush trigger
+    /// - Memory at or exceeding budget
+    Critical = 4,
+}
+
+impl MemoryPressure {
+    /// Returns a numeric score for this pressure level (0.0 = None, 1.0 = Critical)
+    pub fn score(&self) -> f64 {
+        match self {
+            MemoryPressure::None => 0.0,
+            MemoryPressure::Low => 0.25,
+            MemoryPressure::Moderate => 0.5,
+            MemoryPressure::High => 0.75,
+            MemoryPressure::Critical => 1.0,
+        }
+    }
+
+    /// Classifies a ratio (0.0-1.0+) into a pressure level
+    fn from_ratio(ratio: f64) -> Self {
+        if ratio >= 1.0 {
+            MemoryPressure::Critical
+        } else if ratio >= 0.9 {
+            MemoryPressure::High
+        } else if ratio >= 0.75 {
+            MemoryPressure::Moderate
+        } else if ratio >= 0.5 {
+            MemoryPressure::Low
+        } else {
+            MemoryPressure::None
+        }
+    }
+}
+
+/// Composite memory pressure metrics combining multiple dimensions.
+#[derive(Debug, Clone)]
+pub struct PressureMetrics {
+    /// L0 file count pressure
+    pub l0_pressure: MemoryPressure,
+    /// L0 file count ratio (actual / max_files)
+    pub l0_ratio: f64,
+
+    /// Memtable size pressure
+    pub memtable_pressure: MemoryPressure,
+    /// Memtable size ratio (actual / flush_trigger)
+    pub memtable_ratio: f64,
+
+    /// Total memory usage pressure
+    pub memory_pressure: MemoryPressure,
+    /// Memory usage ratio (actual / budget)
+    pub memory_ratio: f64,
+
+    /// Overall system pressure (max of all components)
+    pub overall_pressure: MemoryPressure,
+    /// Composite pressure score (weighted average, 0.0-1.0)
+    pub composite_score: f64,
+}
+
+impl PressureMetrics {
+    /// Computes pressure metrics from current stats and config
+    pub fn compute(stats: &Stats, l0_max_files: usize, memtable_flush_trigger: usize) -> Self {
+        // L0 pressure
+        let l0_ratio = if l0_max_files > 0 {
+            stats.l0_files as f64 / l0_max_files as f64
+        } else {
+            0.0
+        };
+        let l0_pressure = MemoryPressure::from_ratio(l0_ratio);
+
+        // Memtable pressure
+        let memtable_ratio = if memtable_flush_trigger > 0 {
+            stats.memtable_size_bytes as f64 / memtable_flush_trigger as f64
+        } else {
+            0.0
+        };
+        let memtable_pressure = MemoryPressure::from_ratio(memtable_ratio);
+
+        // Memory pressure (using pre-computed ratio from stats)
+        let memory_ratio = stats.memory_usage_ratio;
+        let memory_pressure = MemoryPressure::from_ratio(memory_ratio);
+
+        // Overall pressure is the maximum of all components
+        let overall_pressure = l0_pressure.max(memtable_pressure).max(memory_pressure);
+
+        // Composite score: weighted average of components
+        // Weights: L0 (40%), Memory (40%), Memtable (20%)
+        // L0 and Memory are more critical for performance
+        let composite_score = (l0_pressure.score() * 0.4)
+            + (memory_pressure.score() * 0.4)
+            + (memtable_pressure.score() * 0.2);
+
+        PressureMetrics {
+            l0_pressure,
+            l0_ratio,
+            memtable_pressure,
+            memtable_ratio,
+            memory_pressure,
+            memory_ratio,
+            overall_pressure,
+            composite_score,
+        }
+    }
+
+    /// Returns true if system is under significant pressure (Moderate or higher)
+    pub fn is_under_pressure(&self) -> bool {
+        self.overall_pressure >= MemoryPressure::Moderate
+    }
+
+    /// Returns true if system is in critical state
+    pub fn is_critical(&self) -> bool {
+        self.overall_pressure == MemoryPressure::Critical
+    }
+
+    /// Returns a human-readable description of current pressure
+    pub fn description(&self) -> String {
+        format!(
+            "Overall: {:?} (score: {:.2}), L0: {:?} ({:.1}%), Memtable: {:?} ({:.1}%), Memory: {:?} ({:.1}%)",
+            self.overall_pressure,
+            self.composite_score,
+            self.l0_pressure,
+            self.l0_ratio * 100.0,
+            self.memtable_pressure,
+            self.memtable_ratio * 100.0,
+            self.memory_pressure,
+            self.memory_ratio * 100.0
+        )
+    }
 }
 
 // Placeholder function to satisfy the skeleton
@@ -3704,6 +3933,378 @@ mod tests {
         assert!(
             stats_after_flush.memory_budget_bytes > 0,
             "Memory budget should be configured after flush"
+        );
+    }
+
+    // ========================================================================
+    // Pressure Scoring Tests
+    // ========================================================================
+
+    #[test]
+    fn test_memory_pressure_classification() {
+        // Test MemoryPressure enum classification at various ratios
+        assert_eq!(MemoryPressure::from_ratio(0.0), MemoryPressure::None);
+        assert_eq!(MemoryPressure::from_ratio(0.25), MemoryPressure::None);
+        assert_eq!(MemoryPressure::from_ratio(0.49), MemoryPressure::None);
+
+        assert_eq!(MemoryPressure::from_ratio(0.5), MemoryPressure::Low);
+        assert_eq!(MemoryPressure::from_ratio(0.6), MemoryPressure::Low);
+        assert_eq!(MemoryPressure::from_ratio(0.74), MemoryPressure::Low);
+
+        assert_eq!(MemoryPressure::from_ratio(0.75), MemoryPressure::Moderate);
+        assert_eq!(MemoryPressure::from_ratio(0.8), MemoryPressure::Moderate);
+        assert_eq!(MemoryPressure::from_ratio(0.89), MemoryPressure::Moderate);
+
+        assert_eq!(MemoryPressure::from_ratio(0.9), MemoryPressure::High);
+        assert_eq!(MemoryPressure::from_ratio(0.95), MemoryPressure::High);
+        assert_eq!(MemoryPressure::from_ratio(0.99), MemoryPressure::High);
+
+        assert_eq!(MemoryPressure::from_ratio(1.0), MemoryPressure::Critical);
+        assert_eq!(MemoryPressure::from_ratio(1.5), MemoryPressure::Critical);
+        assert_eq!(MemoryPressure::from_ratio(2.0), MemoryPressure::Critical);
+    }
+
+    #[test]
+    fn test_memory_pressure_scores() {
+        // Test that score() method returns correct values
+        assert_eq!(MemoryPressure::None.score(), 0.0);
+        assert_eq!(MemoryPressure::Low.score(), 0.25);
+        assert_eq!(MemoryPressure::Moderate.score(), 0.5);
+        assert_eq!(MemoryPressure::High.score(), 0.75);
+        assert_eq!(MemoryPressure::Critical.score(), 1.0);
+    }
+
+    #[test]
+    fn test_memory_pressure_ordering() {
+        // Test that pressure levels are properly ordered
+        assert!(MemoryPressure::None < MemoryPressure::Low);
+        assert!(MemoryPressure::Low < MemoryPressure::Moderate);
+        assert!(MemoryPressure::Moderate < MemoryPressure::High);
+        assert!(MemoryPressure::High < MemoryPressure::Critical);
+    }
+
+    #[test]
+    fn test_pressure_metrics_no_pressure() {
+        // Test PressureMetrics when all components are below threshold
+        let stats = Stats {
+            l0_files: 2,
+            memtable_size_bytes: 100,
+            memory_usage_ratio: 0.3,
+            ..Default::default()
+        };
+
+        let l0_max_files = 10;
+        let memtable_flush_trigger = 1000;
+
+        let pressure = PressureMetrics::compute(&stats, l0_max_files, memtable_flush_trigger);
+
+        assert_eq!(pressure.l0_pressure, MemoryPressure::None);
+        assert_eq!(pressure.memtable_pressure, MemoryPressure::None);
+        assert_eq!(pressure.memory_pressure, MemoryPressure::None);
+        assert_eq!(pressure.overall_pressure, MemoryPressure::None);
+        assert!(!pressure.is_under_pressure());
+        assert!(!pressure.is_critical());
+
+        // Composite score should be low
+        assert!(pressure.composite_score < 0.3);
+    }
+
+    #[test]
+    fn test_pressure_metrics_l0_pressure() {
+        // Test when L0 has high pressure but others are fine
+        let stats = Stats {
+            l0_files: 9,
+            memtable_size_bytes: 100,
+            memory_usage_ratio: 0.3,
+            ..Default::default()
+        };
+
+        let l0_max_files = 10;
+        let memtable_flush_trigger = 1000;
+
+        let pressure = PressureMetrics::compute(&stats, l0_max_files, memtable_flush_trigger);
+
+        assert_eq!(pressure.l0_pressure, MemoryPressure::High); // 90%
+        assert_eq!(pressure.memtable_pressure, MemoryPressure::None); // 10%
+        assert_eq!(pressure.memory_pressure, MemoryPressure::None); // 30%
+        assert_eq!(pressure.overall_pressure, MemoryPressure::High); // max of all
+        assert!(pressure.is_under_pressure());
+        assert!(!pressure.is_critical());
+
+        // Composite score should reflect L0's 40% weight
+        // L0: 0.75 * 0.4 = 0.30
+        // Memory: 0.0 * 0.4 = 0.0
+        // Memtable: 0.0 * 0.2 = 0.0
+        // Total: ~0.30
+        assert!((pressure.composite_score - 0.30).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pressure_metrics_memory_pressure() {
+        // Test when memory has critical pressure
+        let stats = Stats {
+            l0_files: 2,
+            memtable_size_bytes: 100,
+            memory_usage_ratio: 1.2, // Over budget!
+            ..Default::default()
+        };
+
+        let l0_max_files = 10;
+        let memtable_flush_trigger = 1000;
+
+        let pressure = PressureMetrics::compute(&stats, l0_max_files, memtable_flush_trigger);
+
+        assert_eq!(pressure.l0_pressure, MemoryPressure::None); // 20%
+        assert_eq!(pressure.memtable_pressure, MemoryPressure::None); // 10%
+        assert_eq!(pressure.memory_pressure, MemoryPressure::Critical); // 120%
+        assert_eq!(pressure.overall_pressure, MemoryPressure::Critical);
+        assert!(pressure.is_under_pressure());
+        assert!(pressure.is_critical());
+
+        // Composite score should reflect memory's 40% weight
+        // L0: 0.0 * 0.4 = 0.0
+        // Memory: 1.0 * 0.4 = 0.4
+        // Memtable: 0.0 * 0.2 = 0.0
+        // Total: ~0.40
+        assert!((pressure.composite_score - 0.40).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pressure_metrics_memtable_pressure() {
+        // Test when memtable is at moderate pressure
+        let stats = Stats {
+            l0_files: 2,
+            memtable_size_bytes: 800,
+            memory_usage_ratio: 0.3,
+            ..Default::default()
+        };
+
+        let l0_max_files = 10;
+        let memtable_flush_trigger = 1000;
+
+        let pressure = PressureMetrics::compute(&stats, l0_max_files, memtable_flush_trigger);
+
+        assert_eq!(pressure.l0_pressure, MemoryPressure::None); // 20%
+        assert_eq!(pressure.memtable_pressure, MemoryPressure::Moderate); // 80%
+        assert_eq!(pressure.memory_pressure, MemoryPressure::None); // 30%
+        assert_eq!(pressure.overall_pressure, MemoryPressure::Moderate);
+        assert!(pressure.is_under_pressure());
+        assert!(!pressure.is_critical());
+
+        // Composite score should reflect memtable's 20% weight
+        // L0: 0.0 * 0.4 = 0.0
+        // Memory: 0.0 * 0.4 = 0.0
+        // Memtable: 0.5 * 0.2 = 0.1
+        // Total: ~0.10
+        assert!((pressure.composite_score - 0.10).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pressure_metrics_all_high() {
+        // Test when all components have high pressure
+        let stats = Stats {
+            l0_files: 9,
+            memtable_size_bytes: 950,
+            memory_usage_ratio: 0.95,
+            ..Default::default()
+        };
+
+        let l0_max_files = 10;
+        let memtable_flush_trigger = 1000;
+
+        let pressure = PressureMetrics::compute(&stats, l0_max_files, memtable_flush_trigger);
+
+        assert_eq!(pressure.l0_pressure, MemoryPressure::High); // 90%
+        assert_eq!(pressure.memtable_pressure, MemoryPressure::High); // 95%
+        assert_eq!(pressure.memory_pressure, MemoryPressure::High); // 95%
+        assert_eq!(pressure.overall_pressure, MemoryPressure::High);
+        assert!(pressure.is_under_pressure());
+        assert!(!pressure.is_critical());
+
+        // Composite score should be high
+        // L0: 0.75 * 0.4 = 0.30
+        // Memory: 0.75 * 0.4 = 0.30
+        // Memtable: 0.75 * 0.2 = 0.15
+        // Total: ~0.75
+        assert!((pressure.composite_score - 0.75).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pressure_metrics_composite_score_weighting() {
+        // Test that composite score uses correct weights (L0: 40%, Memory: 40%, Memtable: 20%)
+        let stats = Stats {
+            l0_files: 10,            // 100% -> score 1.0
+            memtable_size_bytes: 0,  // 0% -> score 0.0
+            memory_usage_ratio: 0.0, // 0% -> score 0.0
+            ..Default::default()
+        };
+
+        let l0_max_files = 10;
+        let memtable_flush_trigger = 1000;
+
+        let pressure = PressureMetrics::compute(&stats, l0_max_files, memtable_flush_trigger);
+
+        // Only L0 is maxed: 1.0 * 0.4 = 0.4
+        assert!((pressure.composite_score - 0.40).abs() < 0.01);
+
+        // Now test with only memory maxed
+        let stats2 = Stats {
+            l0_files: 0,             // 0%
+            memtable_size_bytes: 0,  // 0%
+            memory_usage_ratio: 1.0, // 100% -> score 1.0
+            ..Default::default()
+        };
+
+        let pressure2 = PressureMetrics::compute(&stats2, l0_max_files, memtable_flush_trigger);
+
+        // Only memory is maxed: 1.0 * 0.4 = 0.4
+        assert!((pressure2.composite_score - 0.40).abs() < 0.01);
+
+        // Now test with only memtable maxed
+        let stats3 = Stats {
+            l0_files: 0,
+            memtable_size_bytes: 1000, // 100% -> score 1.0
+            memory_usage_ratio: 0.0,
+            ..Default::default()
+        };
+
+        let pressure3 = PressureMetrics::compute(&stats3, l0_max_files, memtable_flush_trigger);
+
+        // Only memtable is maxed: 1.0 * 0.2 = 0.2
+        assert!((pressure3.composite_score - 0.20).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pressure_metrics_description() {
+        // Test that description() produces valid strings
+        let stats = Stats {
+            l0_files: 7,
+            memtable_size_bytes: 800,
+            memory_usage_ratio: 0.85,
+            ..Default::default()
+        };
+
+        let l0_max_files = 10;
+        let memtable_flush_trigger = 1000;
+
+        let pressure = PressureMetrics::compute(&stats, l0_max_files, memtable_flush_trigger);
+        let description = pressure.description();
+
+        // Verify description contains key information
+        assert!(description.contains("Overall"));
+        assert!(description.contains("L0"));
+        assert!(description.contains("Memtable"));
+        assert!(description.contains("Memory"));
+        assert!(description.contains("%"));
+
+        println!("Pressure description: {}", description);
+    }
+
+    #[tokio::test]
+    async fn test_engine_pressure_method() {
+        // Test that LsmEngine::pressure() returns valid PressureMetrics
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1024;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Initially should have no pressure
+        let pressure_initial = engine.pressure();
+        assert_eq!(pressure_initial.overall_pressure, MemoryPressure::None);
+        assert!(!pressure_initial.is_under_pressure());
+
+        // Fill memtable to create pressure
+        for i in 0..30 {
+            engine
+                .put(
+                    Bytes::from(format!("key{:03}", i)),
+                    Bytes::from(vec![b'x'; 30]),
+                )
+                .await
+                .unwrap();
+        }
+
+        let pressure_filled = engine.pressure();
+
+        // Should now have some pressure (at least memtable)
+        assert!(
+            pressure_filled.memtable_ratio > 0.0,
+            "Memtable ratio should increase"
+        );
+
+        println!("Initial pressure: {}", pressure_initial.description());
+        println!("Filled pressure: {}", pressure_filled.description());
+        println!("Composite score: {:.2}", pressure_filled.composite_score);
+    }
+
+    #[tokio::test]
+    async fn test_pressure_transitions() {
+        // Test that pressure correctly transitions through levels
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 10000; // Large enough to prevent auto-flush
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Start with no pressure
+        let p0 = engine.pressure();
+        assert_eq!(p0.overall_pressure, MemoryPressure::None);
+
+        // Add data to increase pressure gradually
+        // Each entry is ~33 bytes (key + value + overhead)
+        for i in 0..15 {
+            engine
+                .put(
+                    Bytes::from(format!("k{:03}", i)),
+                    Bytes::from(vec![b'x'; 20]),
+                )
+                .await
+                .unwrap();
+        }
+
+        let p1 = engine.pressure();
+        println!(
+            "After 15 writes: {} (memtable: {:.1}%)",
+            p1.description(),
+            p1.memtable_ratio * 100.0
+        );
+
+        // Add more data
+        for i in 15..35 {
+            engine
+                .put(
+                    Bytes::from(format!("k{:03}", i)),
+                    Bytes::from(vec![b'x'; 20]),
+                )
+                .await
+                .unwrap();
+        }
+
+        let p2 = engine.pressure();
+        println!(
+            "After 35 writes: {} (memtable: {:.1}%)",
+            p2.description(),
+            p2.memtable_ratio * 100.0
+        );
+
+        // Pressure should increase monotonically (memtable ratio may decrease if flush occurred)
+        // The key is that composite score reflects overall system pressure correctly
+        assert!(
+            p2.memtable_ratio >= p1.memtable_ratio,
+            "Memtable pressure should increase with more writes (if no flush occurred)"
+        );
+        assert!(
+            p2.composite_score >= p0.composite_score,
+            "Composite score should increase from initial state"
+        );
+
+        // Verify that pressure increases as we write more data
+        assert!(
+            p1.memtable_ratio > p0.memtable_ratio,
+            "Memtable pressure should increase from initial state"
         );
     }
 }

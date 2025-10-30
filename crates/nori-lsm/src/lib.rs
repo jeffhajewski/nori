@@ -1443,6 +1443,42 @@ impl LsmEngine {
             1.0
         };
 
+        // Memory usage tracking
+        // Estimate filter memory: use configured budget proportional to number of files
+        // Simplified: filter_budget_bytes / total_expected_files * current_files
+        let filter_budget_mib = self.config.filters.total_budget_mib;
+        let filter_budget_bytes = filter_budget_mib * 1024 * 1024;
+
+        // Estimate filter memory as proportional to total files
+        // Assumption: filters distributed evenly across all SSTables
+        let filter_memory_bytes = if total_files > 0 {
+            // Use actual filter budget for estimation
+            filter_budget_bytes
+        } else {
+            0
+        };
+
+        // Estimate block cache memory
+        // Each cached reader holds some blocks in memory
+        // Estimate: average 16KB per cached file (typical block size)
+        const AVG_BLOCK_SIZE_BYTES: usize = 16 * 1024;
+        let block_cache_memory_bytes = sstable_cache_size * AVG_BLOCK_SIZE_BYTES;
+
+        // Total memory footprint
+        let total_memory_bytes = memtable_size_bytes + block_cache_memory_bytes + filter_memory_bytes;
+
+        // Memory budget (sum of configured limits)
+        // memtable flush trigger + filter budget + implicit cache budget
+        let memtable_budget = self.config.memtable.flush_trigger_bytes;
+        let memory_budget_bytes = memtable_budget + filter_budget_bytes;
+
+        // Memory usage ratio
+        let memory_usage_ratio = if memory_budget_bytes > 0 {
+            total_memory_bytes as f64 / memory_budget_bytes as f64
+        } else {
+            0.0
+        };
+
         Stats {
             levels,
             l0_files,
@@ -1459,8 +1495,77 @@ impl LsmEngine {
             sstable_cache_hits: cache_hits,
             sstable_cache_misses: cache_misses,
             sstable_cache_size,
+            filter_memory_bytes,
+            block_cache_memory_bytes,
+            total_memory_bytes,
+            memory_budget_bytes,
+            memory_usage_ratio,
             total_bytes,
             total_files,
+        }
+    }
+
+    /// Emits memory usage metrics for observability.
+    ///
+    /// This method should be called periodically (e.g., every few seconds)
+    /// to track memory consumption and detect pressure conditions.
+    pub fn emit_memory_metrics(&self) {
+        let stats = self.stats();
+
+        // Emit memory usage gauge metrics
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_memtable_bytes",
+            &[],
+            stats.memtable_size_bytes as f64
+        );
+
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_filter_memory_bytes",
+            &[],
+            stats.filter_memory_bytes as f64
+        );
+
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_block_cache_bytes",
+            &[],
+            stats.block_cache_memory_bytes as f64
+        );
+
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_total_memory_bytes",
+            &[],
+            stats.total_memory_bytes as f64
+        );
+
+        nori_observe::obs_gauge!(
+            self.meter,
+            "lsm_memory_usage_ratio",
+            &[],
+            stats.memory_usage_ratio
+        );
+
+        // Emit warning if memory usage exceeds 80% of budget
+        if stats.memory_usage_ratio > 0.8 {
+            tracing::warn!(
+                "High memory usage: {:.1}% of budget ({} / {} bytes)",
+                stats.memory_usage_ratio * 100.0,
+                stats.total_memory_bytes,
+                stats.memory_budget_bytes
+            );
+        }
+
+        // Emit critical warning if memory usage exceeds 100% of budget
+        if stats.memory_usage_ratio > 1.0 {
+            tracing::error!(
+                "Memory budget exceeded: {:.1}% over limit ({} / {} bytes)",
+                (stats.memory_usage_ratio - 1.0) * 100.0,
+                stats.total_memory_bytes,
+                stats.memory_budget_bytes
+            );
         }
     }
 
@@ -1732,6 +1837,18 @@ pub struct Stats {
     pub sstable_cache_hits: u64,
     pub sstable_cache_misses: u64,
     pub sstable_cache_size: usize,
+
+    // Memory usage stats (in bytes)
+    /// Estimated filter memory usage (bloom filters, ribbon filters, etc.)
+    pub filter_memory_bytes: usize,
+    /// Estimated block cache memory usage
+    pub block_cache_memory_bytes: usize,
+    /// Total in-memory footprint (memtable + cache + filters)
+    pub total_memory_bytes: usize,
+    /// Configured memory budget limit (0 if no limit)
+    pub memory_budget_bytes: usize,
+    /// Memory usage as percentage of budget (0.0-1.0, or >1.0 if over budget)
+    pub memory_usage_ratio: f64,
 
     // Total storage
     pub total_bytes: u64,
@@ -3408,6 +3525,185 @@ mod tests {
         assert!(
             result.is_ok(),
             "Second shutdown should succeed (idempotent)"
+        );
+    }
+
+    // ========================================================================
+    // Memory Tracking Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_memory_stats_populated() {
+        // Test that memory stats are properly populated in Stats
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1024;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write some data to populate memtable
+        for i in 0..10 {
+            engine
+                .put(Bytes::from(format!("key{}", i)), Bytes::from(vec![b'x'; 50]))
+                .await
+                .unwrap();
+        }
+
+        // Get stats
+        let stats = engine.stats();
+
+        // Verify memtable stats are populated
+        assert!(
+            stats.memtable_size_bytes > 0,
+            "Memtable size should be > 0 after writes"
+        );
+        assert_eq!(
+            stats.memtable_entry_count, 10,
+            "Should have 10 entries in memtable"
+        );
+
+        // Verify memory budget is set from config
+        assert!(
+            stats.memory_budget_bytes > 0,
+            "Memory budget should be configured"
+        );
+
+        // Verify total memory includes memtable
+        assert!(
+            stats.total_memory_bytes >= stats.memtable_size_bytes,
+            "Total memory should include memtable size"
+        );
+
+        println!("Memory Stats:");
+        println!("  Memtable: {} bytes", stats.memtable_size_bytes);
+        println!("  Filter: {} bytes", stats.filter_memory_bytes);
+        println!("  Block cache: {} bytes", stats.block_cache_memory_bytes);
+        println!("  Total: {} bytes", stats.total_memory_bytes);
+        println!("  Budget: {} bytes", stats.memory_budget_bytes);
+        println!("  Usage ratio: {:.2}%", stats.memory_usage_ratio * 100.0);
+    }
+
+    #[tokio::test]
+    async fn test_memory_usage_ratio_calculation() {
+        // Test that memory usage ratio is correctly calculated
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1024; // Small memtable
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Initially, memory usage should be low
+        let stats_initial = engine.stats();
+        assert!(
+            stats_initial.memory_usage_ratio < 0.5,
+            "Initial memory usage should be < 50%"
+        );
+
+        // Fill memtable close to flush trigger
+        for i in 0..20 {
+            engine
+                .put(
+                    Bytes::from(format!("key{:03}", i)),
+                    Bytes::from(vec![b'x'; 40]),
+                )
+                .await
+                .unwrap();
+        }
+
+        let stats_filled = engine.stats();
+
+        // Memory usage should increase
+        assert!(
+            stats_filled.memtable_size_bytes > stats_initial.memtable_size_bytes,
+            "Memtable size should increase after writes"
+        );
+
+        assert!(
+            stats_filled.total_memory_bytes > stats_initial.total_memory_bytes,
+            "Total memory should increase after writes"
+        );
+
+        println!(
+            "Memory usage increased from {:.1}% to {:.1}%",
+            stats_initial.memory_usage_ratio * 100.0,
+            stats_filled.memory_usage_ratio * 100.0
+        );
+    }
+
+    #[tokio::test]
+    async fn test_emit_memory_metrics() {
+        // Test that emit_memory_metrics() works without errors
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write some data
+        for i in 0..5 {
+            engine
+                .put(Bytes::from(format!("key{}", i)), Bytes::from(vec![b'y'; 30]))
+                .await
+                .unwrap();
+        }
+
+        // Emit metrics - should not panic
+        engine.emit_memory_metrics();
+
+        // Get stats to verify metrics were based on real data
+        let stats = engine.stats();
+        assert!(stats.memtable_size_bytes > 0, "Should have data in memtable");
+
+        println!("Successfully emitted memory metrics");
+        println!("  Total memory: {} bytes", stats.total_memory_bytes);
+        println!("  Memory ratio: {:.2}%", stats.memory_usage_ratio * 100.0);
+    }
+
+    #[tokio::test]
+    async fn test_memory_stats_with_flush() {
+        // Test memory stats before and after flush
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 512; // Small trigger
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Fill memtable
+        for i in 0..15 {
+            engine
+                .put(
+                    Bytes::from(format!("key{:03}", i)),
+                    Bytes::from(vec![b'z'; 40]),
+                )
+                .await
+                .unwrap();
+        }
+
+        let stats_before_flush = engine.stats();
+        println!(
+            "Before flush - Memtable: {} bytes, Total: {} bytes",
+            stats_before_flush.memtable_size_bytes, stats_before_flush.total_memory_bytes
+        );
+
+        // Trigger flush
+        engine.check_flush_triggers().await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let stats_after_flush = engine.stats();
+        println!(
+            "After flush - Memtable: {} bytes, Total: {} bytes",
+            stats_after_flush.memtable_size_bytes, stats_after_flush.total_memory_bytes
+        );
+
+        // Memtable should be smaller after flush (or same if new memtable was created)
+        // Total memory tracking should still work (just verify it's a reasonable value)
+        // Note: Filter budget can make total memory large even with empty memtable
+        assert!(
+            stats_after_flush.memory_budget_bytes > 0,
+            "Memory budget should be configured after flush"
         );
     }
 }

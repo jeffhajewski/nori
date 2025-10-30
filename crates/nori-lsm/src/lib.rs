@@ -148,6 +148,21 @@ pub use nori_observe::{Meter, NoopMeter};
 pub use nori_sstable::Entry;
 pub use nori_wal::Record;
 
+/// Represents a single operation in a batch write.
+///
+/// Used with `LsmEngine::write_batch()` for atomic multi-key operations.
+#[derive(Debug, Clone)]
+pub enum BatchOp {
+    /// Put operation with key, value, and optional TTL
+    Put {
+        key: Bytes,
+        value: Bytes,
+        ttl: Option<Duration>,
+    },
+    /// Delete operation with key
+    Delete { key: Bytes },
+}
+
 use guards::GuardManager;
 use heat::HeatTracker;
 use lru::LruCache;
@@ -728,6 +743,139 @@ impl LsmEngine {
         );
 
         Ok(())
+    }
+
+    /// Atomically writes a batch of operations (puts and deletes).
+    ///
+    /// All operations in the batch succeed or fail together. If any operation
+    /// fails, none of the operations are applied.
+    ///
+    /// # Arguments
+    /// * `ops` - Vector of batch operations (Put or Delete)
+    ///
+    /// # Returns
+    /// The highest sequence number assigned to any operation in the batch
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use nori_lsm::{LsmEngine, BatchOp, ATLLConfig, Bytes};
+    /// # use std::time::Duration;
+    /// # async fn example() -> nori_lsm::Result<()> {
+    /// let engine = LsmEngine::open(ATLLConfig::default()).await?;
+    ///
+    /// let ops = vec![
+    ///     BatchOp::Put {
+    ///         key: Bytes::from("key1"),
+    ///         value: Bytes::from("value1"),
+    ///         ttl: None,
+    ///     },
+    ///     BatchOp::Put {
+    ///         key: Bytes::from("key2"),
+    ///         value: Bytes::from("value2"),
+    ///         ttl: Some(Duration::from_secs(60)),
+    ///     },
+    ///     BatchOp::Delete {
+    ///         key: Bytes::from("old_key"),
+    ///     },
+    /// ];
+    ///
+    /// let final_seqno = engine.write_batch(ops).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Atomicity
+    /// The batch is atomic at the WAL level: all records are written to the
+    /// WAL in a single append_batch() call. If the WAL write succeeds, all
+    /// operations are then applied to the memtable.
+    pub async fn write_batch(&self, ops: Vec<BatchOp>) -> Result<u64> {
+        use std::sync::atomic::Ordering;
+
+        if ops.is_empty() {
+            return Ok(self.seqno.load(Ordering::SeqCst));
+        }
+
+        // Track operation count
+        nori_observe::obs_count!(
+            self.meter,
+            "lsm_ops_total",
+            &[("op", "write_batch")],
+            ops.len() as u64
+        );
+
+        let start = std::time::Instant::now();
+
+        // 1. Check system pressure (with automatic retry and exponential backoff)
+        self.check_system_pressure_with_retry().await?;
+
+        // 2. Convert batch ops to WAL records
+        let records: Vec<Record> = ops
+            .iter()
+            .map(|op| match op {
+                BatchOp::Put { key, value, ttl } => {
+                    if let Some(ttl_duration) = ttl {
+                        Record::put_with_ttl(key.clone(), value.clone(), *ttl_duration)
+                    } else {
+                        Record::put(key.clone(), value.clone())
+                    }
+                }
+                BatchOp::Delete { key } => Record::delete(key.clone()),
+            })
+            .collect();
+
+        // 3. Write all records to WAL atomically
+        {
+            let wal = self.wal.write();
+            wal.append_batch(&records)
+                .await
+                .map_err(|e| Error::Internal(format!("WAL batch append failed: {}", e)))?;
+        }
+
+        // Track WAL bytes (approximate)
+        let wal_bytes: u64 = ops
+            .iter()
+            .map(|op| match op {
+                BatchOp::Put { key, value, .. } => (key.len() + value.len() + 20) as u64,
+                BatchOp::Delete { key } => (key.len() + 20) as u64,
+            })
+            .sum();
+        self.wal_bytes_written
+            .fetch_add(wal_bytes, Ordering::Relaxed);
+
+        // 4. Get sequence numbers and apply to memtable atomically
+        let start_seqno = self.seqno.fetch_add(ops.len() as u64, Ordering::SeqCst);
+        let mut final_seqno = start_seqno;
+
+        {
+            let memtable = self.memtable.read();
+            for (i, op) in ops.iter().enumerate() {
+                let seqno = start_seqno + i as u64;
+                final_seqno = seqno;
+
+                match op {
+                    BatchOp::Put { key, value, ttl } => {
+                        memtable.put(key.clone(), value.clone(), seqno, *ttl)?;
+                    }
+                    BatchOp::Delete { key } => {
+                        memtable.delete(key.clone(), seqno)?;
+                    }
+                }
+            }
+        }
+
+        // 5. Check flush triggers
+        self.check_flush_triggers().await?;
+
+        // Track latency
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        nori_observe::obs_hist!(
+            self.meter,
+            "lsm_op_latency_ms",
+            &[("op", "write_batch")],
+            elapsed_ms
+        );
+
+        Ok(final_seqno)
     }
 
     /// Returns an iterator over a key range [start, end).
@@ -4797,5 +4945,203 @@ mod tests {
         // Should still be readable (no TTL)
         let result = engine.get(b"persistent_key").await.unwrap();
         assert_eq!(result, Some(value));
+    }
+
+    #[tokio::test]
+    async fn test_write_batch_basic() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Create a batch with multiple operations
+        let ops = vec![
+            BatchOp::Put {
+                key: Bytes::from("batch_key1"),
+                value: Bytes::from("batch_value1"),
+                ttl: None,
+            },
+            BatchOp::Put {
+                key: Bytes::from("batch_key2"),
+                value: Bytes::from("batch_value2"),
+                ttl: None,
+            },
+            BatchOp::Put {
+                key: Bytes::from("batch_key3"),
+                value: Bytes::from("batch_value3"),
+                ttl: None,
+            },
+        ];
+
+        // Write batch
+        let final_seqno = engine.write_batch(ops).await.unwrap();
+        assert!(final_seqno >= 2, "Should have assigned sequence numbers");
+
+        // Verify all keys are readable
+        assert_eq!(
+            engine.get(b"batch_key1").await.unwrap(),
+            Some(Bytes::from("batch_value1"))
+        );
+        assert_eq!(
+            engine.get(b"batch_key2").await.unwrap(),
+            Some(Bytes::from("batch_value2"))
+        );
+        assert_eq!(
+            engine.get(b"batch_key3").await.unwrap(),
+            Some(Bytes::from("batch_value3"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_write_batch_mixed_ops() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // First write some keys
+        engine
+            .put(Bytes::from("key1"), Bytes::from("old_value"), None)
+            .await
+            .unwrap();
+        engine
+            .put(Bytes::from("key2"), Bytes::from("to_delete"), None)
+            .await
+            .unwrap();
+
+        // Create batch with mixed put and delete operations
+        let ops = vec![
+            BatchOp::Put {
+                key: Bytes::from("key1"),
+                value: Bytes::from("new_value"),
+                ttl: None,
+            },
+            BatchOp::Delete {
+                key: Bytes::from("key2"),
+            },
+            BatchOp::Put {
+                key: Bytes::from("key3"),
+                value: Bytes::from("batch_value"),
+                ttl: None,
+            },
+        ];
+
+        engine.write_batch(ops).await.unwrap();
+
+        // Verify results
+        assert_eq!(
+            engine.get(b"key1").await.unwrap(),
+            Some(Bytes::from("new_value")),
+            "key1 should be updated"
+        );
+        assert_eq!(
+            engine.get(b"key2").await.unwrap(),
+            None,
+            "key2 should be deleted"
+        );
+        assert_eq!(
+            engine.get(b"key3").await.unwrap(),
+            Some(Bytes::from("batch_value")),
+            "key3 should be inserted"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_write_batch_with_ttl() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Create batch with TTL
+        let ops = vec![
+            BatchOp::Put {
+                key: Bytes::from("expiring_key1"),
+                value: Bytes::from("expiring_value1"),
+                ttl: Some(Duration::from_millis(100)),
+            },
+            BatchOp::Put {
+                key: Bytes::from("persistent_key"),
+                value: Bytes::from("persistent_value"),
+                ttl: None,
+            },
+        ];
+
+        engine.write_batch(ops).await.unwrap();
+
+        // Verify both keys are readable immediately
+        assert_eq!(
+            engine.get(b"expiring_key1").await.unwrap(),
+            Some(Bytes::from("expiring_value1"))
+        );
+        assert_eq!(
+            engine.get(b"persistent_key").await.unwrap(),
+            Some(Bytes::from("persistent_value"))
+        );
+
+        // Wait for expiration
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // Verify expiring key is gone, persistent key remains
+        assert_eq!(
+            engine.get(b"expiring_key1").await.unwrap(),
+            None,
+            "Expired key should return None"
+        );
+        assert_eq!(
+            engine.get(b"persistent_key").await.unwrap(),
+            Some(Bytes::from("persistent_value")),
+            "Persistent key should remain"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_write_batch_empty() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write empty batch - should not fail
+        let ops = vec![];
+        let seqno1 = engine.write_batch(ops.clone()).await.unwrap();
+        let seqno2 = engine.write_batch(ops).await.unwrap();
+
+        // Should return current sequence number without incrementing
+        assert_eq!(seqno1, seqno2, "Empty batch should not increment seqno");
+    }
+
+    #[tokio::test]
+    async fn test_write_batch_sequence_numbers() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write first batch
+        let ops1 = vec![
+            BatchOp::Put {
+                key: Bytes::from("k1"),
+                value: Bytes::from("v1"),
+                ttl: None,
+            },
+            BatchOp::Put {
+                key: Bytes::from("k2"),
+                value: Bytes::from("v2"),
+                ttl: None,
+            },
+        ];
+        let seqno1 = engine.write_batch(ops1).await.unwrap();
+
+        // Write second batch
+        let ops2 = vec![BatchOp::Put {
+            key: Bytes::from("k3"),
+            value: Bytes::from("v3"),
+            ttl: None,
+        }];
+        let seqno2 = engine.write_batch(ops2).await.unwrap();
+
+        // Sequence numbers should be monotonically increasing
+        assert!(seqno2 > seqno1, "Sequence numbers must be increasing");
     }
 }

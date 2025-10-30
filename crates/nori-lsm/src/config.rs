@@ -117,6 +117,18 @@ pub struct L0Config {
     /// Delay = base_delay_ms × (l0_count - soft_threshold)
     pub soft_throttle_base_delay_ms: u64,
 
+    /// Maximum retry attempts for L0 stalls (default: 5)
+    /// When L0 stalls occur, retries will use exponential backoff
+    pub max_retries: usize,
+
+    /// Base delay in milliseconds for retry backoff (default: 5ms)
+    /// Actual delay = base_delay_ms × 2^attempt (capped at retry_max_delay_ms)
+    pub retry_base_delay_ms: u64,
+
+    /// Maximum delay in milliseconds for retry backoff (default: 1000ms)
+    /// Caps exponential backoff to prevent excessive wait times
+    pub retry_max_delay_ms: u64,
+
     /// Split L0 flushes on L1 guard boundaries (default: true)
     pub admission_split_on_guards: bool,
 }
@@ -269,6 +281,9 @@ impl Default for L0Config {
             max_files: 12,
             soft_throttle_threshold: 6, // 50% of max_files
             soft_throttle_base_delay_ms: 1, // 1ms base delay
+            max_retries: 5, // 5 retry attempts
+            retry_base_delay_ms: 5, // 5ms base delay
+            retry_max_delay_ms: 1000, // 1s max delay cap
             admission_split_on_guards: true,
         }
     }

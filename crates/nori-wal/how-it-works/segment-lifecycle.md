@@ -756,6 +756,38 @@ See [Observability](../observability/) for how to consume these events.
 
 ---
 
+### Garbage Collection Metrics
+
+Segment deletion emits observability metrics via `nori-observe::Meter`:
+
+```rust
+// Histogram: Time to delete segments (milliseconds)
+meter.histo("wal_gc_latency_ms", &[/* standard buckets */], &[])
+    .observe(elapsed_ms);
+
+// Counter: Total segments deleted
+meter.counter("wal_segments_deleted_total", &[("node", "0")])
+    .inc(1);
+
+// Gauge: Current number of segments
+meter.gauge("wal_segment_count", &[("node", "0")])
+    .set(remaining_segments as i64);
+```
+
+**Metrics usage**:
+- **`wal_gc_latency_ms`** - Monitor GC performance, set alerts for high p99
+- **`wal_segments_deleted_total`** - Track GC activity over time
+- **`wal_segment_count`** - Monitor disk space growth, detect GC failures
+
+**Expected values**:
+- Latency: 1-3ms for 5 segments, 5-10ms for 20 segments, 15-25ms for 50 segments
+- Deletion rate depends on memtable flush frequency and WAL age policy
+- Segment count should stabilize based on write throughput and GC interval
+
+See [Performance Benchmarks](../performance/benchmarks#garbage-collection) for detailed measurements.
+
+---
+
 ## Key Takeaways
 
 1. **Segments are fixed-size files** (default 128 MB)
@@ -777,10 +809,11 @@ See [Observability](../observability/) for how to consume these events.
    - Cache hit: ~1μs access
    - Cache miss: ~100μs (open overhead)
 
-5. **Deletion is manual**
-   - Application decides when to delete old segments
-   - Typically after compaction or snapshotting
-   - Cannot delete active segment
+5. **Deletion is controlled by the application**
+   - WAL provides `delete_segments_before()` API
+   - Can be manual (explicit calls) or automated (periodic background task)
+   - LSM engines typically automate GC after memtable flush
+   - Cannot delete active segment (safety guarantee)
 
 ---
 

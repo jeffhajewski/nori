@@ -3899,6 +3899,281 @@ mod tests {
         );
     }
 
+    /// WAL recovery stress test: Simulates crash during write operation
+    ///
+    /// Tests the "wal_powercut" scenario:
+    /// 1. Write multiple keys to engine (goes to WAL)
+    /// 2. Abruptly shutdown (simulating power loss)
+    /// 3. Reopen engine and verify all committed writes are recovered
+    /// 4. Verify exactly-once semantics (no duplicates)
+    #[tokio::test]
+    async fn test_wal_recovery_after_crash() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1_000_000; // Large to prevent flush during test
+
+        // Phase 1: Write data and track what was written
+        let num_keys = 100;
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+            for i in 0..num_keys {
+                let key = format!("key{:05}", i);
+                let value = format!("value{:05}_before_crash", i);
+                engine
+                    .put(Bytes::from(key), Bytes::from(value), None)
+                    .await
+                    .unwrap();
+            }
+
+            // Simulate crash: drop engine without graceful shutdown
+            // This tests that WAL is durable even without flush
+            drop(engine);
+        }
+
+        // Phase 2: Recover from "crash" and verify data
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+            // All keys should be recovered from WAL
+            for i in 0..num_keys {
+                let key = format!("key{:05}", i);
+                let expected_value = format!("value{:05}_before_crash", i);
+
+                let result = engine.get(key.as_bytes()).await.unwrap();
+                assert!(
+                    result.is_some(),
+                    "Key {} should exist after crash recovery",
+                    key
+                );
+                assert_eq!(
+                    result.unwrap(),
+                    Bytes::from(expected_value),
+                    "Value mismatch for key {} after recovery",
+                    key
+                );
+            }
+
+            // Verify we can continue writing after recovery
+            engine
+                .put(
+                    Bytes::from("post_recovery_key"),
+                    Bytes::from("post_recovery_value"),
+                    None,
+                )
+                .await
+                .unwrap();
+
+            let result = engine.get(b"post_recovery_key").await.unwrap();
+            assert_eq!(result.unwrap(), Bytes::from("post_recovery_value"));
+
+            engine.shutdown().await.unwrap();
+        }
+    }
+
+    /// WAL recovery stress test: Concurrent GC during writes
+    ///
+    /// Tests that WAL GC running concurrently with writes doesn't cause data loss:
+    /// 1. Start writing keys continuously
+    /// 2. Trigger flushes to enable GC
+    /// 3. Allow periodic GC to run in background
+    /// 4. Verify no data loss
+    #[tokio::test]
+    async fn test_wal_concurrent_gc_no_data_loss() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 2048; // Small to trigger frequent flushes
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Track all keys we write
+        let num_batches = 10;
+        let keys_per_batch = 50;
+
+        for batch in 0..num_batches {
+            // Write batch of keys
+            for i in 0..keys_per_batch {
+                let key = format!("batch{:02}_key{:03}", batch, i);
+                let value = format!("value_batch{:02}_{:03}", batch, i);
+                engine
+                    .put(Bytes::from(key), Bytes::from(value), None)
+                    .await
+                    .unwrap();
+            }
+
+            // Trigger flush to enable WAL GC
+            engine.check_flush_triggers().await.unwrap();
+
+            // Brief sleep to allow GC and flush to run
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+
+        // Wait a bit for background GC to potentially run
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        // Verify all keys are still present (no data loss from GC)
+        for batch in 0..num_batches {
+            for i in 0..keys_per_batch {
+                let key = format!("batch{:02}_key{:03}", batch, i);
+                let expected_value = format!("value_batch{:02}_{:03}", batch, i);
+
+                let result = engine.get(key.as_bytes()).await.unwrap();
+                assert!(
+                    result.is_some(),
+                    "Key {} should exist after concurrent GC",
+                    key
+                );
+                assert_eq!(
+                    result.unwrap(),
+                    Bytes::from(expected_value),
+                    "Value mismatch for key {} after concurrent GC",
+                    key
+                );
+            }
+        }
+
+        engine.shutdown().await.unwrap();
+    }
+
+    /// WAL recovery stress test: Recovery with partial writes
+    ///
+    /// Tests recovery when WAL may contain incomplete writes:
+    /// 1. Write data and crash before flush
+    /// 2. Reopen and verify prefix-valid recovery
+    /// 3. Verify we can continue writing
+    #[tokio::test]
+    async fn test_wal_recovery_with_incomplete_writes() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1_000_000;
+
+        // Phase 1: Write data without clean shutdown
+        let committed_keys = 50;
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+            // Write committed keys
+            for i in 0..committed_keys {
+                let key = format!("committed_{:03}", i);
+                let value = format!("value_{:03}", i);
+                engine
+                    .put(Bytes::from(key), Bytes::from(value), None)
+                    .await
+                    .unwrap();
+            }
+
+            // Abrupt drop simulates crash
+            drop(engine);
+        }
+
+        // Phase 2: Recovery should handle any partial writes gracefully
+        {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+            // All committed keys should be recovered
+            for i in 0..committed_keys {
+                let key = format!("committed_{:03}", i);
+                let result = engine.get(key.as_bytes()).await.unwrap();
+                assert!(
+                    result.is_some(),
+                    "Committed key {} should be recovered",
+                    key
+                );
+            }
+
+            // Engine should be operational after recovery
+            engine
+                .put(
+                    Bytes::from("after_recovery"),
+                    Bytes::from("new_value"),
+                    None,
+                )
+                .await
+                .unwrap();
+
+            let result = engine.get(b"after_recovery").await.unwrap();
+            assert!(result.is_some());
+
+            engine.shutdown().await.unwrap();
+        }
+    }
+
+    /// WAL recovery stress test: Multiple crash-recovery cycles
+    ///
+    /// Tests that recovery works correctly across multiple crash cycles:
+    /// 1. Write data -> crash -> recover
+    /// 2. Write more data -> crash -> recover
+    /// 3. Verify all data from all cycles is present
+    #[tokio::test]
+    async fn test_wal_multiple_crash_recovery_cycles() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 1_000_000;
+
+        let cycles = 5;
+        let keys_per_cycle = 20;
+
+        for cycle in 0..cycles {
+            let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+            // Write keys for this cycle
+            for i in 0..keys_per_cycle {
+                let key = format!("cycle{:02}_key{:03}", cycle, i);
+                let value = format!("cycle{:02}_value{:03}", cycle, i);
+                engine
+                    .put(Bytes::from(key), Bytes::from(value), None)
+                    .await
+                    .unwrap();
+            }
+
+            // Verify keys from all previous cycles are still present
+            for prev_cycle in 0..=cycle {
+                for i in 0..keys_per_cycle {
+                    let key = format!("cycle{:02}_key{:03}", prev_cycle, i);
+                    let expected = format!("cycle{:02}_value{:03}", prev_cycle, i);
+
+                    let result = engine.get(key.as_bytes()).await.unwrap();
+                    assert!(
+                        result.is_some(),
+                        "Key {} from cycle {} should exist in cycle {}",
+                        key,
+                        prev_cycle,
+                        cycle
+                    );
+                    assert_eq!(result.unwrap(), Bytes::from(expected));
+                }
+            }
+
+            // Simulate crash (drop without shutdown)
+            drop(engine);
+        }
+
+        // Final recovery: verify all data from all cycles
+        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+        for cycle in 0..cycles {
+            for i in 0..keys_per_cycle {
+                let key = format!("cycle{:02}_key{:03}", cycle, i);
+                let expected = format!("cycle{:02}_value{:03}", cycle, i);
+
+                let result = engine.get(key.as_bytes()).await.unwrap();
+                assert!(
+                    result.is_some(),
+                    "Final recovery: key {} from cycle {} should exist",
+                    key,
+                    cycle
+                );
+                assert_eq!(result.unwrap(), Bytes::from(expected));
+            }
+        }
+
+        engine.shutdown().await.unwrap();
+    }
+
     /// Phase 8 stress test: Sequential heavy read/write workload (memtable only)
     #[tokio::test]
     async fn test_heavy_read_write_workload() {

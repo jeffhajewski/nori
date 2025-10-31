@@ -21,10 +21,10 @@ pub mod timer;
 pub mod election;
 pub mod replication;
 pub mod raft;
+pub mod lease;
+pub mod read_index;
 
 // Core modules (to be implemented)
-// pub mod lease;
-// pub mod read_index;
 // pub mod snapshot;
 // pub mod reconfig;
 // pub mod metrics;

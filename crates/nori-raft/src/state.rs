@@ -24,13 +24,14 @@
 
 use crate::config::RaftConfig;
 use crate::error::{RaftError, Result};
+use crate::lease::LeaseState;
 use crate::log::RaftLog;
 use crate::transport::RaftTransport;
 use crate::types::*;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Raft node state machine.
 ///
@@ -105,9 +106,9 @@ pub struct LeaderState {
     /// Initialized to 0
     pub match_index: HashMap<NodeId, LogIndex>,
 
-    /// Lease expiry time (for fast linearizable reads)
+    /// Lease state (for fast linearizable reads)
     /// Leader can serve reads without quorum while lease is valid
-    pub lease_expiry: Option<Instant>,
+    pub lease: LeaseState,
 }
 
 impl RaftState {
@@ -405,7 +406,7 @@ impl RaftState {
         volatile.leader_state = Some(LeaderState {
             next_index,
             match_index,
-            lease_expiry: None,
+            lease: LeaseState::new(&self.config),
         });
 
         Ok(())

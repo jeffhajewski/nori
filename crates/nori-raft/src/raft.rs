@@ -6,10 +6,12 @@
 //! - Lifecycle (start/shutdown)
 
 use crate::config::RaftConfig;
-use crate::election::{election_loop, run_election, ElectionOutcome};
+use crate::election::election_loop;
 use crate::error::{RaftError, Result};
+use crate::lease;
 use crate::log::RaftLog;
-use crate::replication::{advance_commit_index, apply_loop, heartbeat_loop};
+use crate::read_index;
+use crate::replication::{apply_loop, heartbeat_loop};
 use crate::state::RaftState;
 use crate::timer::ElectionTimer;
 use crate::transport::RaftTransport;
@@ -178,10 +180,10 @@ impl ReplicatedLog for Raft {
         Ok(index)
     }
 
-    /// Perform a linearizable read (via read-index).
+    /// Perform a linearizable read.
     ///
-    /// For now, this is a placeholder that will be implemented with
-    /// leader leases and read-index protocol.
+    /// Uses leader leases for fast reads (no network) when lease is valid.
+    /// Falls back to read-index protocol (quorum check) when lease expired.
     async fn read_index(&self) -> Result<()> {
         // Check if we're leader
         if self.state.role() != Role::Leader {
@@ -190,9 +192,28 @@ impl ReplicatedLog for Raft {
             });
         }
 
-        // TODO: Implement read-index protocol (Priority 4)
-        // For now, just check we're leader and return Ok
-        Ok(())
+        // Try lease-based fast read first
+        let lease_valid = {
+            let volatile = self.state.volatile_state().read();
+            if let Some(leader_state) = &volatile.leader_state {
+                lease::can_read_with_lease(volatile.role, Some(&leader_state.lease))
+            } else {
+                false
+            }
+        };
+
+        if lease_valid {
+            // Fast path: lease is valid, serve read immediately
+            Ok(())
+        } else {
+            // Slow path: lease expired or unavailable, use read-index protocol
+            read_index::read_index(
+                self.state.clone(),
+                &self.config,
+                self.transport.clone(),
+            )
+            .await
+        }
     }
 
     /// Check if this node is the leader.

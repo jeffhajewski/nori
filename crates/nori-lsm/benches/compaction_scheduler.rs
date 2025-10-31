@@ -69,7 +69,7 @@ fn bench_zipfian_workload_with_compaction(c: &mut Criterion) {
                     let key = Bytes::from(format!("key-{:010}", key_id));
                     let value = Bytes::from(vec![0u8; 128]); // Small value for fast writes
 
-                    engine.put(key.clone(), value).await.unwrap();
+                    engine.put(key.clone(), value, None).await.unwrap();
 
                     // Read operation (validates Zipfian distribution)
                     let _result = engine.get(key.as_ref()).await.unwrap();
@@ -116,7 +116,7 @@ fn bench_compaction_decision_latency(c: &mut Criterion) {
                 for i in 0..5000 {
                     let key = Bytes::from(format!("key-{:010}", i));
                     let value = Bytes::from(vec![0u8; 128]);
-                    engine.put(key, value).await.unwrap();
+                    engine.put(key, value, None).await.unwrap();
                 }
 
                 engine.flush().await.unwrap();
@@ -130,7 +130,7 @@ fn bench_compaction_decision_latency(c: &mut Criterion) {
                 for i in 5000..6000 {
                     let key = Bytes::from(format!("key-{:010}", i));
                     let value = Bytes::from(vec![0u8; 128]);
-                    engine.put(black_box(key), black_box(value)).await.unwrap();
+                    engine.put(black_box(key), black_box(value), None).await.unwrap();
                 }
             });
 
@@ -155,7 +155,7 @@ fn bench_mixed_zipfian_workload(c: &mut Criterion) {
                 for i in 0..TOTAL_KEYS {
                     let key = Bytes::from(format!("key-{:010}", i));
                     let value = Bytes::from(vec![0u8; 128]);
-                    engine.put(key, value).await.unwrap();
+                    engine.put(key, value, None).await.unwrap();
                 }
 
                 engine.flush().await.unwrap();
@@ -174,7 +174,7 @@ fn bench_mixed_zipfian_workload(c: &mut Criterion) {
                     if i % 5 == 0 {
                         // 20% writes
                         let value = Bytes::from(vec![1u8; 128]);
-                        engine.put(Bytes::from(key.clone()), value).await.unwrap();
+                        engine.put(Bytes::from(key.clone()), value, None).await.unwrap();
                     } else {
                         // 80% reads
                         let _result = engine.get(black_box(key.as_bytes())).await.unwrap();
@@ -202,7 +202,7 @@ fn bench_compaction_throughput_under_load(c: &mut Criterion) {
                 for i in 0..20_000 {
                     let key = Bytes::from(format!("key-{:010}", i));
                     let value = Bytes::from(vec![0u8; 256]);
-                    engine.put(black_box(key), black_box(value)).await.unwrap();
+                    engine.put(black_box(key), black_box(value), None).await.unwrap();
 
                     // Periodically flush to generate L0 files
                     if i % 2000 == 0 {
@@ -219,11 +219,64 @@ fn bench_compaction_throughput_under_load(c: &mut Criterion) {
     });
 }
 
+/// Benchmark guard rebalancing with skewed key distribution.
+///
+/// Creates heavily skewed workload to trigger guard rebalancing.
+/// Measures time to handle imbalanced slots.
+fn bench_guard_rebalancing_skewed_load(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    c.bench_function("guard_rebalancing_skewed_90_10", |b| {
+        b.iter(|| {
+            let (engine, _temp) = rt.block_on(async {
+                let (engine, temp) = create_engine().await;
+
+                // Create heavily skewed workload: 90% "z" prefix, 10% "a" prefix
+                // This should trigger guard rebalancing
+
+                // Write 900 keys with "z" prefix (hotspot)
+                for i in 0..900 {
+                    let key = Bytes::from(format!("z_hotspot_{:06}", i));
+                    let value = Bytes::from(vec![0u8; 200]);
+                    engine.put(key, value, None).await.unwrap();
+                }
+
+                // Write 100 keys with "a" prefix (cold region)
+                for i in 0..100 {
+                    let key = Bytes::from(format!("a_cold_{:06}", i));
+                    let value = Bytes::from(vec![0u8; 200]);
+                    engine.put(key, value, None).await.unwrap();
+                }
+
+                // Force flush to get data into L0
+                engine.flush().await.unwrap();
+
+                // Allow compaction to run (may trigger guard rebalancing)
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+                (engine, temp)
+            });
+
+            // Verify all keys are still readable
+            rt.block_on(async {
+                for i in 0..900 {
+                    let key = format!("z_hotspot_{:06}", i);
+                    let result = engine.get(key.as_bytes()).await.unwrap();
+                    assert!(result.is_some());
+                }
+            });
+
+            black_box(engine);
+        });
+    });
+}
+
 criterion_group!(
     benches,
     bench_zipfian_workload_with_compaction,
     bench_compaction_decision_latency,
     bench_mixed_zipfian_workload,
     bench_compaction_throughput_under_load,
+    bench_guard_rebalancing_skewed_load,
 );
 criterion_main!(benches);

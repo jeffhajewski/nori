@@ -127,6 +127,13 @@ pub enum CompKind {
         bytes_written: u64,
         heat_score: f32,
     },
+    /// Guard rebalancing triggered for a level
+    GuardRebalance {
+        old_guard_count: usize,
+        new_guard_count: usize,
+        total_files: usize,
+        imbalance_ratio: f64,
+    },
 }
 
 #[derive(Clone, Debug)]

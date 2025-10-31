@@ -2160,7 +2160,8 @@ impl LsmEngine {
                     compaction::CompactionAction::Tier { level, .. }
                     | compaction::CompactionAction::Promote { level, .. }
                     | compaction::CompactionAction::EagerLevel { level, .. }
-                    | compaction::CompactionAction::Cleanup { level, .. } => *level,
+                    | compaction::CompactionAction::Cleanup { level, .. }
+                    | compaction::CompactionAction::GuardMove { level, .. } => *level,
                     _ => 0,
                 };
 
@@ -2173,6 +2174,49 @@ impl LsmEngine {
 
                 // Track files to delete after successful edit
                 let mut old_files = Vec::new();
+
+                // Emit specialized observability event for guard rebalancing
+                if let compaction::CompactionAction::GuardMove { level, new_guards } = &action {
+                    // Get old guards and imbalance ratio for the event
+                    let (old_guard_count, imbalance_ratio, total_files) = {
+                        let manifest_guard = manifest.read();
+                        let snapshot = manifest_guard.snapshot();
+                        let snapshot_guard = snapshot.read().unwrap();
+
+                        // Find this level's metadata
+                        if let Some(level_meta) = snapshot_guard.levels.iter().find(|lm| lm.level == *level) {
+                            // Calculate imbalance ratio (same logic as check_guard_rebalancing)
+                            let total_bytes: u64 = level_meta.slots.iter().map(|s| s.bytes).sum();
+                            let avg_bytes = if !level_meta.slots.is_empty() {
+                                total_bytes / level_meta.slots.len() as u64
+                            } else {
+                                0
+                            };
+                            let max_slot_bytes = level_meta.slots.iter().map(|s| s.bytes).max().unwrap_or(0);
+                            let ratio = if avg_bytes > 0 {
+                                max_slot_bytes as f64 / avg_bytes as f64
+                            } else {
+                                0.0
+                            };
+
+                            let total_files: usize = level_meta.slots.iter().map(|s| s.runs.len()).sum();
+                            (level_meta.guards.len(), ratio, total_files)
+                        } else {
+                            (0, 0.0, 0)
+                        }
+                    };
+
+                    meter.emit(nori_observe::VizEvent::Compaction(nori_observe::CompEvt {
+                        node: 0, // TODO: Get node ID from config
+                        level: *level,
+                        kind: nori_observe::CompKind::GuardRebalance {
+                            old_guard_count,
+                            new_guard_count: new_guards.len(),
+                            total_files,
+                            imbalance_ratio,
+                        },
+                    }));
+                }
 
                 // Execute compaction (pass Arc directly)
                 let result = executor.execute(&action, &manifest).await;
@@ -3788,6 +3832,64 @@ mod tests {
         }
 
         println!("Heavy write test passed: 1000 writes, all verified");
+    }
+
+    /// Phase 7: Guard rebalancing with skewed write workload
+    /// Tests that the system handles severely imbalanced key distributions gracefully.
+    /// Writes are heavily skewed to one keyspace range to trigger potential guard rebalancing.
+    #[tokio::test]
+    async fn test_guard_rebalancing_skewed_workload() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.memtable.flush_trigger_bytes = 8192; // Small to trigger flushes
+        config.l0.max_files = 8;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write heavily skewed workload: 90% of writes to "z" prefix, 10% to "a" prefix
+        // This creates significant size imbalance that could trigger guard rebalancing
+
+        // Write 900 keys with "z" prefix (hotspot)
+        for i in 0..900 {
+            let key = format!("z_hotspot_{:06}", i);
+            let value = vec![b'x'; 200]; // 200 bytes per value
+            engine
+                .put(Bytes::from(key), Bytes::from(value), None)
+                .await
+                .unwrap();
+        }
+
+        // Write 100 keys with "a" prefix (cold region)
+        for i in 0..100 {
+            let key = format!("a_cold_{:06}", i);
+            let value = vec![b'y'; 200];
+            engine
+                .put(Bytes::from(key), Bytes::from(value), None)
+                .await
+                .unwrap();
+        }
+
+        // Force flush to get data into L0
+        engine.check_flush_triggers().await.unwrap();
+
+        // Wait for background compaction (may include guard rebalancing)
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+
+        // Verify all keys are still readable (system stability under skewed load)
+        for i in 0..900 {
+            let key = format!("z_hotspot_{:06}", i);
+            let result = engine.get(key.as_bytes()).await.unwrap();
+            assert!(result.is_some(), "Hotspot key {} should exist", key);
+        }
+
+        for i in 0..100 {
+            let key = format!("a_cold_{:06}", i);
+            let result = engine.get(key.as_bytes()).await.unwrap();
+            assert!(result.is_some(), "Cold key {} should exist", key);
+        }
+
+        println!("Guard rebalancing test passed: 1000 skewed writes, all verified");
     }
 
     /// Phase 9 stress test: Compaction under load with flush

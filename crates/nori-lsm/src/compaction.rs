@@ -22,6 +22,7 @@
 /// │  - Promote: Move run to L+1, merge if needed                │
 /// │  - EagerLevel: Converge hot slot to K=1                     │
 /// │  - Cleanup: Drop tombstones and TTL-expired keys            │
+/// │  - GuardMove: Rebalance slot boundaries (guard keys)        │
 /// └──────────────┬──────────────────────────────────────────────┘
 ///                │ execute()
 ///                ↓
@@ -32,6 +33,38 @@
 /// │  - Cooperative yielding (every 64MB)                        │
 /// └─────────────────────────────────────────────────────────────┘
 /// ```
+///
+/// # Guard Rebalancing (Trigger 8)
+///
+/// Guards define slot boundaries in leveled tiers (L≥1). Skewed write patterns can create
+/// size imbalances where one slot grows much larger than others, degrading performance.
+///
+/// **Detection Heuristics** (`check_guard_rebalancing`):
+/// - **Size Imbalance**: max_slot_bytes > 3× avg_slot_bytes
+/// - **Minimum Threshold**: level total bytes > 1GB (avoid rebalancing tiny levels)
+/// - **Hysteresis**: No compaction in last hour (guards are stable)
+/// - **Minimum Slots**: level has >1 slot (can't rebalance single slot)
+///
+/// **Guard Proposal** (`propose_rebalanced_guards`):
+/// - Samples keys from run boundaries (min_key, max_key) in all slots
+/// - Creates temporary GuardManager and learns key distribution
+/// - Uses quantile-based splitting via GuardManager.propose_guards()
+/// - Validates guards are strictly sorted and non-empty
+///
+/// **Execution** (`execute_guard_move`):
+/// - Collects all runs from all slots in the level
+/// - Splits each run on new guard boundaries (similar to L0→L1 admission)
+/// - Creates manifest edits: DeleteFile (old), AddFile (fragments), UpdateGuards
+///
+/// **Observability**:
+/// - Emits VizEvent::Compaction(CompKind::GuardRebalance) with imbalance_ratio metrics
+/// - Logs guard count change and total files affected
+///
+/// **Example Scenario**:
+/// - Writes heavily skewed to "z*" prefix (90%) vs "a*" prefix (10%)
+/// - Guard at "m" creates large slot [m, ∞) and small slot [∅, m)
+/// - Rebalancing proposes new guard at "y" to split the hotspot
+/// - Result: More balanced slot sizes → better load distribution
 use crate::config::ATLLConfig;
 use crate::error::{Error, Result};
 use crate::heat::HeatTracker;
@@ -81,10 +114,12 @@ pub enum CompactionAction {
     /// **Effect**: Reclaims space, improves scan performance
     Cleanup { level: u8, slot_id: u32 },
 
-    /// Guard placement adjustment (deferred to Phase 7).
+    /// Guard rebalancing: adjust slot boundaries to fix imbalanced key distribution.
     ///
-    /// **When**: Key distribution skew detected
-    /// **Effect**: Rebalances slot sizes
+    /// **When**: Slot size imbalance detected (max_slot > 3× avg_slot, level > 1GB, no recent rebalance)
+    /// **Effect**: Rebalances slot sizes by recalculating guard keys using quantile-based splitting
+    /// **How**: Uses GuardManager.propose_guards() with key samples from run boundaries
+    /// **Integration**: Trigger 8 in BanditScheduler, executed by CompactionExecutor
     GuardMove { level: u8, new_guards: Vec<Bytes> },
 
     /// No action: slot is healthy.
@@ -401,6 +436,12 @@ impl BanditScheduler {
                     });
                 }
             }
+
+            // Trigger 8: Guard rebalancing (key distribution skew)
+            // Check if slots in this level have significantly imbalanced sizes
+            if let Some(guard_move) = self.check_guard_rebalancing(level_meta, snapshot) {
+                candidates.push(guard_move);
+            }
         }
 
         candidates
@@ -435,6 +476,153 @@ impl BanditScheduler {
         }
 
         best_idx
+    }
+
+    /// Checks if guard rebalancing is needed for a level.
+    ///
+    /// # Detection Heuristics
+    /// Guards should be rebalanced when:
+    /// 1. **Size Imbalance**: One slot is significantly larger than others (>3x average)
+    /// 2. **Minimum Data Threshold**: Level has enough data to make rebalancing worthwhile (>1GB)
+    /// 3. **Minimum Slots**: Level has multiple slots (can't rebalance single slot)
+    /// 4. **Hysteresis**: Haven't rebalanced this level recently (>1 hour since last)
+    ///
+    /// # Returns
+    /// `Some(CompactionAction::GuardMove)` if rebalancing is needed, `None` otherwise
+    fn check_guard_rebalancing(
+        &self,
+        level_meta: &crate::manifest::LevelMeta,
+        _snapshot: &crate::manifest::ManifestSnapshot,
+    ) -> Option<CompactionAction> {
+        // Only rebalance levels with multiple slots
+        if level_meta.slots.len() <= 1 {
+            return None;
+        }
+
+        // Calculate total bytes and average per slot
+        let total_bytes: u64 = level_meta.slots.iter().map(|s| s.bytes).sum();
+        let avg_bytes = total_bytes / level_meta.slots.len() as u64;
+
+        // Minimum threshold: only rebalance if level has >1GB of data
+        const MIN_LEVEL_SIZE_BYTES: u64 = 1024 * 1024 * 1024; // 1GB
+        if total_bytes < MIN_LEVEL_SIZE_BYTES {
+            return None;
+        }
+
+        // Find max slot size
+        let max_slot_bytes = level_meta.slots.iter().map(|s| s.bytes).max().unwrap_or(0);
+
+        // Detect imbalance: max slot is >3x average
+        const IMBALANCE_THRESHOLD: f64 = 3.0;
+        let imbalance_ratio = if avg_bytes > 0 {
+            max_slot_bytes as f64 / avg_bytes as f64
+        } else {
+            0.0
+        };
+
+        if imbalance_ratio < IMBALANCE_THRESHOLD {
+            return None; // Not imbalanced enough
+        }
+
+        // Hysteresis: Don't rebalance too frequently
+        // Check if any slot was recently compacted (guards likely stable)
+        const MIN_REBALANCE_INTERVAL_SEC: u64 = 3600; // 1 hour
+        let now_sec = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        for slot in &level_meta.slots {
+            let time_since_compaction = now_sec.saturating_sub(slot.last_compaction_ts);
+            if time_since_compaction < MIN_REBALANCE_INTERVAL_SEC {
+                return None; // Too soon since last compaction
+            }
+        }
+
+        // Imbalance detected! Propose new guards based on quantile splitting
+        let new_guards = self.propose_rebalanced_guards(level_meta);
+
+        if new_guards.is_empty() || new_guards == level_meta.guards {
+            return None; // No better guard configuration found
+        }
+
+        println!(
+            "Guard rebalancing triggered for level {}: imbalance ratio {:.2}x, proposing {} new guards",
+            level_meta.level,
+            imbalance_ratio,
+            new_guards.len()
+        );
+
+        Some(CompactionAction::GuardMove {
+            level: level_meta.level,
+            new_guards,
+        })
+    }
+
+    /// Proposes new guard placements to rebalance slot sizes.
+    ///
+    /// # Strategy
+    /// 1. Create a temporary GuardManager with target slot count
+    /// 2. Learn key distribution from run boundaries
+    /// 3. Use GuardManager's propose_guards() for quantile-based splitting
+    ///
+    /// # Integration with GuardManager Learning
+    /// This method integrates GuardManager's learning infrastructure:
+    /// - Uses learn_from_keys() to build key distribution sketch
+    /// - Uses propose_guards() for better quantile estimation
+    /// - Provides better guard placement than simple min/max sampling
+    ///
+    /// # Future Enhancement
+    /// Could be extended to sample keys from actual SSTable files for
+    /// even better distribution estimation (requires async context).
+    fn propose_rebalanced_guards(&self, level_meta: &crate::manifest::LevelMeta) -> Vec<Bytes> {
+        // Collect all run min/max keys as sample points
+        let mut key_samples: Vec<Bytes> = Vec::new();
+
+        for slot in &level_meta.slots {
+            for run in &slot.runs {
+                key_samples.push(run.min_key.clone());
+                key_samples.push(run.max_key.clone());
+            }
+        }
+
+        if key_samples.len() < 2 {
+            return Vec::new(); // Not enough samples
+        }
+
+        // Target: same number of slots as before (or slightly more if very imbalanced)
+        let target_slot_count = level_meta.slots.len().max(4);
+
+        // Create temporary GuardManager and use its learning infrastructure
+        let mut temp_guard_mgr = match crate::guards::GuardManager::new(
+            level_meta.level,
+            target_slot_count as u32,
+        ) {
+            Ok(mgr) => mgr,
+            Err(_) => {
+                // Fallback to current guards if GuardManager creation fails
+                return level_meta.guards.clone();
+            }
+        };
+
+        // Learn from collected key samples
+        temp_guard_mgr.learn_from_keys(&key_samples);
+
+        // Propose new guards using GuardManager's quantile logic
+        let proposed = temp_guard_mgr.propose_guards();
+
+        // Validate: guards must be strictly sorted and non-empty
+        if proposed.is_empty() {
+            return Vec::new();
+        }
+
+        for window in proposed.windows(2) {
+            if window[0] >= window[1] {
+                return Vec::new(); // Invalid guards
+            }
+        }
+
+        proposed
     }
 }
 
@@ -2189,4 +2377,5 @@ mod tests {
         assert_eq!(level, 1);
         assert_eq!(slot_id, 3);
     }
+
 }

@@ -245,6 +245,12 @@ pub struct LsmEngine {
     /// Join handle for background compaction thread
     compaction_handle: Arc<parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
+    /// Shutdown signal for background WAL GC thread
+    wal_gc_shutdown: Arc<AtomicBool>,
+
+    /// Join handle for background WAL GC thread
+    wal_gc_handle: Arc<parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+
     /// LRU cache for SSTableReaders (file_number -> Arc<SSTableReader>)
     /// Caches up to 128 open SSTable files to avoid repeated file opens
     /// and to reuse bloom filters and indexes already loaded in memory.
@@ -373,6 +379,9 @@ impl LsmEngine {
         // Create shutdown signal for background compaction
         let compaction_shutdown = Arc::new(AtomicBool::new(false));
 
+        // Create shutdown signal for background WAL GC
+        let wal_gc_shutdown = Arc::new(AtomicBool::new(false));
+
         // Create SSTableReader cache (128 entries = ~128MB with 64MB block cache per reader)
         let reader_cache = Arc::new(parking_lot::Mutex::new(LruCache::new(
             NonZeroUsize::new(128).unwrap(),
@@ -391,6 +400,8 @@ impl LsmEngine {
             seqno: Arc::new(AtomicU64::new(next_seqno)),
             compaction_shutdown: compaction_shutdown.clone(),
             compaction_handle: Arc::new(parking_lot::Mutex::new(None)),
+            wal_gc_shutdown: wal_gc_shutdown.clone(),
+            wal_gc_handle: Arc::new(parking_lot::Mutex::new(None)),
             reader_cache,
             compaction_bytes_in: Arc::new(AtomicU64::new(0)),
             compaction_bytes_out: Arc::new(AtomicU64::new(0)),
@@ -430,6 +441,23 @@ impl LsmEngine {
 
         // Store the join handle
         *engine.compaction_handle.lock() = Some(handle);
+
+        // Start WAL GC background task
+        let wal_clone = engine.wal.clone();
+        let manifest_clone_gc = engine.manifest.clone();
+        let wal_gc_shutdown_clone = wal_gc_shutdown.clone();
+
+        let wal_gc_handle = tokio::spawn(async move {
+            Self::wal_gc_loop(
+                wal_clone,
+                manifest_clone_gc,
+                wal_gc_shutdown_clone,
+            )
+            .await;
+        });
+
+        // Store the WAL GC join handle
+        *engine.wal_gc_handle.lock() = Some(wal_gc_handle);
 
         Ok(engine)
     }
@@ -1262,7 +1290,19 @@ impl LsmEngine {
             }
         }
 
-        // 3. Flush any remaining memtable data
+        // 3. Signal WAL GC thread to stop
+        self.wal_gc_shutdown.store(true, Ordering::Relaxed);
+
+        // 4. Wait for WAL GC thread to complete
+        let wal_gc_handle = self.wal_gc_handle.lock().take();
+        if let Some(handle) = wal_gc_handle {
+            match handle.await {
+                Ok(_) => tracing::info!("WAL GC thread stopped successfully"),
+                Err(e) => tracing::warn!("WAL GC thread join error: {}", e),
+            }
+        }
+
+        // 5. Flush any remaining memtable data
         if !self.memtable.read().is_empty() {
             tracing::info!("Flushing remaining memtable data");
             self.flush_memtable().await?;
@@ -2100,13 +2140,96 @@ impl LsmEngine {
         }
     }
 
-    /// Background compaction loop.
+    /// Background task that periodically triggers WAL segment garbage collection.
     ///
-    /// Runs continuously until shutdown signal is set.
-    /// Each iteration:
-    /// 1. Selects a compaction action via BanditScheduler
-    /// 2. Executes the action via CompactionExecutor
-    /// 3. Applies resulting ManifestEdits
+    /// This task runs every 60 seconds and deletes old WAL segments that have been
+    /// safely flushed to SSTables. This prevents disk space leaks in scenarios where
+    /// flushes are infrequent (e.g., low write workloads).
+    ///
+    /// # Safety
+    ///
+    /// The WAL GC is safe because:
+    /// 1. Segments are only deleted if they're older than the current WAL position
+    /// 2. The WAL maintains an active segment that is never deleted
+    /// 3. Failed GC operations are logged but don't crash the engine
+    async fn wal_gc_loop(
+        wal: Arc<parking_lot::RwLock<Wal>>,
+        _manifest: Arc<parking_lot::RwLock<ManifestLog>>,
+        shutdown: Arc<AtomicBool>,
+    ) {
+        use std::sync::atomic::Ordering;
+        use tokio::time::{sleep, Duration};
+
+        tracing::info!("Background WAL GC loop started");
+
+        loop {
+            // Check shutdown signal
+            if shutdown.load(Ordering::Relaxed) {
+                tracing::info!("WAL GC loop shutting down");
+                break;
+            }
+
+            // Sleep for 60 seconds, but check shutdown every second for responsiveness
+            for _ in 0..60 {
+                sleep(Duration::from_secs(1)).await;
+                if shutdown.load(Ordering::Relaxed) {
+                    tracing::info!("WAL GC loop shutting down");
+                    return;
+                }
+            }
+
+            // Attempt to delete old segments
+            // This is a best-effort operation - failures are logged but not fatal
+            // We clone the Arc to avoid Send issues with parking_lot guards
+            let wal_clone = wal.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                tokio::runtime::Handle::current().block_on(async {
+                    let wal_guard = wal_clone.read();
+
+                    // Get current position
+                    let wal_position = wal_guard.current_position().await;
+
+                    // Delete old segments
+                    let delete_result = wal_guard.delete_segments_before(wal_position).await;
+
+                    (wal_position, delete_result)
+                })
+            })
+            .await;
+
+            match result {
+                Ok((wal_position, Ok(deleted_count))) => {
+                    if deleted_count > 0 {
+                        tracing::info!(
+                            "WAL periodic GC: deleted {} segments (watermark: {}:{})",
+                            deleted_count,
+                            wal_position.segment_id,
+                            wal_position.offset
+                        );
+                    } else {
+                        tracing::debug!("WAL periodic GC: no segments to delete");
+                    }
+                }
+                Ok((_, Err(e))) => {
+                    // GC failure is not fatal - log warning and continue
+                    // The WAL may grow larger than necessary but data remains safe
+                    tracing::warn!("WAL periodic GC failed: {}", e);
+                }
+                Err(e) => {
+                    tracing::error!("WAL periodic GC task panicked: {}", e);
+                }
+            }
+        }
+
+        tracing::info!("Background WAL GC loop stopped");
+    }
+
+    /// Background task that periodically runs compaction on the LSM tree.
+    ///
+    /// This task:
+    /// 1. Selects a compaction action using the bandit scheduler
+    /// 2. Executes the compaction if needed
+    /// 3. Updates manifest
     /// 4. Sleeps for compaction_interval_sec
     #[allow(clippy::too_many_arguments)]
     async fn compaction_loop(

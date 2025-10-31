@@ -323,6 +323,23 @@ impl SegmentManager {
     /// The caller must ensure that the data in these segments is no longer needed
     /// (e.g., it has been compacted into SSTables or safely replicated).
     pub async fn delete_segments_before(&self, position: Position) -> Result<u64, SegmentError> {
+        use nori_observe::obs_timed;
+
+        // Time the entire GC operation
+        let result = obs_timed!(
+            self.meter,
+            "wal_gc_latency_ms",
+            &[],
+            {
+                self.delete_segments_before_impl(position).await
+            }
+        );
+
+        result
+    }
+
+    /// Internal implementation of segment deletion (separated for metrics).
+    async fn delete_segments_before_impl(&self, position: Position) -> Result<u64, SegmentError> {
         let current_id = *self.current_id.lock().await;
 
         // Don't delete the current segment
@@ -343,14 +360,28 @@ impl SegmentManager {
                     tokio::fs::remove_file(&path).await?;
                     deleted_count += 1;
 
+                    // Emit per-segment event
                     self.meter.emit(VizEvent::Wal(WalEvt {
                         node: self.node_id,
                         seg: id,
                         kind: WalKind::SegmentGc,
                     }));
+
+                    // Increment segment deletion counter
+                    self.meter.counter(
+                        "wal_segments_deleted_total",
+                        &[("node", "0")]
+                    ).inc(1);
                 }
             }
         }
+
+        // Update gauge with current segment count after GC
+        let remaining_segments = self.count_segments().await?;
+        self.meter.gauge(
+            "wal_segment_count",
+            &[("node", "0")]
+        ).set(remaining_segments as i64);
 
         Ok(deleted_count)
     }
@@ -591,6 +622,23 @@ impl SegmentManager {
     pub async fn finalize_current(&self) -> Result<(), SegmentError> {
         let mut current = self.current.lock().await;
         current.finalize().await
+    }
+
+    /// Counts the total number of WAL segment files on disk.
+    ///
+    /// Used for metrics and observability.
+    async fn count_segments(&self) -> Result<u64, SegmentError> {
+        let mut count = 0u64;
+        let mut entries = tokio::fs::read_dir(&self.config.dir).await?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if parse_segment_id_from_path(&path).is_some() {
+                count += 1;
+            }
+        }
+
+        Ok(count)
     }
 }
 

@@ -190,10 +190,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 **What `shutdown()` does:**
 1. Signals the background compaction thread to stop
-2. Waits for compaction thread to complete gracefully
-3. Flushes any pending memtable data to disk
-4. Syncs the WAL to ensure all writes are durable
-5. Writes a final manifest snapshot for clean recovery
+2. Signals the background WAL GC loop to stop
+3. Waits for all background threads to complete gracefully
+4. Flushes any pending memtable data to disk
+5. Syncs the WAL to ensure all writes are durable
+6. Writes a final manifest snapshot for clean recovery
 
 **Best Practices:**
 - Always call `shutdown()` in production applications
@@ -221,6 +222,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+## WAL Lifecycle Management
+
+The LSM engine automatically manages Write-Ahead Log (WAL) segments to prevent disk space leaks:
+
+### Automatic WAL Garbage Collection
+
+A background task runs every **60 seconds** to clean up old WAL segments after data has been flushed to SSTables:
+
+```rust
+// WAL GC happens automatically in the background
+let engine = LsmEngine::open(config).await?;
+
+// Perform operations - old WAL segments are cleaned up automatically
+engine.put(Bytes::from("key"), Bytes::from("value")).await?;
+
+// On shutdown, WAL GC loop stops gracefully
+engine.shutdown().await?;
+```
+
+**How it works:**
+1. **After memtable flush**: When memtable data is persisted to SSTables, old WAL segments become eligible for deletion
+2. **Periodic cleanup**: Background task runs every 60 seconds to delete old segments
+3. **Watermark-based**: Only segments older than the oldest unflushed memtable are deleted
+4. **Safe by default**: Active segments are never deleted, ensuring crash recovery always works
+
+**Metrics:**
+The WAL GC task emits observability metrics:
+- `wal_gc_latency_ms` (histogram): Time to delete segments
+- `wal_segments_deleted_total` (counter): Total segments deleted
+- `wal_segment_count` (gauge): Current number of segments
+
+### Recovery Guarantees
+
+The engine provides **exactly-once semantics** for crash recovery:
+
+- **Prefix-valid recovery**: WAL recovery validates CRC checksums and truncates partial writes at the tail
+- **Last committed version preserved**: Property tests verify the last committed version is always recovered
+- **Stress tested**: Includes power-loss simulations and concurrent GC scenarios
+
+**Recovery tests:**
+- `test_wal_recovery_after_crash` - Simulates power loss during writes
+- `test_wal_concurrent_gc_no_data_loss` - Validates concurrent GC safety
+- `test_wal_recovery_with_incomplete_writes` - Tests prefix-valid truncation
+- `test_recovery_invariant_holds` - Property test with 20 random scenarios
 
 ## Configuration
 
@@ -260,13 +306,15 @@ cargo bench -p nori-lsm --bench heavy_workloads
 - Multi-level reads across L0/L1+ with key range routing
 - L0→L1 admission with guard-based routing (physical splitting during compaction)
 - WAL recovery and cleanup after flush
+- **Automatic WAL garbage collection** with 60-second periodic cleanup and observability metrics
 - Sequence number tracking for MVCC
 - Comprehensive stats tracking
 - Full observability integration (VizEvents, metrics, counters)
 - Bloom filter support
 - Error recovery (graceful degradation on corrupted SSTables)
 - **Graceful shutdown** with background thread cleanup, flush, and sync guarantees
-- **102 passing tests** covering operations, recovery, compaction, shutdown, and stress scenarios
+- **Property-based testing** for recovery invariants (35 randomized test cases)
+- **110+ passing tests** covering operations, recovery, compaction, shutdown, WAL GC, and stress scenarios
 
 **⚠️ Known Limitations:**
 

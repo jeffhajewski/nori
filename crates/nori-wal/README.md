@@ -149,6 +149,85 @@ println!("  Bytes truncated: {}", recovery_info.bytes_truncated);
 println!("  Corruption detected: {}", recovery_info.corruption_detected);
 ```
 
+## Segment Garbage Collection
+
+The WAL provides built-in garbage collection to delete old segments that have been durably persisted elsewhere (e.g., after flushing to SSTables in an LSM tree).
+
+### Manual GC
+
+```rust
+use nori_wal::Position;
+
+// Get current position (marks boundary for deletion)
+let watermark = wal.current_position().await;
+
+// Delete all segments before this position
+let deleted_count = wal.delete_segments_before(watermark).await?;
+println!("Deleted {} old segments", deleted_count);
+```
+
+### Safety Guarantees
+
+GC is designed to be **safe by default**:
+
+- **Active segment protection**: The currently active segment is never deleted
+- **Watermark-based deletion**: Only segments older than the specified position are eligible
+- **Atomic operations**: Segment deletion uses system calls to prevent partial removals
+- **Non-fatal failures**: GC errors are logged but don't crash the engine
+
+### Use in LSM Trees
+
+When integrated into an LSM engine, WAL GC typically runs:
+
+1. **After flush**: When memtable data is persisted to SSTables
+2. **Periodically**: Background task runs every 60 seconds to prevent disk space leaks
+3. **Best-effort**: Failed GC attempts don't block writes or reads
+
+```rust
+// Example: LSM engine integration pattern
+async fn flush_memtable(&self) -> Result<()> {
+    // 1. Capture WAL position before freezing memtable
+    let wal_position = self.wal.current_position().await;
+
+    // 2. Freeze and flush memtable to SSTable
+    self.write_sstable(frozen_memtable).await?;
+
+    // 3. Delete old WAL segments (data now in SSTable)
+    match self.wal.delete_segments_before(wal_position).await {
+        Ok(count) => tracing::info!("GC deleted {} segments", count),
+        Err(e) => tracing::warn!("GC failed (non-fatal): {}", e),
+    }
+
+    Ok(())
+}
+```
+
+### Metrics
+
+GC operations emit metrics for production monitoring:
+
+```rust
+// Metrics emitted via nori-observe::Meter:
+// - wal_gc_latency_ms (histogram): Time to delete segments
+// - wal_segments_deleted_total (counter): Total segments deleted
+// - wal_segment_count (gauge): Current number of segments
+```
+
+### Performance
+
+GC performance scales with the number of segments:
+
+- **5 segments**: ~1-3ms latency
+- **20 segments**: ~5-10ms latency
+- **50 segments**: ~15-25ms latency
+
+Throughput depends on segment size:
+- **1MB segments**: ~500 MB/s deletion throughput
+- **8MB segments**: ~2 GB/s deletion throughput
+- **32MB segments**: ~4 GB/s deletion throughput
+
+*See `benches/garbage_collection.rs` for detailed benchmarks.*
+
 ## Record Types
 
 ### PUT Records

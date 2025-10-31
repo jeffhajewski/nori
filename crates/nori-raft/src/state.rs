@@ -68,28 +68,28 @@ struct PersistentState {
 }
 
 /// Volatile state (lost on crash, recomputed on recovery).
-struct VolatileState {
+pub struct VolatileState {
     /// Current role (Follower, Candidate, or Leader)
-    role: Role,
+    pub role: Role,
 
     /// Current leader (if known)
     /// Followers track this to redirect client requests
-    leader_id: Option<NodeId>,
+    pub leader_id: Option<NodeId>,
 
     /// Highest log index known to be committed
-    commit_index: LogIndex,
+    pub commit_index: LogIndex,
 
     /// Highest log index applied to state machine
-    last_applied: LogIndex,
+    pub last_applied: LogIndex,
 
     /// Leader-specific state (only valid when role == Leader)
-    leader_state: Option<LeaderState>,
+    pub leader_state: Option<LeaderState>,
 
     /// Last time we heard from the leader (for election timeout)
-    last_heartbeat: Instant,
+    pub last_heartbeat: Instant,
 
     /// Current cluster configuration
-    config: ConfigEntry,
+    pub config: ConfigEntry,
 }
 
 /// Leader-specific volatile state.
@@ -165,6 +165,21 @@ impl RaftState {
     /// Get the commit index.
     pub fn commit_index(&self) -> LogIndex {
         self.volatile.read().commit_index
+    }
+
+    /// Get this node's ID.
+    pub fn node_id(&self) -> &NodeId {
+        &self.node_id
+    }
+
+    /// Get a reference to the log.
+    pub fn log_ref(&self) -> &RaftLog {
+        &self.log
+    }
+
+    /// Get a reference to the volatile state.
+    pub fn volatile_state(&self) -> &Arc<RwLock<VolatileState>> {
+        &self.volatile
     }
 
     /// Handle RequestVote RPC.

@@ -17,16 +17,16 @@ pub mod types;
 pub mod transport;
 pub mod log;
 pub mod state;
+pub mod timer;
+pub mod election;
 
 // Core modules (to be implemented)
-// pub mod election;
 // pub mod replication;
 // pub mod lease;
 // pub mod read_index;
 // pub mod snapshot;
 // pub mod reconfig;
 // pub mod metrics;
-// pub mod timer;
 
 pub use config::RaftConfig;
 pub use error::{RaftError, Result};

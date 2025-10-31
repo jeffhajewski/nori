@@ -41,3 +41,7 @@ harness = false
 [[bench]]
 name = "recovery"
 harness = false
+
+[[bench]]
+name = "garbage_collection"
+harness = false

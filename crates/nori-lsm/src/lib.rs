@@ -4174,6 +4174,207 @@ mod tests {
         engine.shutdown().await.unwrap();
     }
 
+    /// Property test: Recovery invariant with random operations
+    ///
+    /// Uses proptest to generate random sequences of operations and crash points,
+    /// verifying that recovery maintains the invariant:
+    /// - All committed operations are present after recovery
+    /// - Exactly-once semantics (no duplicates)
+    /// - Last write wins for each key
+    #[cfg(test)]
+    mod property_tests {
+        use super::*;
+        use proptest::prelude::*;
+        use std::collections::HashMap;
+
+        #[derive(Debug, Clone)]
+        enum Operation {
+            Put(String, String),
+            Delete(String),
+        }
+
+        // Generate random operations
+        fn operation_strategy() -> impl Strategy<Value = Operation> {
+            prop_oneof![
+                (any::<u8>(), any::<u16>()).prop_map(|(k, v)| {
+                    Operation::Put(format!("key{:03}", k % 50), format!("value{:05}", v))
+                }),
+                any::<u8>().prop_map(|k| Operation::Delete(format!("key{:03}", k % 50))),
+            ]
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig {
+                cases: 20, // Run 20 random test cases
+                max_shrink_iters: 100,
+                .. ProptestConfig::default()
+            })]
+
+            #[test]
+            fn test_recovery_invariant_holds(
+                operations in prop::collection::vec(operation_strategy(), 10..50)
+            ) {
+                // Run the async test in a runtime
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    let temp_dir = tempfile::tempdir().unwrap();
+                    let mut config = ATLLConfig::default();
+                    config.data_dir = temp_dir.path().to_path_buf();
+                    config.memtable.flush_trigger_bytes = 1_000_000; // Large to prevent auto-flush
+
+                    // Phase 1: Apply operations and build expected state
+                    let mut expected_state: HashMap<String, Option<String>> = HashMap::new();
+
+                    {
+                        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+                        for op in &operations {
+                            match op {
+                                Operation::Put(key, value) => {
+                                    engine
+                                        .put(Bytes::from(key.clone()), Bytes::from(value.clone()), None)
+                                        .await
+                                        .unwrap();
+                                    expected_state.insert(key.clone(), Some(value.clone()));
+                                }
+                                Operation::Delete(key) => {
+                                    engine.delete(key.as_bytes()).await.unwrap();
+                                    expected_state.insert(key.clone(), None);
+                                }
+                            }
+                        }
+
+                        // Simulate crash (drop without shutdown)
+                        drop(engine);
+                    }
+
+                    // Phase 2: Recover and verify invariant
+                    {
+                        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+                        // Verify all committed operations are present
+                        for (key, expected_value) in &expected_state {
+                            let actual_value = engine.get(key.as_bytes()).await.unwrap();
+
+                            match expected_value {
+                                Some(expected) => {
+                                    prop_assert!(
+                                        actual_value.is_some(),
+                                        "Key {} should exist after recovery but was not found. \
+                                         Expected: {:?}, Got: None",
+                                        key,
+                                        expected
+                                    );
+                                    prop_assert_eq!(
+                                        actual_value.as_ref().unwrap().as_ref(),
+                                        expected.as_bytes(),
+                                        "Value mismatch for key {} after recovery",
+                                        key
+                                    );
+                                }
+                                None => {
+                                    prop_assert!(
+                                        actual_value.is_none(),
+                                        "Key {} should be deleted after recovery but was found with value: {:?}",
+                                        key,
+                                        actual_value
+                                    );
+                                }
+                            }
+                        }
+
+                        engine.shutdown().await.unwrap();
+                    }
+
+                    Ok(())
+                })?;
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig {
+                cases: 15,
+                max_shrink_iters: 100,
+                .. ProptestConfig::default()
+            })]
+
+            #[test]
+            fn test_recovery_with_random_flushes(
+                operations in prop::collection::vec(operation_strategy(), 20..60),
+                flush_points in prop::collection::vec(any::<usize>(), 0..5)
+            ) {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    let temp_dir = tempfile::tempdir().unwrap();
+                    let mut config = ATLLConfig::default();
+                    config.data_dir = temp_dir.path().to_path_buf();
+                    config.memtable.flush_trigger_bytes = 1_000_000;
+
+                    let mut expected_state: HashMap<String, Option<String>> = HashMap::new();
+
+                    {
+                        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+                        for (i, op) in operations.iter().enumerate() {
+                            match op {
+                                Operation::Put(key, value) => {
+                                    engine
+                                        .put(Bytes::from(key.clone()), Bytes::from(value.clone()), None)
+                                        .await
+                                        .unwrap();
+                                    expected_state.insert(key.clone(), Some(value.clone()));
+                                }
+                                Operation::Delete(key) => {
+                                    engine.delete(key.as_bytes()).await.unwrap();
+                                    expected_state.insert(key.clone(), None);
+                                }
+                            }
+
+                            // Flush at random points
+                            if flush_points.iter().any(|&fp| fp % operations.len() == i) {
+                                let _ = engine.flush().await;
+                                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                            }
+                        }
+
+                        drop(engine);
+                    }
+
+                    // Recover and verify
+                    {
+                        let engine = LsmEngine::open(config.clone()).await.unwrap();
+
+                        for (key, expected_value) in &expected_state {
+                            let actual_value = engine.get(key.as_bytes()).await.unwrap();
+
+                            match expected_value {
+                                Some(expected) => {
+                                    prop_assert!(
+                                        actual_value.is_some(),
+                                        "Key {} should exist after recovery with flushes",
+                                        key
+                                    );
+                                    let actual = actual_value.unwrap();
+                                    prop_assert_eq!(
+                                        actual.as_ref(),
+                                        expected.as_bytes()
+                                    );
+                                }
+                                None => {
+                                    prop_assert!(actual_value.is_none());
+                                }
+                            }
+                        }
+
+                        engine.shutdown().await.unwrap();
+                    }
+
+                    Ok(())
+                })?;
+            }
+        }
+    }
+
     /// Phase 8 stress test: Sequential heavy read/write workload (memtable only)
     #[tokio::test]
     async fn test_heavy_read_write_workload() {

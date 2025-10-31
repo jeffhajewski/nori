@@ -99,6 +99,11 @@ impl ElectionTimer {
         rx
     }
 
+    /// Subscribe to timeout notifications (alias for timeout_receiver).
+    pub fn subscribe(&self) -> tokio::sync::mpsc::Receiver<()> {
+        self.timeout_receiver()
+    }
+
     /// Reset the election timer.
     ///
     /// Called when:

@@ -96,18 +96,18 @@ pub struct VolatileState {
 ///
 /// Only valid when role == Leader.
 /// Tracks replication progress for each follower.
-struct LeaderState {
+pub struct LeaderState {
     /// For each peer, index of next log entry to send
     /// Initialized to leader's last_index + 1
-    next_index: HashMap<NodeId, LogIndex>,
+    pub next_index: HashMap<NodeId, LogIndex>,
 
     /// For each peer, index of highest log entry known to be replicated
     /// Initialized to 0
-    match_index: HashMap<NodeId, LogIndex>,
+    pub match_index: HashMap<NodeId, LogIndex>,
 
     /// Lease expiry time (for fast linearizable reads)
     /// Leader can serve reads without quorum while lease is valid
-    lease_expiry: Option<Instant>,
+    pub lease_expiry: Option<Instant>,
 }
 
 impl RaftState {
@@ -180,6 +180,13 @@ impl RaftState {
     /// Get a reference to the volatile state.
     pub fn volatile_state(&self) -> &Arc<RwLock<VolatileState>> {
         &self.volatile
+    }
+
+    /// Set the current term (for testing).
+    #[cfg(test)]
+    pub fn set_current_term(&self, term: Term) {
+        let mut persistent = self.persistent.write();
+        persistent.current_term = term;
     }
 
     /// Handle RequestVote RPC.
@@ -375,12 +382,14 @@ impl RaftState {
     ///
     /// Initializes leader state (next_index[], match_index[]).
     pub async fn become_leader(&self) -> Result<()> {
+        // Get last log index before acquiring lock (to avoid holding lock across await)
+        let last_log_index = self.log.last_index().await;
+
         let mut volatile = self.volatile.write();
         volatile.role = Role::Leader;
         volatile.leader_id = Some(self.node_id.clone());
 
         // Initialize leader state
-        let last_log_index = self.log.last_index().await;
         let all_nodes = volatile.config.all_nodes();
 
         let mut next_index = HashMap::new();

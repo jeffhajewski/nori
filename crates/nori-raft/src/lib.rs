@@ -19,9 +19,10 @@ pub mod log;
 pub mod state;
 pub mod timer;
 pub mod election;
+pub mod replication;
+pub mod raft;
 
 // Core modules (to be implemented)
-// pub mod replication;
 // pub mod lease;
 // pub mod read_index;
 // pub mod snapshot;
@@ -31,6 +32,7 @@ pub mod election;
 pub use config::RaftConfig;
 pub use error::{RaftError, Result};
 pub use types::*;
+pub use raft::Raft;
 
 /// ReplicatedLog trait (per context/31_consensus.yaml).
 ///

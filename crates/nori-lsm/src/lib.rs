@@ -2216,6 +2216,33 @@ impl LsmEngine {
                             imbalance_ratio,
                         },
                     }));
+
+                    // Record metrics for guard rebalancing
+                    // Use static labels for common levels (L0-L6)
+                    let labels: &'static [(&'static str, &'static str)] = match *level {
+                        0 => &[("level", "0")],
+                        1 => &[("level", "1")],
+                        2 => &[("level", "2")],
+                        3 => &[("level", "3")],
+                        4 => &[("level", "4")],
+                        5 => &[("level", "5")],
+                        6 => &[("level", "6")],
+                        _ => &[("level", "7+")],
+                    };
+
+                    meter.counter("lsm_guard_rebalances_total", labels).inc(1);
+
+                    meter.histo(
+                        "lsm_guard_rebalance_imbalance_ratio",
+                        &[1.0, 2.0, 3.0, 5.0, 10.0, 20.0],
+                        labels,
+                    ).observe(imbalance_ratio);
+
+                    meter.histo(
+                        "lsm_guard_rebalance_guard_count_change",
+                        &[0.0, 1.0, 2.0, 4.0, 8.0, 16.0],
+                        labels,
+                    ).observe((new_guards.len() as i64 - old_guard_count as i64).abs() as f64);
                 }
 
                 // Execute compaction (pass Arc directly)

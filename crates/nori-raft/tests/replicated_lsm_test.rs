@@ -309,3 +309,163 @@ async fn test_persistence_across_restart() {
         replicated_lsm.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_snapshot_creation_with_data() {
+    let (replicated_lsm, _raft_dir, _lsm_dir) = create_single_node_cluster().await;
+
+    replicated_lsm.start().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Write some data
+    for i in 0..20 {
+        replicated_lsm
+            .replicated_put(
+                Bytes::from(format!("snap_key_{}", i)),
+                Bytes::from(format!("snap_value_{}", i)),
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Create snapshot (even if placeholder, should not fail)
+    let raft = replicated_lsm.raft();
+    let snapshot_result = raft.create_snapshot().await;
+
+    assert!(
+        snapshot_result.is_ok(),
+        "Snapshot creation should succeed: {:?}",
+        snapshot_result
+    );
+
+    // Verify data still accessible after snapshot
+    for i in 0..20 {
+        let key = format!("snap_key_{}", i);
+        let result = replicated_lsm.replicated_get(key.as_bytes()).await.unwrap();
+        assert_eq!(result, Some(Bytes::from(format!("snap_value_{}", i))));
+    }
+
+    replicated_lsm.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_concurrent_reads() {
+    let (replicated_lsm, _raft_dir, _lsm_dir) = create_single_node_cluster().await;
+
+    replicated_lsm.start().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Write some data first
+    for i in 0..10 {
+        replicated_lsm
+            .replicated_put(
+                Bytes::from(format!("concurrent_key_{}", i)),
+                Bytes::from(format!("concurrent_value_{}", i)),
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Spawn multiple concurrent read tasks
+    let mut handles = Vec::new();
+    for _ in 0..10 {
+        let lsm_clone = Arc::clone(&replicated_lsm);
+        let handle = tokio::spawn(async move {
+            // Each task reads multiple keys
+            for i in 0..10 {
+                let key = format!("concurrent_key_{}", i);
+                let result = lsm_clone.replicated_get(key.as_bytes()).await;
+                assert!(result.is_ok(), "Concurrent read should succeed");
+                assert_eq!(
+                    result.unwrap(),
+                    Some(Bytes::from(format!("concurrent_value_{}", i)))
+                );
+            }
+        });
+        handles.push(handle);
+    }
+
+    // Wait for all reads to complete
+    for handle in handles {
+        handle.await.unwrap();
+    }
+
+    replicated_lsm.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_write_after_write() {
+    let (replicated_lsm, _raft_dir, _lsm_dir) = create_single_node_cluster().await;
+
+    replicated_lsm.start().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let key = Bytes::from("overwrite_key");
+
+    // Write initial value
+    replicated_lsm
+        .replicated_put(key.clone(), Bytes::from("value1"), None)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Verify first write
+    let result = replicated_lsm.replicated_get(b"overwrite_key").await.unwrap();
+    assert_eq!(result, Some(Bytes::from("value1")));
+
+    // Overwrite with new value
+    replicated_lsm
+        .replicated_put(key.clone(), Bytes::from("value2"), None)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Verify new value
+    let result = replicated_lsm.replicated_get(b"overwrite_key").await.unwrap();
+    assert_eq!(result, Some(Bytes::from("value2")));
+
+    replicated_lsm.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_empty_key_value() {
+    let (replicated_lsm, _raft_dir, _lsm_dir) = create_single_node_cluster().await;
+
+    replicated_lsm.start().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Test empty key with value
+    replicated_lsm
+        .replicated_put(Bytes::from(""), Bytes::from("empty_key_value"), None)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let result = replicated_lsm.replicated_get(b"").await.unwrap();
+    assert_eq!(result, Some(Bytes::from("empty_key_value")));
+
+    // Test key with empty value
+    replicated_lsm
+        .replicated_put(Bytes::from("empty_value_key"), Bytes::from(""), None)
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let result = replicated_lsm
+        .replicated_get(b"empty_value_key")
+        .await
+        .unwrap();
+    assert_eq!(result, Some(Bytes::from("")));
+
+    replicated_lsm.shutdown().await.unwrap();
+}

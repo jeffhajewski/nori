@@ -12,10 +12,11 @@ use crate::lease;
 use crate::log::RaftLog;
 use crate::read_index;
 use crate::replication::{apply_loop, heartbeat_loop};
-use crate::snapshot::{Snapshot, SnapshotMetadata, StateMachine};
+use crate::rpc_handler::rpc_handler_loop;
+use crate::snapshot::{Snapshot, StateMachine};
 use crate::state::RaftState;
 use crate::timer::ElectionTimer;
-use crate::transport::RaftTransport;
+use crate::transport::{RaftTransport, RpcReceiver};
 use crate::types::*;
 use crate::ReplicatedLog;
 use bytes::Bytes;
@@ -47,6 +48,10 @@ pub struct Raft {
     /// Optional state machine (e.g., LSM engine)
     /// When provided, committed entries are automatically applied to it
     state_machine: Option<Arc<Mutex<dyn StateMachine>>>,
+
+    /// Optional RPC receiver (for handling incoming RPCs)
+    /// When provided, spawns RPC handler loop to process incoming messages
+    rpc_rx: Arc<Mutex<Option<RpcReceiver>>>,
 }
 
 impl Raft {
@@ -59,6 +64,7 @@ impl Raft {
     /// - `transport`: RPC transport
     /// - `initial_config`: Initial cluster membership
     /// - `state_machine`: Optional state machine (e.g., LSM engine)
+    /// - `rpc_rx`: Optional RPC receiver (for multi-node communication)
     pub fn new(
         node_id: NodeId,
         config: RaftConfig,
@@ -66,6 +72,7 @@ impl Raft {
         transport: Arc<dyn RaftTransport>,
         initial_config: ConfigEntry,
         state_machine: Option<Arc<Mutex<dyn StateMachine>>>,
+        rpc_rx: Option<RpcReceiver>,
     ) -> Self {
         let state = Arc::new(RaftState::new(
             node_id,
@@ -87,6 +94,7 @@ impl Raft {
             shutdown_tx,
             applied_tx: Arc::new(Mutex::new(applied_tx)),
             state_machine,
+            rpc_rx: Arc::new(Mutex::new(rpc_rx)),
         }
     }
 
@@ -97,6 +105,7 @@ impl Raft {
     /// - Election loop
     /// - Heartbeat loop (when leader)
     /// - Apply loop
+    /// - RPC handler loop (if RPC receiver provided)
     pub async fn start(&self) -> Result<()> {
         // Start election timer
         let timer_clone = self.election_timer.clone();
@@ -141,6 +150,18 @@ impl Raft {
         tokio::spawn(async move {
             apply_loop(state_clone, applied_tx, shutdown_rx3, state_machine_clone).await;
         });
+
+        // Start RPC handler loop (if receiver provided)
+        let rpc_rx_opt = self.rpc_rx.lock().await.take();
+        if let Some(rpc_rx) = rpc_rx_opt {
+            let state_clone = self.state.clone();
+            let election_timer_clone = self.election_timer.clone();
+            let shutdown_rx4 = self.shutdown_tx.subscribe();
+
+            tokio::spawn(async move {
+                rpc_handler_loop(state_clone, rpc_rx, election_timer_clone, shutdown_rx4).await;
+            });
+        }
 
         Ok(())
     }
@@ -354,7 +375,7 @@ mod tests {
             NodeId::new("n3"),
         ]);
 
-        let raft = Raft::new(NodeId::new("n1"), config, log, transport, initial_config, None);
+        let raft = Raft::new(NodeId::new("n1"), config, log, transport, initial_config, None, None);
         (raft, temp_dir)
     }
 

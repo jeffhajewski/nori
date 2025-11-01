@@ -54,6 +54,7 @@ impl TestCluster {
                 transport,
                 initial_config,
                 None,
+                None, // No RPC receiver for this test
             ));
 
             nodes.push(raft);
@@ -140,7 +141,7 @@ async fn test_single_node_cluster() {
 
     let initial_config = ConfigEntry::Single(vec![node_id.clone()]);
 
-    let raft = Raft::new(node_id, config, log, transport, initial_config, None);
+    let raft = Raft::new(node_id, config, log, transport, initial_config, None, None);
 
     // Start the node
     raft.start().await.unwrap();
@@ -265,7 +266,7 @@ async fn test_node_lifecycle() {
 
     let initial_config = ConfigEntry::Single(vec![node_id.clone()]);
 
-    let raft = Raft::new(node_id, config, log, transport, initial_config, None);
+    let raft = Raft::new(node_id, config, log, transport, initial_config, None, None);
 
     // Start
     raft.start().await.unwrap();
@@ -305,6 +306,7 @@ async fn test_multiple_start_shutdown_cycles() {
         transport,
         initial_config,
         None,
+        None, // No RPC receiver for this test
     ));
 
     // First cycle
@@ -368,7 +370,7 @@ async fn test_subscribe_applied() {
 
     let initial_config = ConfigEntry::Single(vec![node_id.clone()]);
 
-    let raft = Raft::new(node_id, config, log, transport, initial_config, None);
+    let raft = Raft::new(node_id, config, log, transport, initial_config, None, None);
 
     // Subscribe to applied entries
     let mut rx = raft.subscribe_applied();

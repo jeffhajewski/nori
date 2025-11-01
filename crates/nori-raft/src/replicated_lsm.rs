@@ -134,6 +134,7 @@ impl ReplicatedLSM {
             transport,
             initial_config,
             Some(Arc::new(Mutex::new(adapter))),
+            None, // No RPC receiver for now (single-node)
         ));
 
         Ok(Self { raft, lsm_engine })

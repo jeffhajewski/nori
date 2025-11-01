@@ -26,6 +26,7 @@ pub mod read_index;
 pub mod snapshot;
 pub mod lsm_adapter;
 pub mod replicated_lsm;
+pub mod rpc_handler;
 
 // Core modules (to be implemented)
 // pub mod reconfig;

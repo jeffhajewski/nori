@@ -83,6 +83,10 @@ pub struct VolatileState {
     /// Highest log index applied to state machine
     pub last_applied: LogIndex,
 
+    /// Highest log index included in the last snapshot
+    /// Used to determine when to create a new snapshot
+    pub last_snapshot_index: LogIndex,
+
     /// Leader-specific state (only valid when role == Leader)
     pub leader_state: Option<LeaderState>,
 
@@ -139,6 +143,7 @@ impl RaftState {
                 leader_id: None,
                 commit_index: LogIndex::ZERO,
                 last_applied: LogIndex::ZERO,
+                last_snapshot_index: LogIndex::ZERO,
                 leader_state: None,
                 last_heartbeat: Instant::now(),
                 config: initial_config,
@@ -198,6 +203,10 @@ impl RaftState {
         &self,
         request: RequestVoteRequest,
     ) -> Result<RequestVoteResponse> {
+        // Get log info first (before acquiring locks to avoid holding across await)
+        let last_log_term = self.log.last_term().await;
+        let last_log_index = self.log.last_index().await;
+
         let mut persistent = self.persistent.write();
         let mut volatile = self.volatile.write();
 
@@ -220,9 +229,6 @@ impl RaftState {
 
             if !already_voted {
                 // Check log up-to-dateness
-                let last_log_term = self.log.last_term().await;
-                let last_log_index = self.log.last_index().await;
-
                 let log_ok = request.last_log_term > last_log_term
                     || (request.last_log_term == last_log_term
                         && request.last_log_index >= last_log_index);
@@ -250,35 +256,45 @@ impl RaftState {
         &self,
         request: AppendEntriesRequest,
     ) -> Result<AppendEntriesResponse> {
-        let mut persistent = self.persistent.write();
-        let mut volatile = self.volatile.write();
+        // Phase 1: Update term if needed and check basic conditions
+        let (current_term, should_reject) = {
+            let mut persistent = self.persistent.write();
+            let mut volatile = self.volatile.write();
 
-        // If request term > current term, update and step down
-        if request.term > persistent.current_term {
-            self.step_down_inner(&mut persistent, &mut volatile, request.term);
-        }
+            // If request term > current term, update and step down
+            if request.term > persistent.current_term {
+                self.step_down_inner(&mut persistent, &mut volatile, request.term);
+            }
 
-        // Reject if term < current_term
-        if request.term < persistent.current_term {
+            // Check if we should reject (term too old)
+            let should_reject = request.term < persistent.current_term;
+
+            // Valid AppendEntries from current leader - reset election timer
+            if !should_reject {
+                volatile.last_heartbeat = Instant::now();
+                volatile.leader_id = Some(request.leader_id.clone());
+
+                // If we're a candidate, step down to follower
+                if volatile.role == Role::Candidate {
+                    volatile.role = Role::Follower;
+                    volatile.leader_state = None;
+                }
+            }
+
+            (persistent.current_term, should_reject)
+        };
+
+        if should_reject {
+            let last_log_index = self.log.last_index().await;
             return Ok(AppendEntriesResponse {
-                term: persistent.current_term,
+                term: current_term,
                 success: false,
                 conflict_index: None,
-                last_log_index: self.log.last_index().await,
+                last_log_index,
             });
         }
 
-        // Valid AppendEntries from current leader - reset election timer
-        volatile.last_heartbeat = Instant::now();
-        volatile.leader_id = Some(request.leader_id.clone());
-
-        // If we're a candidate, step down to follower
-        if volatile.role == Role::Candidate {
-            volatile.role = Role::Follower;
-            volatile.leader_state = None;
-        }
-
-        // Check log consistency (prev_log_index/term must match)
+        // Phase 2: Check log consistency (no locks held)
         let log_ok = if request.prev_log_index == LogIndex::ZERO {
             // Empty log - always ok
             true
@@ -294,15 +310,16 @@ impl RaftState {
         if !log_ok {
             // Log inconsistency - send conflict hint for fast backtracking
             let conflict_index = request.prev_log_index.prev();
+            let last_log_index = self.log.last_index().await;
             return Ok(AppendEntriesResponse {
-                term: persistent.current_term,
+                term: current_term,
                 success: false,
                 conflict_index,
-                last_log_index: self.log.last_index().await,
+                last_log_index,
             });
         }
 
-        // Log consistency check passed - append entries
+        // Phase 3: Append entries (no locks held)
         if !request.entries.is_empty() {
             // Truncate log from first conflicting entry forward
             let first_new_index = request.prev_log_index.next();
@@ -312,18 +329,94 @@ impl RaftState {
             self.log.append_batch(request.entries).await?;
         }
 
-        // Update commit index
-        if request.leader_commit > volatile.commit_index {
-            let last_new_index = self.log.last_index().await;
-            volatile.commit_index =
-                std::cmp::min(request.leader_commit, last_new_index);
+        // Phase 4: Update commit index
+        let last_new_index = self.log.last_index().await;
+        {
+            let mut volatile = self.volatile.write();
+            if request.leader_commit > volatile.commit_index {
+                volatile.commit_index = std::cmp::min(request.leader_commit, last_new_index);
+            }
         }
 
         Ok(AppendEntriesResponse {
-            term: persistent.current_term,
+            term: current_term,
             success: true,
             conflict_index: None,
-            last_log_index: self.log.last_index().await,
+            last_log_index: last_new_index,
+        })
+    }
+
+    /// Handle InstallSnapshot RPC.
+    ///
+    /// Invoked by leader when follower is too far behind (log compacted).
+    /// Replaces follower's log with snapshot.
+    pub async fn handle_install_snapshot(
+        &self,
+        request: InstallSnapshotRequest,
+    ) -> Result<InstallSnapshotResponse> {
+        let mut persistent = self.persistent.write();
+        let mut volatile = self.volatile.write();
+
+        // If request term > current term, update and step down
+        if request.term > persistent.current_term {
+            self.step_down_inner(&mut persistent, &mut volatile, request.term);
+        }
+
+        // Reject if term < current_term
+        if request.term < persistent.current_term {
+            return Ok(InstallSnapshotResponse {
+                term: persistent.current_term,
+                bytes_stored: 0,
+            });
+        }
+
+        // Valid InstallSnapshot from current leader - reset election timer
+        volatile.last_heartbeat = Instant::now();
+        volatile.leader_id = Some(request.leader_id.clone());
+
+        // Note: Full snapshot installation is handled at a higher level (Raft struct).
+        // This handler just acknowledges the RPC and returns metadata.
+        // The actual state machine restoration happens via Raft::install_snapshot.
+
+        Ok(InstallSnapshotResponse {
+            term: persistent.current_term,
+            bytes_stored: request.data.len() as u64,
+        })
+    }
+
+    /// Handle ReadIndex RPC.
+    ///
+    /// Invoked by leader during read-index protocol to confirm leadership.
+    /// Follower acknowledges with current term.
+    pub async fn handle_read_index(
+        &self,
+        request: ReadIndexRequest,
+    ) -> Result<ReadIndexResponse> {
+        let mut persistent = self.persistent.write();
+        let mut volatile = self.volatile.write();
+
+        // If request term > current term, update and step down
+        if request.term > persistent.current_term {
+            self.step_down_inner(&mut persistent, &mut volatile, request.term);
+        }
+
+        // Reject if term < current_term
+        if request.term < persistent.current_term {
+            return Ok(ReadIndexResponse {
+                term: persistent.current_term,
+                ack: false,
+                read_id: request.read_id,
+            });
+        }
+
+        // Valid ReadIndex from current leader - reset election timer
+        volatile.last_heartbeat = Instant::now();
+
+        // Acknowledge leadership
+        Ok(ReadIndexResponse {
+            term: persistent.current_term,
+            ack: true,
+            read_id: request.read_id,
         })
     }
 

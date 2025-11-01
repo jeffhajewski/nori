@@ -276,6 +276,26 @@ impl Raft {
         let transport_any: &dyn Any = transport_ref;
         transport_any.downcast_ref::<crate::transport::InMemoryTransport>()
     }
+
+    /// Test helper: Get current term
+    pub fn current_term(&self) -> Term {
+        self.state.current_term()
+    }
+
+    /// Test helper: Get commit index
+    pub fn commit_index(&self) -> LogIndex {
+        self.state.commit_index()
+    }
+
+    /// Test helper: Get reference to log
+    pub fn log_ref(&self) -> &RaftLog {
+        self.state.log_ref()
+    }
+
+    /// Test helper: Get reference to internal state (for deep inspection)
+    pub fn state_ref(&self) -> &Arc<RaftState> {
+        &self.state
+    }
 }
 
 /// Snapshot loop - periodically checks if snapshot should be created.

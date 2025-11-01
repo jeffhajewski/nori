@@ -23,3 +23,6 @@ pub mod generators;
 
 // Re-export key types
 pub use linearizability::{History, Operation, OperationResult, LinearizabilityError};
+pub use fault_injection::{
+    DeterministicRng, NetworkFaultPolicy, NetworkFaultInjector, FaultAction, ChaosScheduler,
+};

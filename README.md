@@ -5,7 +5,7 @@ NoriKV is a **sharded, Raft-replicated, log-structured key–value store** with 
 This repo is a Cargo workspace hosting multiple crates (WAL, SSTable, LSM, SWIM membership, Raft) and the server,
 
 - Crates intended for publication: `nori-observe`, `nori-wal`, `nori-sstable`, `nori-lsm`, `nori-swim`, `nori-raft`.
-- Internal crates: `norikv-transport-grpc`, `norikv-placement`, `norikv-types`, `norikv-testkit`, etc.
+- Internal crates: `norikv-transport-grpc`, `norikv-placement`, `norikv-types`, `nori-testkit`, etc.
 
 ## Quick start (skeleton)
 

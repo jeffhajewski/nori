@@ -93,7 +93,7 @@ Rust Edition: **2021**
 - **`norikv-types`** - Shared IDs, error codes, small enums
 - **`norikv-placement`** - Shard/replica planning with Jump Consistent Hash; minimal-move diffs
 - **`norikv-transport-grpc`** - Tonic-based gRPC + HTTP façade
-- **`norikv-testkit`** - Chaos simulator, linearizability checker, deterministic net/disk faults
+- **`nori-testkit`** - Chaos simulator, linearizability checker, deterministic net/disk faults
 - **`nori-observe-prom`** - Prometheus/OpenMetrics exporter (optional publication)
 - **`nori-observe-otlp`** - OTLP gRPC exporter with trace exemplars (optional publication)
 
@@ -134,7 +134,7 @@ Rust Edition: **2021**
 
 ## Testing Strategy
 
-### Property Testing (via `norikv-testkit`)
+### Property Testing (via `nori-testkit`)
 - Deterministic chaos: simulated clock, network (drop/dup/reorder), disk faults
 - Linearizability checker for single-key histories
 - Scenario examples:

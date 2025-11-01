@@ -28,3 +28,4 @@ proptest = "1.0"
 tempfile = "3.0"
 tracing-subscriber = "0.3"
 serde_json = "1.0"
+nori-testkit = { path = "../nori-testkit" }

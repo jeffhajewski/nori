@@ -12,7 +12,7 @@ members = [
   "crates/norikv-types",
   "crates/norikv-placement",
   "crates/norikv-transport-grpc",
-  "crates/norikv-testkit",
+  "crates/nori-testkit",
   "apps/norikv-server",
   "apps/norikv-vizd",
 ]

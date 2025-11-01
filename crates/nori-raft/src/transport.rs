@@ -27,7 +27,7 @@ use async_trait::async_trait;
 /// - Transient errors (network down) should be retried; permanent errors (node shutdown) should fail fast
 /// - NodeId is an opaque identifier; transport resolves it to actual address (DNS, IP:port, etc.)
 #[async_trait]
-pub trait RaftTransport: Send + Sync {
+pub trait RaftTransport: Send + Sync + std::any::Any {
     /// Send RequestVote RPC to a peer.
     ///
     /// Used during leader election. Candidate sends this to all peers to request votes.

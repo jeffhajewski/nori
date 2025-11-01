@@ -255,6 +255,27 @@ impl Raft {
 
         Ok(snapshot)
     }
+
+    /// Test helper: Get reference to transport as InMemoryTransport.
+    ///
+    /// Allows partition simulation in tests by manipulating peer connections.
+    /// Returns Some if transport is InMemoryTransport, None otherwise (e.g., gRPC transport).
+    ///
+    /// # Example
+    /// ```ignore
+    /// if let Some(transport) = raft.transport_as_inmemory() {
+    ///     transport.remove_peer(&peer_id); // Simulate network partition
+    /// }
+    /// ```
+    pub fn transport_as_inmemory(&self) -> Option<&crate::transport::InMemoryTransport> {
+        use std::any::Any;
+
+        // Safe downcast using Any trait
+        // We need to go through the Arc to get the dyn Any reference
+        let transport_ref: &dyn crate::transport::RaftTransport = self.transport.as_ref();
+        let transport_any: &dyn Any = transport_ref;
+        transport_any.downcast_ref::<crate::transport::InMemoryTransport>()
+    }
 }
 
 /// Snapshot loop - periodically checks if snapshot should be created.

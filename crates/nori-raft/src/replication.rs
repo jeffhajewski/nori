@@ -304,10 +304,12 @@ pub async fn apply_loop(
                                     }
                                 }
 
-                                // Send to applied channel (for backward compatibility)
-                                if applied_tx.send((entry.index, entry.command.clone())).await.is_err() {
-                                    // Receiver dropped, exit
-                                    return;
+                                // Send to applied channel (for backward compatibility, only if no state machine)
+                                if state_machine.is_none() {
+                                    if applied_tx.send((entry.index, entry.command.clone())).await.is_err() {
+                                        // Receiver dropped, exit
+                                        return;
+                                    }
                                 }
 
                                 // Update last_applied

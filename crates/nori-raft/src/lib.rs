@@ -25,6 +25,7 @@ pub mod lease;
 pub mod read_index;
 pub mod snapshot;
 pub mod lsm_adapter;
+pub mod replicated_lsm;
 
 // Core modules (to be implemented)
 // pub mod reconfig;
@@ -35,6 +36,7 @@ pub use error::{RaftError, Result};
 pub use types::*;
 pub use raft::Raft;
 pub use snapshot::{Snapshot, SnapshotMetadata, StateMachine};
+pub use replicated_lsm::ReplicatedLSM;
 
 /// ReplicatedLog trait (per context/31_consensus.yaml).
 ///

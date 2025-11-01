@@ -173,10 +173,14 @@ mod tests {
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
 
+        // Create election timer
+        let config = RaftConfig::default();
+        let election_timer = Arc::new(crate::timer::ElectionTimer::new(config));
+
         // Spawn handler loop
         let state_clone = state.clone();
         let handler_task = tokio::spawn(async move {
-            rpc_handler_loop(state_clone, rpc_rx, shutdown_rx).await;
+            rpc_handler_loop(state_clone, rpc_rx, election_timer, shutdown_rx).await;
         });
 
         // Send RequestVote RPC
@@ -219,10 +223,14 @@ mod tests {
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
 
+        // Create election timer
+        let config = RaftConfig::default();
+        let election_timer = Arc::new(crate::timer::ElectionTimer::new(config));
+
         // Spawn handler loop
         let state_clone = state.clone();
         let handler_task = tokio::spawn(async move {
-            rpc_handler_loop(state_clone, rpc_rx, shutdown_rx).await;
+            rpc_handler_loop(state_clone, rpc_rx, election_timer, shutdown_rx).await;
         });
 
         // Send AppendEntries RPC (heartbeat)
@@ -264,9 +272,13 @@ mod tests {
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
 
+        // Create election timer
+        let config = RaftConfig::default();
+        let election_timer = Arc::new(crate::timer::ElectionTimer::new(config));
+
         // Spawn handler loop
         let handler_task = tokio::spawn(async move {
-            rpc_handler_loop(state, rpc_rx, shutdown_rx).await;
+            rpc_handler_loop(state, rpc_rx, election_timer, shutdown_rx).await;
         });
 
         // Send shutdown immediately

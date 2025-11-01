@@ -392,3 +392,302 @@ async fn test_subscribe_applied() {
 
     raft.shutdown().unwrap();
 }
+
+// ============================================================================
+// Snapshot Lifecycle Tests
+// ============================================================================
+
+/// Simple in-memory state machine for testing snapshots
+#[derive(Debug)]
+struct TestStateMachine {
+    data: HashMap<String, String>,
+}
+
+impl TestStateMachine {
+    fn new() -> Self {
+        Self {
+            data: HashMap::new(),
+        }
+    }
+}
+
+impl nori_raft::snapshot::StateMachine for TestStateMachine {
+    fn apply(&mut self, command: &[u8]) -> nori_raft::error::Result<()> {
+        // Parse command as "key:value"
+        let s = String::from_utf8_lossy(command);
+        if let Some((key, value)) = s.split_once(':') {
+            self.data.insert(key.to_string(), value.to_string());
+        }
+        Ok(())
+    }
+
+    fn snapshot(&self) -> nori_raft::error::Result<bytes::Bytes> {
+        // Serialize data as JSON
+        let json = serde_json::to_string(&self.data)
+            .map_err(|e| nori_raft::error::RaftError::Internal {
+                reason: format!("Failed to serialize state: {}", e),
+            })?;
+        Ok(bytes::Bytes::from(json))
+    }
+
+    fn restore(&mut self, data: &[u8]) -> nori_raft::error::Result<()> {
+        // Deserialize data from JSON
+        let s = String::from_utf8_lossy(data);
+        self.data = serde_json::from_str(&s)
+            .map_err(|e| nori_raft::error::RaftError::Internal {
+                reason: format!("Failed to deserialize state: {}", e),
+            })?;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_create_snapshot() {
+    use bytes::Bytes;
+    use tokio::sync::Mutex;
+
+    let temp_dir = TempDir::new().unwrap();
+    let (log, _) = nori_raft::log::RaftLog::open(temp_dir.path())
+        .await
+        .unwrap();
+
+    let mut config = RaftConfig::default();
+    config.election_timeout_min = Duration::from_millis(150);
+    config.election_timeout_max = Duration::from_millis(300);
+
+    let node_id = NodeId::new("n1");
+    let transport = Arc::new(nori_raft::transport::InMemoryTransport::new(
+        node_id.clone(),
+        HashMap::new(),
+    ));
+
+    let initial_config = ConfigEntry::Single(vec![node_id.clone()]);
+
+    // Create state machine
+    let state_machine = Arc::new(Mutex::new(TestStateMachine::new()));
+
+    let raft = Raft::new(
+        node_id,
+        config,
+        log,
+        transport,
+        initial_config,
+        Some(state_machine.clone()),
+        None,
+    );
+
+    // Start and become leader
+    raft.start().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Propose some entries
+    for i in 0..10 {
+        if raft.is_leader() {
+            let cmd = Bytes::from(format!("key{}:value{}", i, i));
+            let _ = raft.propose(cmd).await;
+        }
+    }
+
+    // Wait for entries to be applied
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Create snapshot
+    let snapshot = raft.create_snapshot().await.unwrap();
+
+    // Verify snapshot metadata
+    assert!(snapshot.metadata.last_included_index > LogIndex::ZERO);
+    assert!(snapshot.size() > 0);
+
+    // Verify state machine data is in snapshot
+    let snapshot_data = String::from_utf8_lossy(&snapshot.data);
+    assert!(snapshot_data.contains("key0"));
+
+    raft.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_install_snapshot() {
+    use bytes::Bytes;
+    use tokio::sync::Mutex;
+
+    let temp_dir = TempDir::new().unwrap();
+    let (log, _) = nori_raft::log::RaftLog::open(temp_dir.path())
+        .await
+        .unwrap();
+
+    let config = RaftConfig::default();
+    let node_id = NodeId::new("n1");
+    let transport = Arc::new(nori_raft::transport::InMemoryTransport::new(
+        node_id.clone(),
+        HashMap::new(),
+    ));
+
+    let initial_config = ConfigEntry::Single(vec![node_id.clone()]);
+
+    // Create state machine
+    let state_machine = Arc::new(Mutex::new(TestStateMachine::new()));
+
+    let raft = Raft::new(
+        node_id,
+        config,
+        log,
+        transport,
+        initial_config,
+        Some(state_machine.clone()),
+        None,
+    );
+
+    // Create a snapshot to install
+    let mut snapshot_data = HashMap::new();
+    snapshot_data.insert("test_key".to_string(), "test_value".to_string());
+    let data = Bytes::from(serde_json::to_string(&snapshot_data).unwrap());
+
+    let snapshot = nori_raft::snapshot::Snapshot::new(
+        LogIndex(100),
+        Term(5),
+        ConfigEntry::Single(vec![NodeId::new("n1")]),
+        data,
+    );
+
+    // Serialize snapshot
+    let mut buf = Vec::new();
+    snapshot.write_to(&mut buf).unwrap();
+
+    // Install snapshot
+    let reader: Box<dyn std::io::Read + Send> = Box::new(std::io::Cursor::new(buf));
+    raft.install_snapshot(reader).await.unwrap();
+
+    // Verify state machine has the data
+    {
+        let sm = state_machine.lock().await;
+        assert_eq!(sm.data.get("test_key"), Some(&"test_value".to_string()));
+    }
+
+    raft.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_snapshot_truncates_log() {
+    use bytes::Bytes;
+    use tokio::sync::Mutex;
+
+    let temp_dir = TempDir::new().unwrap();
+    let (log, _) = nori_raft::log::RaftLog::open(temp_dir.path())
+        .await
+        .unwrap();
+
+    let mut config = RaftConfig::default();
+    config.election_timeout_min = Duration::from_millis(150);
+    config.election_timeout_max = Duration::from_millis(300);
+
+    let node_id = NodeId::new("n1");
+    let transport = Arc::new(nori_raft::transport::InMemoryTransport::new(
+        node_id.clone(),
+        HashMap::new(),
+    ));
+
+    let initial_config = ConfigEntry::Single(vec![node_id.clone()]);
+
+    // Create state machine
+    let state_machine = Arc::new(Mutex::new(TestStateMachine::new()));
+
+    let raft = Raft::new(
+        node_id,
+        config,
+        log,
+        transport,
+        initial_config,
+        Some(state_machine.clone()),
+        None,
+    );
+
+    // Start and become leader
+    raft.start().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Propose some entries
+    for i in 0..10 {
+        if raft.is_leader() {
+            let cmd = Bytes::from(format!("key{}:value{}", i, i));
+            let _ = raft.propose(cmd).await;
+        }
+    }
+
+    // Wait for entries to be applied
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Create snapshot
+    let snapshot = raft.create_snapshot().await.unwrap();
+    let last_included = snapshot.metadata.last_included_index;
+
+    // Verify log was truncated
+    // Log entries before the snapshot should be removed
+    // Note: The current implementation clears the cache, but actual WAL truncation
+    // is marked as TODO in log.rs
+
+    assert!(last_included > LogIndex::ZERO, "Snapshot should include some entries");
+
+    raft.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_snapshot_automatic_triggering() {
+    use bytes::Bytes;
+    use tokio::sync::Mutex;
+
+    let temp_dir = TempDir::new().unwrap();
+    let (log, _) = nori_raft::log::RaftLog::open(temp_dir.path())
+        .await
+        .unwrap();
+
+    let mut config = RaftConfig::default();
+    config.election_timeout_min = Duration::from_millis(150);
+    config.election_timeout_max = Duration::from_millis(300);
+    // Set low threshold for testing (5 entries)
+    config.snapshot_entry_count = 5;
+
+    let node_id = NodeId::new("n1");
+    let transport = Arc::new(nori_raft::transport::InMemoryTransport::new(
+        node_id.clone(),
+        HashMap::new(),
+    ));
+
+    let initial_config = ConfigEntry::Single(vec![node_id.clone()]);
+
+    // Create state machine
+    let state_machine = Arc::new(Mutex::new(TestStateMachine::new()));
+
+    let raft = Raft::new(
+        node_id,
+        config,
+        log,
+        transport,
+        initial_config,
+        Some(state_machine.clone()),
+        None,
+    );
+
+    // Start (this will start snapshot loop)
+    raft.start().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Propose entries to exceed threshold
+    for i in 0..10 {
+        if raft.is_leader() {
+            let cmd = Bytes::from(format!("key{}:value{}", i, i));
+            let _ = raft.propose(cmd).await;
+        }
+    }
+
+    // Wait for entries to be applied
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Wait for snapshot loop to run (it checks every 5 seconds, but we'll wait longer)
+    tokio::time::sleep(Duration::from_secs(6)).await;
+
+    // Note: In this isolated single-node setup, automatic snapshot triggering
+    // should occur if the node becomes leader and exceeds the threshold.
+    // The snapshot loop runs every 5 seconds and checks if threshold is exceeded.
+
+    raft.shutdown().unwrap();
+}

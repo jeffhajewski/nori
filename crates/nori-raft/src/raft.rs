@@ -105,6 +105,7 @@ impl Raft {
     /// - Election loop
     /// - Heartbeat loop (when leader)
     /// - Apply loop
+    /// - Snapshot loop (periodic snapshot creation)
     /// - RPC handler loop (if RPC receiver provided)
     pub async fn start(&self) -> Result<()> {
         // Start election timer
@@ -151,15 +152,34 @@ impl Raft {
             apply_loop(state_clone, applied_tx, shutdown_rx3, state_machine_clone).await;
         });
 
+        // Start snapshot loop (only if state machine provided)
+        if self.state_machine.is_some() {
+            let self_clone = Arc::new(Self {
+                state: self.state.clone(),
+                config: self.config.clone(),
+                transport: self.transport.clone(),
+                election_timer: self.election_timer.clone(),
+                shutdown_tx: self.shutdown_tx.clone(),
+                applied_tx: self.applied_tx.clone(),
+                state_machine: self.state_machine.clone(),
+                rpc_rx: Arc::new(Mutex::new(None)), // No RPC receiver for cloned instance
+            });
+            let shutdown_rx4 = self.shutdown_tx.subscribe();
+
+            tokio::spawn(async move {
+                snapshot_loop(self_clone, shutdown_rx4).await;
+            });
+        }
+
         // Start RPC handler loop (if receiver provided)
         let rpc_rx_opt = self.rpc_rx.lock().await.take();
         if let Some(rpc_rx) = rpc_rx_opt {
             let state_clone = self.state.clone();
             let election_timer_clone = self.election_timer.clone();
-            let shutdown_rx4 = self.shutdown_tx.subscribe();
+            let shutdown_rx5 = self.shutdown_tx.subscribe();
 
             tokio::spawn(async move {
-                rpc_handler_loop(state_clone, rpc_rx, election_timer_clone, shutdown_rx4).await;
+                rpc_handler_loop(state_clone, rpc_rx, election_timer_clone, shutdown_rx5).await;
             });
         }
 
@@ -182,6 +202,7 @@ impl Raft {
     /// - Serialized state machine data
     ///
     /// This method should be called periodically to bound log growth.
+    /// After creating the snapshot, it truncates the log to save space.
     pub async fn create_snapshot(&self) -> Result<Snapshot> {
         // Require state machine to be present
         let sm = self.state_machine.as_ref().ok_or_else(|| RaftError::Internal {
@@ -211,7 +232,90 @@ impl Raft {
         let data = sm_lock.snapshot()?;
         drop(sm_lock);
 
-        Ok(Snapshot::new(last_applied, last_term, config, data))
+        let snapshot = Snapshot::new(last_applied, last_term, config, data);
+
+        // Update last_snapshot_index tracking
+        {
+            let mut volatile = self.state.volatile_state().write();
+            volatile.last_snapshot_index = last_applied;
+        }
+
+        // Truncate log (keep entries after snapshot for ongoing replication)
+        // We truncate at last_applied + 1, keeping all entries after the snapshot point
+        self.state
+            .log_ref()
+            .truncate(last_applied.next())
+            .await?;
+
+        tracing::info!(
+            last_applied = %last_applied,
+            snapshot_size = snapshot.size(),
+            "Created snapshot and truncated log"
+        );
+
+        Ok(snapshot)
+    }
+}
+
+/// Snapshot loop - periodically checks if snapshot should be created.
+///
+/// Checks if log has grown beyond configured thresholds and creates
+/// snapshots automatically. Runs every 5 seconds.
+async fn snapshot_loop(
+    raft: Arc<Raft>,
+    mut shutdown_rx: broadcast::Receiver<()>,
+) {
+    use tokio::time::{interval, Duration};
+
+    let mut ticker = interval(Duration::from_secs(5)); // Check every 5 seconds
+
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {
+                // Only create snapshots if we're leader
+                // (followers will receive snapshots via InstallSnapshot RPC)
+                if raft.state.role() != Role::Leader {
+                    continue;
+                }
+
+                // Check if snapshot is needed
+                let (last_applied, last_snapshot_index) = {
+                    let volatile = raft.state.volatile_state().read();
+                    (volatile.last_applied, volatile.last_snapshot_index)
+                };
+
+                let entries_since_snapshot = last_applied.0.saturating_sub(last_snapshot_index.0);
+
+                // Check if we've exceeded the entry count threshold
+                if entries_since_snapshot >= raft.config.snapshot_entry_count {
+                    tracing::info!(
+                        entries_since_snapshot,
+                        threshold = raft.config.snapshot_entry_count,
+                        "Snapshot threshold exceeded, creating snapshot"
+                    );
+
+                    match raft.create_snapshot().await {
+                        Ok(snapshot) => {
+                            tracing::info!(
+                                last_included_index = %snapshot.metadata.last_included_index,
+                                snapshot_size = snapshot.size(),
+                                "Snapshot created successfully"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                error = ?e,
+                                "Failed to create snapshot"
+                            );
+                        }
+                    }
+                }
+            }
+            _ = shutdown_rx.recv() => {
+                tracing::info!("Snapshot loop shutting down");
+                break;
+            }
+        }
     }
 }
 
@@ -317,6 +421,7 @@ impl ReplicatedLog for Raft {
             let mut volatile = self.state.volatile_state().write();
             volatile.last_applied = snapshot.metadata.last_included_index;
             volatile.commit_index = snapshot.metadata.last_included_index;
+            volatile.last_snapshot_index = snapshot.metadata.last_included_index;
             volatile.config = snapshot.metadata.config.clone();
         }
 
@@ -325,6 +430,11 @@ impl ReplicatedLog for Raft {
             .log_ref()
             .truncate(snapshot.metadata.last_included_index.next())
             .await?;
+
+        tracing::info!(
+            last_included_index = %snapshot.metadata.last_included_index,
+            "Installed snapshot and truncated log"
+        );
 
         Ok(())
     }

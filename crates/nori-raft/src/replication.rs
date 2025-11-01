@@ -18,6 +18,9 @@ use tokio::time::{interval, Duration};
 /// Replicate to a single follower.
 ///
 /// Sends AppendEntries RPC with entries starting from next_index[follower].
+/// If follower is too far behind (next_index <= last_snapshot_index),
+/// logs a warning that snapshot should be sent.
+///
 /// Updates next_index and match_index based on response.
 ///
 /// Returns true if replication succeeded, false otherwise.
@@ -26,8 +29,8 @@ pub async fn replicate_to_follower(
     follower: &NodeId,
     transport: Arc<dyn RaftTransport>,
 ) -> Result<bool> {
-    // Get next_index for this follower
-    let next_idx = {
+    // Get next_index for this follower and check if behind snapshot
+    let (next_idx, last_snapshot_index) = {
         let volatile = state.volatile_state().read();
         let leader_state = volatile
             .leader_state
@@ -35,12 +38,29 @@ pub async fn replicate_to_follower(
             .ok_or_else(|| crate::error::RaftError::Internal {
                 reason: "Not leader".to_string(),
             })?;
-        leader_state
+        let next_idx = leader_state
             .next_index
             .get(follower)
             .copied()
-            .unwrap_or(LogIndex(1))
+            .unwrap_or(LogIndex(1));
+        (next_idx, volatile.last_snapshot_index)
     };
+
+    // Check if follower needs a snapshot
+    // (next_index points to entry that's been compacted)
+    if next_idx <= last_snapshot_index && last_snapshot_index > LogIndex::ZERO {
+        tracing::warn!(
+            follower = ?follower,
+            next_index = %next_idx,
+            last_snapshot_index = %last_snapshot_index,
+            "Follower is behind snapshot point - snapshot transfer not yet implemented. \
+             Follower will need to catch up via snapshot installation."
+        );
+        // TODO: Implement snapshot sending
+        // For now, return false to indicate replication did not succeed
+        // The follower will remain behind until snapshot support is fully implemented
+        return Ok(false);
+    }
 
     // Get prev_log info for consistency check
     let prev_log_index = next_idx.prev().unwrap_or(LogIndex::ZERO);

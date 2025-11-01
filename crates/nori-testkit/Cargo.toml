@@ -1,0 +1,19 @@
+[package]
+name = "nori-testkit"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Chaos simulator and linearizability checker for distributed systems testing."
+repository = "https://github.com/your-org/norikv"
+readme = "README.md"
+
+[dependencies]
+nori-observe = { path = "../nori-observe" }
+parking_lot = "0.12"
+serde = { version = "1.0", features = ["derive"] }
+bytes = { version = "1.0", features = ["serde"] }
+thiserror = "1.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+proptest = "1.0"

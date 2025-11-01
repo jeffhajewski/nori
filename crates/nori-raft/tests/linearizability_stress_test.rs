@@ -106,6 +106,7 @@ impl TestCluster {
                 raft_log,
                 transport,
                 initial_config.clone(),
+                rpc_rx,
             )
             .await
             .unwrap();

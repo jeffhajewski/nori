@@ -112,6 +112,7 @@ impl ReplicatedLSM {
         raft_log: RaftLog,
         transport: Arc<dyn RaftTransport>,
         initial_config: ConfigEntry,
+        rpc_rx: Option<tokio::sync::mpsc::Receiver<crate::transport::RpcMessage>>,
     ) -> Result<Self> {
         // Open LSM engine
         let lsm_engine = Arc::new(
@@ -134,7 +135,7 @@ impl ReplicatedLSM {
             transport,
             initial_config,
             Some(Arc::new(Mutex::new(adapter))),
-            None, // No RPC receiver for now (single-node)
+            rpc_rx,
         ));
 
         Ok(Self { raft, lsm_engine })

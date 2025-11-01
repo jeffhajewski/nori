@@ -257,7 +257,7 @@ pub struct ReadIndexResponse {
 ///
 /// Raft uses joint consensus for safe membership changes.
 /// A configuration entry is replicated like a normal command.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ConfigEntry {
     /// Single configuration (normal case)
     Single(Vec<NodeId>),

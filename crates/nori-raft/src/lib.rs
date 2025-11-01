@@ -23,9 +23,9 @@ pub mod replication;
 pub mod raft;
 pub mod lease;
 pub mod read_index;
+pub mod snapshot;
 
 // Core modules (to be implemented)
-// pub mod snapshot;
 // pub mod reconfig;
 // pub mod metrics;
 
@@ -33,6 +33,7 @@ pub use config::RaftConfig;
 pub use error::{RaftError, Result};
 pub use types::*;
 pub use raft::Raft;
+pub use snapshot::{Snapshot, SnapshotMetadata, StateMachine};
 
 /// ReplicatedLog trait (per context/31_consensus.yaml).
 ///

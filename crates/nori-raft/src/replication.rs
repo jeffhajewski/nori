@@ -263,11 +263,13 @@ pub async fn heartbeat_loop(
 /// If so, applies entries [last_applied+1..commit_index] to state machine
 /// via the applied channel.
 ///
-/// Clients consume from the applied channel to update their state machine.
+/// If a state_machine is provided, entries are automatically applied to it.
+/// Otherwise, clients consume from the applied channel to update their state machine.
 pub async fn apply_loop(
     state: Arc<RaftState>,
     mut applied_tx: tokio::sync::mpsc::Sender<(LogIndex, bytes::Bytes)>,
     shutdown_rx: tokio::sync::broadcast::Receiver<()>,
+    state_machine: Option<Arc<tokio::sync::Mutex<dyn crate::snapshot::StateMachine>>>,
 ) {
     let mut shutdown_rx = shutdown_rx;
     let mut ticker = interval(Duration::from_millis(10)); // Check every 10ms
@@ -289,7 +291,20 @@ pub async fn apply_loop(
                     match state.log_ref().get_range(start_idx, end_idx).await {
                         Ok(entries) => {
                             for entry in entries {
-                                // Send to applied channel
+                                // Apply to state machine if provided
+                                if let Some(ref sm) = state_machine {
+                                    let mut sm_lock = sm.lock().await;
+                                    if let Err(e) = sm_lock.apply(&entry.command) {
+                                        tracing::error!(
+                                            error = ?e,
+                                            index = ?entry.index,
+                                            "Failed to apply entry to state machine"
+                                        );
+                                        // Continue applying other entries
+                                    }
+                                }
+
+                                // Send to applied channel (for backward compatibility)
                                 if applied_tx.send((entry.index, entry.command.clone())).await.is_err() {
                                     // Receiver dropped, exit
                                     return;
@@ -453,7 +468,7 @@ mod tests {
         // Spawn apply loop
         let state_clone = state.clone();
         tokio::spawn(async move {
-            apply_loop(state_clone, applied_tx, shutdown_rx).await;
+            apply_loop(state_clone, applied_tx, shutdown_rx, None).await;
         });
 
         // Wait for applied entries

@@ -12,6 +12,7 @@ use crate::lease;
 use crate::log::RaftLog;
 use crate::read_index;
 use crate::replication::{apply_loop, heartbeat_loop};
+use crate::snapshot::{Snapshot, SnapshotMetadata, StateMachine};
 use crate::state::RaftState;
 use crate::timer::ElectionTimer;
 use crate::transport::RaftTransport;
@@ -19,7 +20,7 @@ use crate::types::*;
 use crate::ReplicatedLog;
 use bytes::Bytes;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex};
 
 /// Main Raft consensus module.
 ///
@@ -41,7 +42,11 @@ pub struct Raft {
     shutdown_tx: broadcast::Sender<()>,
 
     /// Apply channel sender (for creating new subscriptions)
-    applied_tx: Arc<tokio::sync::Mutex<mpsc::Sender<(LogIndex, Bytes)>>>,
+    applied_tx: Arc<Mutex<mpsc::Sender<(LogIndex, Bytes)>>>,
+
+    /// Optional state machine (e.g., LSM engine)
+    /// When provided, committed entries are automatically applied to it
+    state_machine: Option<Arc<Mutex<dyn StateMachine>>>,
 }
 
 impl Raft {
@@ -53,12 +58,14 @@ impl Raft {
     /// - `log`: Log storage
     /// - `transport`: RPC transport
     /// - `initial_config`: Initial cluster membership
+    /// - `state_machine`: Optional state machine (e.g., LSM engine)
     pub fn new(
         node_id: NodeId,
         config: RaftConfig,
         log: RaftLog,
         transport: Arc<dyn RaftTransport>,
         initial_config: ConfigEntry,
+        state_machine: Option<Arc<Mutex<dyn StateMachine>>>,
     ) -> Self {
         let state = Arc::new(RaftState::new(
             node_id,
@@ -78,7 +85,8 @@ impl Raft {
             transport,
             election_timer,
             shutdown_tx,
-            applied_tx: Arc::new(tokio::sync::Mutex::new(applied_tx)),
+            applied_tx: Arc::new(Mutex::new(applied_tx)),
+            state_machine,
         }
     }
 
@@ -128,9 +136,10 @@ impl Raft {
         let state_clone = self.state.clone();
         let applied_tx = self.applied_tx.lock().await.clone();
         let shutdown_rx3 = self.shutdown_tx.subscribe();
+        let state_machine_clone = self.state_machine.clone();
 
         tokio::spawn(async move {
-            apply_loop(state_clone, applied_tx, shutdown_rx3).await;
+            apply_loop(state_clone, applied_tx, shutdown_rx3, state_machine_clone).await;
         });
 
         Ok(())
@@ -143,6 +152,45 @@ impl Raft {
         self.election_timer.shutdown();
         let _ = self.shutdown_tx.send(());
         Ok(())
+    }
+
+    /// Create a snapshot of the current state machine.
+    ///
+    /// Returns a Snapshot containing:
+    /// - Metadata (last_included_index, last_included_term, config)
+    /// - Serialized state machine data
+    ///
+    /// This method should be called periodically to bound log growth.
+    pub async fn create_snapshot(&self) -> Result<Snapshot> {
+        // Require state machine to be present
+        let sm = self.state_machine.as_ref().ok_or_else(|| RaftError::Internal {
+            reason: "Cannot create snapshot without state machine".to_string(),
+        })?;
+
+        // Get current state
+        let (last_applied, config) = {
+            let volatile = self.state.volatile_state().read();
+            (volatile.last_applied, volatile.config.clone())
+        };
+
+        // Get term of last applied entry
+        let last_term = if last_applied == LogIndex::ZERO {
+            Term::ZERO
+        } else {
+            self.state
+                .log_ref()
+                .get(last_applied)
+                .await?
+                .map(|e| e.term)
+                .unwrap_or(Term::ZERO)
+        };
+
+        // Create snapshot from state machine
+        let sm_lock = sm.lock().await;
+        let data = sm_lock.snapshot()?;
+        drop(sm_lock);
+
+        Ok(Snapshot::new(last_applied, last_term, config, data))
     }
 }
 
@@ -228,12 +276,36 @@ impl ReplicatedLog for Raft {
 
     /// Install a snapshot from the leader.
     ///
-    /// Placeholder for now - will be implemented in Priority 4.
-    async fn install_snapshot(&self, _snap: Box<dyn std::io::Read + Send>) -> Result<()> {
-        // TODO: Implement snapshot installation
-        Err(RaftError::Internal {
-            reason: "Snapshot installation not yet implemented".to_string(),
-        })
+    /// Reads snapshot from the reader and restores the state machine.
+    async fn install_snapshot(&self, mut snap: Box<dyn std::io::Read + Send>) -> Result<()> {
+        // Read snapshot from stream
+        let snapshot = Snapshot::read_from(&mut snap)?;
+
+        // Restore state machine if provided
+        if let Some(ref sm) = self.state_machine {
+            let mut sm_lock = sm.lock().await;
+            sm_lock.restore(&snapshot.data)?;
+        } else {
+            return Err(RaftError::Internal {
+                reason: "Cannot install snapshot without state machine".to_string(),
+            });
+        }
+
+        // Update volatile state
+        {
+            let mut volatile = self.state.volatile_state().write();
+            volatile.last_applied = snapshot.metadata.last_included_index;
+            volatile.commit_index = snapshot.metadata.last_included_index;
+            volatile.config = snapshot.metadata.config.clone();
+        }
+
+        // Truncate log (entries before snapshot are no longer needed)
+        self.state
+            .log_ref()
+            .truncate(snapshot.metadata.last_included_index.next())
+            .await?;
+
+        Ok(())
     }
 
     /// Subscribe to applied log entries.
@@ -282,7 +354,7 @@ mod tests {
             NodeId::new("n3"),
         ]);
 
-        let raft = Raft::new(NodeId::new("n1"), config, log, transport, initial_config);
+        let raft = Raft::new(NodeId::new("n1"), config, log, transport, initial_config, None);
         (raft, temp_dir)
     }
 

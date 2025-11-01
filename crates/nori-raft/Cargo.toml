@@ -10,6 +10,7 @@ readme = "README.md"
 [dependencies]
 nori-observe = { path = "../nori-observe" }
 nori-wal = { path = "../nori-wal" }
+nori-lsm = { path = "../nori-lsm" }
 tokio = { version = "1", features = ["full"] }
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }

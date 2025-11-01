@@ -134,6 +134,7 @@ pub mod heat;
 pub mod iterator;
 pub mod manifest;
 pub mod memtable;
+pub mod raft_sm;
 
 // Core modules (to be implemented in phases)
 // pub mod filters;

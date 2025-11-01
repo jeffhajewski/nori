@@ -24,6 +24,7 @@ pub mod raft;
 pub mod lease;
 pub mod read_index;
 pub mod snapshot;
+pub mod lsm_adapter;
 
 // Core modules (to be implemented)
 // pub mod reconfig;

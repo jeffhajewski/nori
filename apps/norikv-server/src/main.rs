@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Data directory: {}", config.data_dir.display());
 
     // Create and start node
-    let node = node::Node::new(config).await?;
+    let mut node = node::Node::new(config).await?;
     node.start().await?;
 
     tracing::info!("NoriKV server is ready");

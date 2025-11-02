@@ -36,7 +36,7 @@ async fn test_single_node_lifecycle() {
     };
 
     // Create node
-    let node = Node::new(config).await.expect("Failed to create node");
+    let mut node = Node::new(config).await.expect("Failed to create node");
 
     // Start node
     node.start().await.expect("Failed to start node");

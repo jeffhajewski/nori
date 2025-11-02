@@ -110,7 +110,12 @@ impl Kv for KvService {
                 }))
             }
             Ok(None) => {
-                Err(Status::not_found("Key not found"))
+                // Return empty bytes for missing keys (not an error)
+                Ok(Response::new(proto::GetResponse {
+                    value: vec![],
+                    version: None,
+                    meta: std::collections::HashMap::new(),
+                }))
             }
             Err(e) => {
                 // Check if it's a NotLeader error

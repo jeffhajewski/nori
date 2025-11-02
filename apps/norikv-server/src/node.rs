@@ -5,6 +5,7 @@
 use crate::config::ServerConfig;
 use nori_lsm::ATLLConfig;
 use nori_raft::{log::RaftLog, ConfigEntry, NodeId, RaftConfig, ReplicatedLSM};
+use norikv_transport_grpc::GrpcServer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,10 +15,13 @@ use std::time::Duration;
 /// Holds all components and manages their lifecycle.
 pub struct Node {
     /// Node configuration
-    _config: ServerConfig,
+    config: ServerConfig,
 
     /// Replicated LSM (Raft + LSM integration)
     replicated_lsm: Arc<ReplicatedLSM>,
+
+    /// gRPC server (optional, created on start)
+    grpc_server: Option<GrpcServer>,
 }
 
 impl Node {
@@ -94,8 +98,9 @@ impl Node {
         tracing::info!("ReplicatedLSM created successfully");
 
         Ok(Self {
-            _config: config,
+            config,
             replicated_lsm: Arc::new(replicated_lsm),
+            grpc_server: None,
         })
     }
 
@@ -105,9 +110,9 @@ impl Node {
     /// - Raft election timer
     /// - Raft heartbeat loop
     /// - LSM compaction
-    /// - gRPC server (future)
+    /// - gRPC server
     /// - SWIM membership (future)
-    pub async fn start(&self) -> Result<(), NodeError> {
+    pub async fn start(&mut self) -> Result<(), NodeError> {
         tracing::info!("Starting node");
 
         // Start ReplicatedLSM (starts Raft background tasks)
@@ -127,7 +132,18 @@ impl Node {
             tracing::warn!("Node is not leader");
         }
 
-        // TODO: Start gRPC server
+        // Start gRPC server
+        let addr: std::net::SocketAddr = self.config.rpc_addr
+            .parse()
+            .map_err(|e| NodeError::Startup(format!("Invalid rpc_addr: {}", e)))?;
+
+        let mut grpc_server = GrpcServer::new(addr, self.replicated_lsm.clone());
+        grpc_server.start().await
+            .map_err(|e| NodeError::Startup(format!("Failed to start gRPC server: {:?}", e)))?;
+
+        tracing::info!("gRPC server started on {}", addr);
+        self.grpc_server = Some(grpc_server);
+
         // TODO: Join SWIM cluster
 
         Ok(())
@@ -136,14 +152,20 @@ impl Node {
     /// Shutdown the node gracefully.
     ///
     /// Stops all background tasks and flushes data:
-    /// - gRPC server (future)
+    /// - gRPC server
     /// - SWIM leave (future)
     /// - Raft shutdown
     /// - LSM shutdown (flush memtable, sync WAL)
-    pub async fn shutdown(self) -> Result<(), NodeError> {
+    pub async fn shutdown(mut self) -> Result<(), NodeError> {
         tracing::info!("Shutting down node");
 
-        // TODO: Stop gRPC server
+        // Stop gRPC server
+        if let Some(grpc_server) = self.grpc_server.take() {
+            grpc_server.shutdown().await
+                .map_err(|e| NodeError::Shutdown(format!("Failed to shutdown gRPC server: {:?}", e)))?;
+            tracing::info!("gRPC server shutdown complete");
+        }
+
         // TODO: SWIM leave
 
         // Shutdown ReplicatedLSM

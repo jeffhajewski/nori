@@ -11,6 +11,8 @@
 import * as grpc from '@grpc/grpc-js';
 import { ConnectionError, UnavailableError } from './errors.js';
 import type { NodeConnection } from './types.js';
+import { createKvClient, createMetaClient, closeClient } from './grpc-services.js';
+import type { KvClient, MetaClient } from './proto/norikv.js';
 
 /**
  * Configuration for connection pool.
@@ -40,6 +42,8 @@ export interface ConnectionPoolConfig {
  */
 export class ConnectionPool {
   private connections = new Map<string, NodeConnection>();
+  private kvClients = new Map<string, KvClient>();
+  private metaClients = new Map<string, MetaClient>();
   private reconnectTimers = new Map<string, NodeJS.Timeout>();
   private healthCheckTimers = new Map<string, NodeJS.Timeout>();
   private reconnectAttempts = new Map<string, number>();
@@ -95,6 +99,54 @@ export class ConnectionPool {
     }
 
     return conn.channel;
+  }
+
+  /**
+   * Get or create a KV service client for a node.
+   *
+   * @param address - Node address (host:port)
+   * @returns KvClient instance
+   * @throws ConnectionError if connection fails
+   */
+  async getKvClient(address: string): Promise<KvClient> {
+    if (this.closed) {
+      throw new ConnectionError('Connection pool is closed', address);
+    }
+
+    // Ensure connection exists
+    await this.getConnection(address);
+
+    let client = this.kvClients.get(address);
+    if (!client) {
+      client = createKvClient(address);
+      this.kvClients.set(address, client);
+    }
+
+    return client;
+  }
+
+  /**
+   * Get or create a Meta service client for a node.
+   *
+   * @param address - Node address (host:port)
+   * @returns MetaClient instance
+   * @throws ConnectionError if connection fails
+   */
+  async getMetaClient(address: string): Promise<MetaClient> {
+    if (this.closed) {
+      throw new ConnectionError('Connection pool is closed', address);
+    }
+
+    // Ensure connection exists
+    await this.getConnection(address);
+
+    let client = this.metaClients.get(address);
+    if (!client) {
+      client = createMetaClient(address);
+      this.metaClients.set(address, client);
+    }
+
+    return client;
   }
 
   /**
@@ -246,6 +298,19 @@ export class ConnectionPool {
   private async reconnect(address: string): Promise<void> {
     if (this.closed) return;
 
+    // Close old clients
+    const oldKvClient = this.kvClients.get(address);
+    if (oldKvClient) {
+      closeClient(oldKvClient);
+      this.kvClients.delete(address);
+    }
+
+    const oldMetaClient = this.metaClients.get(address);
+    if (oldMetaClient) {
+      closeClient(oldMetaClient);
+      this.metaClients.delete(address);
+    }
+
     // Close old connection
     const oldConn = this.connections.get(address);
     if (oldConn?.channel) {
@@ -319,6 +384,19 @@ export class ConnectionPool {
     const conn = this.connections.get(address);
     if (!conn) return;
 
+    // Close gRPC clients
+    const kvClient = this.kvClients.get(address);
+    if (kvClient) {
+      closeClient(kvClient);
+      this.kvClients.delete(address);
+    }
+
+    const metaClient = this.metaClients.get(address);
+    if (metaClient) {
+      closeClient(metaClient);
+      this.metaClients.delete(address);
+    }
+
     // Clear timers
     const reconnectTimer = this.reconnectTimers.get(address);
     if (reconnectTimer) {
@@ -348,6 +426,17 @@ export class ConnectionPool {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+
+    // Close all gRPC clients
+    for (const client of this.kvClients.values()) {
+      closeClient(client);
+    }
+    this.kvClients.clear();
+
+    for (const client of this.metaClients.values()) {
+      closeClient(client);
+    }
+    this.metaClients.clear();
 
     // Clear all timers
     for (const timer of this.reconnectTimers.values()) {

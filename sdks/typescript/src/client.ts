@@ -5,30 +5,26 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-// import * as protoLoader from '@grpc/proto-loader'; // TODO: Uncomment when implementing gRPC stubs
 import { initializeHasher, keyToBytes, valueToBytes } from './hash.js';
 import { ConnectionPool } from './connection.js';
 import { TopologyManager } from './topology.js';
 import { Router } from './router.js';
 import { withRetry, DEFAULT_RETRY_CONFIG } from './retry.js';
 import {
-  // fromProtoVersion, // TODO: Uncomment when implementing gRPC stubs
+  fromProtoVersion,
   toProtoVersion,
-  // fromProtoClusterView, // TODO: Uncomment when implementing gRPC stubs
+  fromProtoClusterView,
+  toProtoClusterView,
   type ProtoPutRequest,
-  // type ProtoPutResponse, // TODO: Uncomment when implementing gRPC stubs
   type ProtoGetRequest,
-  // type ProtoGetResponse, // TODO: Uncomment when implementing gRPC stubs
   type ProtoDeleteRequest,
-  // type ProtoDeleteResponse, // TODO: Uncomment when implementing gRPC stubs
 } from './proto-types.js';
 import {
-  // NoriKVError, // TODO: Uncomment when implementing gRPC stubs
   NotLeaderError,
-  // fromGrpcError, // TODO: Uncomment when implementing gRPC stubs
   InvalidArgumentError,
   NoNodesAvailableError,
 } from './errors.js';
+import { kvPut, kvGet, kvDelete, metaWatchCluster } from './grpc-services.js';
 import type {
   Key,
   Value,
@@ -193,9 +189,9 @@ export class NoriKVClient {
     const request: ProtoPutRequest = {
       key: keyBytes,
       value: valueBytes,
-      ttl_ms: options.ttlMs?.toString(),
-      idempotency_key: options.idempotencyKey,
-      if_match: toProtoVersion(options.ifMatchVersion),
+      ttlMs: options.ttlMs || 0,
+      idempotencyKey: options.idempotencyKey || '',
+      ifMatch: toProtoVersion(options.ifMatchVersion),
     };
 
     // Route to the correct shard leader
@@ -231,22 +227,16 @@ export class NoriKVClient {
   /**
    * Internal put operation without retry logic.
    */
-  private async putInternal(_address: string, _request: ProtoPutRequest): Promise<Version> {
-    // const channel = await this.connectionPool.getConnection(address); // TODO: Uncomment when implementing
+  private async putInternal(address: string, request: ProtoPutRequest): Promise<Version> {
+    const client = await this.connectionPool.getKvClient(address);
+    const response = await kvPut(client, request, this.config.timeout);
 
-    // TODO: Use actual gRPC client stub
-    // For now, throw not implemented
-    throw new Error('gRPC stub not yet implemented - pending proto generation');
+    const version = fromProtoVersion(response.version);
+    if (!version) {
+      throw new Error('Server returned empty version');
+    }
 
-    // This is what it will look like once we have generated stubs:
-    // const client = new KvClient(address, grpc.credentials.createInsecure());
-    // const response: ProtoPutResponse = await new Promise((resolve, reject) => {
-    //   client.put(request, (err, response) => {
-    //     if (err) reject(fromGrpcError(err));
-    //     else resolve(response);
-    //   });
-    // });
-    // return fromProtoVersion(response.version)!;
+    return version;
   }
 
   /**
@@ -318,25 +308,15 @@ export class NoriKVClient {
   /**
    * Internal get operation without retry logic.
    */
-  private async getInternal(_address: string, _request: ProtoGetRequest): Promise<GetResult> {
-    // const channel = await this.connectionPool.getConnection(address); // TODO: Uncomment when implementing
+  private async getInternal(address: string, request: ProtoGetRequest): Promise<GetResult> {
+    const client = await this.connectionPool.getKvClient(address);
+    const response = await kvGet(client, request, this.config.timeout);
 
-    // TODO: Use actual gRPC client stub
-    throw new Error('gRPC stub not yet implemented - pending proto generation');
-
-    // This is what it will look like:
-    // const client = new KvClient(address, grpc.credentials.createInsecure());
-    // const response: ProtoGetResponse = await new Promise((resolve, reject) => {
-    //   client.get(request, (err, response) => {
-    //     if (err) reject(fromGrpcError(err));
-    //     else resolve(response);
-    //   });
-    // });
-    // return {
-    //   value: response.value ?? null,
-    //   version: fromProtoVersion(response.version),
-    //   metadata: response.meta,
-    // };
+    return {
+      value: response.value && response.value.length > 0 ? response.value : null,
+      version: fromProtoVersion(response.version),
+      metadata: response.meta,
+    };
   }
 
   /**
@@ -363,8 +343,8 @@ export class NoriKVClient {
 
     const request: ProtoDeleteRequest = {
       key: keyBytes,
-      idempotency_key: options.idempotencyKey,
-      if_match: toProtoVersion(options.ifMatchVersion),
+      idempotencyKey: options.idempotencyKey || '',
+      ifMatch: toProtoVersion(options.ifMatchVersion),
     };
 
     // Route to the correct shard leader
@@ -397,21 +377,10 @@ export class NoriKVClient {
   /**
    * Internal delete operation without retry logic.
    */
-  private async deleteInternal(_address: string, _request: ProtoDeleteRequest): Promise<boolean> {
-    // const channel = await this.connectionPool.getConnection(address); // TODO: Uncomment when implementing
-
-    // TODO: Use actual gRPC client stub
-    throw new Error('gRPC stub not yet implemented - pending proto generation');
-
-    // This is what it will look like:
-    // const client = new KvClient(address, grpc.credentials.createInsecure());
-    // const response: ProtoDeleteResponse = await new Promise((resolve, reject) => {
-    //   client.delete(request, (err, response) => {
-    //     if (err) reject(fromGrpcError(err));
-    //     else resolve(response);
-    //   });
-    // });
-    // return response.tombstoned;
+  private async deleteInternal(address: string, request: ProtoDeleteRequest): Promise<boolean> {
+    const client = await this.connectionPool.getKvClient(address);
+    const response = await kvDelete(client, request, this.config.timeout);
+    return response.tombstoned;
   }
 
   /**
@@ -463,22 +432,57 @@ export class NoriKVClient {
   /**
    * Start watching cluster topology changes.
    */
-  private startClusterWatch(): void {
-    // TODO: Implement cluster watch via gRPC Meta.WatchCluster
-    // For now, this is a placeholder
-    // const randomNode = this.router.getRandomNode();
-    // const channel = await this.connectionPool.getConnection(randomNode);
-    // const client = new MetaClient(randomNode, grpc.credentials.createInsecure());
-    // this.clusterWatchStream = client.watchCluster({});
-    // this.clusterWatchStream.on('data', (view: ProtoClusterView) => {
-    //   const clusterView = fromProtoClusterView(view);
-    //   this.topology.updateView(clusterView);
-    // });
-    // this.clusterWatchStream.on('error', (err) => {
-    //   console.error('Cluster watch error:', err);
-    //   // Try to reconnect
-    //   setTimeout(() => this.startClusterWatch(), 5000);
-    // });
+  private async startClusterWatch(): Promise<void> {
+    try {
+      // Pick a random node to watch from
+      const nodes = this.config.nodes;
+      const randomNode = nodes[Math.floor(Math.random() * nodes.length)];
+
+      const client = await this.connectionPool.getMetaClient(randomNode);
+      const currentView = this.topology.getView();
+
+      this.clusterWatchStream = metaWatchCluster(
+        client,
+        currentView ? toProtoClusterView(currentView) : undefined
+      );
+
+      this.clusterWatchStream.on('data', (view) => {
+        const clusterView = fromProtoClusterView(view);
+        this.topology.updateView(clusterView);
+      });
+
+      this.clusterWatchStream.on('error', (err) => {
+        console.error('Cluster watch error:', err);
+        if (!this.closed) {
+          // Try to reconnect after a delay
+          setTimeout(() => {
+            this.startClusterWatch().catch((e) => {
+              console.error('Failed to restart cluster watch:', e);
+            });
+          }, 5000);
+        }
+      });
+
+      this.clusterWatchStream.on('end', () => {
+        if (!this.closed) {
+          // Stream ended, try to reconnect
+          setTimeout(() => {
+            this.startClusterWatch().catch((e) => {
+              console.error('Failed to restart cluster watch:', e);
+            });
+          }, 1000);
+        }
+      });
+    } catch (err) {
+      console.error('Failed to start cluster watch:', err);
+      if (!this.closed) {
+        setTimeout(() => {
+          this.startClusterWatch().catch((e) => {
+            console.error('Failed to restart cluster watch:', e);
+          });
+        }, 5000);
+      }
+    }
   }
 
   /**

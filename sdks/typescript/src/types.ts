@@ -3,14 +3,14 @@
  */
 
 /**
- * Key type - can be string or raw bytes.
+ * Key type - can be string or Buffer.
  */
-export type Key = Uint8Array | string;
+export type Key = Buffer | string;
 
 /**
- * Value type - can be string or raw bytes.
+ * Value type - can be string, Buffer, or Uint8Array.
  */
-export type Value = Uint8Array | string;
+export type Value = Buffer | Uint8Array | string;
 
 /**
  * Version identifies a specific version of a key-value pair.

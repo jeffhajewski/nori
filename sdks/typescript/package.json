@@ -18,7 +18,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup",
+    "proto:gen": "buf generate proto",
+    "build": "npm run proto:gen && tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -26,7 +27,6 @@
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
-    "proto:gen": "buf generate ../../context",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -50,18 +50,22 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "^2.10.0",
     "@grpc/grpc-js": "^1.9.0",
-    "@grpc/proto-loader": "^0.7.10",
     "xxhash-wasm": "^1.0.2"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.28.0",
-    "@bufbuild/protoc-gen-es": "^1.5.0",
+    "@bufbuild/protoc-gen-es": "^1.10.1",
+    "@connectrpc/protoc-gen-connect-es": "^1.7.0",
+    "@grpc/proto-loader": "^0.8.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
+    "grpc-tools": "^1.13.0",
     "prettier": "^3.0.0",
+    "ts-proto": "^2.8.3",
     "tsup": "^8.0.0",
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"

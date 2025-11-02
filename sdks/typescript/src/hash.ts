@@ -133,21 +133,25 @@ export function getShardForKey(
 }
 
 /**
- * Convert a key (string or Uint8Array) to bytes.
+ * Convert a key (string or Buffer) to Buffer.
  */
-export function keyToBytes(key: Uint8Array | string): Uint8Array {
+export function keyToBytes(key: string | Buffer): Buffer {
   return typeof key === 'string'
-    ? new TextEncoder().encode(key)
+    ? Buffer.from(key, 'utf8')
     : key;
 }
 
 /**
- * Convert a value (string or Uint8Array) to bytes.
+ * Convert a value (string, Buffer, or Uint8Array) to Buffer.
  */
-export function valueToBytes(value: Uint8Array | string): Uint8Array {
-  return typeof value === 'string'
-    ? new TextEncoder().encode(value)
-    : value;
+export function valueToBytes(value: string | Buffer | Uint8Array): Buffer {
+  if (typeof value === 'string') {
+    return Buffer.from(value, 'utf8');
+  }
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+  return Buffer.from(value);
 }
 
 /**

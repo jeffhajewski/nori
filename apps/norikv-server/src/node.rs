@@ -183,6 +183,12 @@ impl Node {
     pub fn replicated_lsm(&self) -> &Arc<ReplicatedLSM> {
         &self.replicated_lsm
     }
+
+    /// Get health status of the node.
+    pub fn health(&self) -> norikv_transport_grpc::HealthStatus {
+        let health_service = norikv_transport_grpc::HealthService::new(self.replicated_lsm.clone());
+        health_service.check_health()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

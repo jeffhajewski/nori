@@ -9,6 +9,13 @@ apps/norikv-dashboard/.next
 apps/norikv-dashboard/dist
 apps/norikv-dashboard/.turbo
 
+# NoriKV runtime data
+/data
+**/data
+*.yaml
+!norikv.example.yaml
+!norikv-*.yaml
+
 # OS/editor
 .DS_Store
 .idea

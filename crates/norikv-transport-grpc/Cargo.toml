@@ -17,6 +17,7 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 bytes = "1"
 tracing = "0.1"
 thiserror = "1"
+serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 tonic-build = "0.11"

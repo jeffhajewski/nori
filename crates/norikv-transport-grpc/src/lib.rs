@@ -14,5 +14,7 @@ pub mod kv;
 pub mod meta;
 pub mod admin;
 pub mod server;
+pub mod health;
 
 pub use server::GrpcServer;
+pub use health::{HealthService, HealthStatus};

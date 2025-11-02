@@ -1,0 +1,58 @@
+# NoriKV Server Configuration
+#
+# This is an example configuration file for running a NoriKV server node.
+# To use this file:
+#   1. Copy it to 'norikv.yaml' or 'norikv-dev.yaml'
+#   2. Customize the settings for your environment
+#   3. Run the server: cargo run -p norikv-server -- norikv.yaml
+#
+# For production use, customize these settings based on your requirements.
+
+# Unique identifier for this node
+# Must be unique across the entire cluster
+node_id: "node1"
+
+# gRPC server bind address
+# Format: "host:port"
+# Use "0.0.0.0" to listen on all interfaces
+rpc_addr: "127.0.0.1:50051"
+
+# Data directory for persistent storage
+# This directory will contain:
+# - raft/ - Raft log and metadata
+# - lsm/ - LSM tree data (WAL, SSTables, manifests)
+data_dir: "./data/node1"
+
+# Cluster configuration
+cluster:
+  # Seed nodes for cluster membership discovery
+  # Format: ["node_id@host:port", ...]
+  # Leave empty for single-node deployment
+  seed_nodes: []
+
+  # Total number of virtual shards
+  # Determines key distribution granularity
+  # Default: 1024 (recommended for most deployments)
+  total_shards: 1024
+
+  # Replication factor
+  # Number of replicas per shard
+  # Default: 3 (recommended minimum for production)
+  replication_factor: 3
+
+# Telemetry configuration
+telemetry:
+  # Enable Prometheus metrics endpoint
+  # When enabled, exposes metrics at /metrics
+  prometheus_enabled: false
+
+  # Prometheus metrics port
+  prometheus_port: 9090
+
+  # Enable OTLP trace export
+  # Exports traces to OTLP-compatible backends (e.g., Jaeger, Tempo)
+  otlp_enabled: false
+
+  # OTLP endpoint
+  # Format: "host:port"
+  otlp_endpoint: "localhost:4317"

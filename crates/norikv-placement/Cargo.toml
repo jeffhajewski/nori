@@ -9,3 +9,10 @@ readme = "README.md"
 
 [dependencies]
 nori-observe = { path = "../nori-observe" }
+twox-hash = "1.6"  # xxhash implementation
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+chrono = "0.4"

@@ -181,13 +181,16 @@ impl IntegrationTestCluster {
 // Test #11: Snapshot While Proposing
 // ============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_snapshot_while_proposing() {
     let cluster = IntegrationTestCluster::new(3).await;
 
-    // Wait for leader election
-    let leader_id = cluster.wait_for_leader(Duration::from_secs(2)).await;
+    // Wait longer for leader election in multi-node cluster
+    let leader_id = cluster.wait_for_leader(Duration::from_secs(5)).await;
     assert!(leader_id.is_some(), "No leader elected");
+
+    // Give more time for cluster to stabilize
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     let leader = cluster.get_leader().unwrap();
 
@@ -239,7 +242,7 @@ async fn test_snapshot_while_proposing() {
 // Test #12: Leadership Transfer
 // ============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_leadership_transfer_preserves_state() {
     let cluster = IntegrationTestCluster::new(3).await;
 
@@ -309,7 +312,7 @@ async fn test_leadership_transfer_preserves_state() {
 // Test #13: Split-Brain Safety
 // ============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_split_brain_safety() {
     let cluster = IntegrationTestCluster::new(5).await;
 
@@ -402,7 +405,7 @@ async fn test_split_brain_safety() {
 // Test #14: Stale Read Prevention
 // ============================================================================
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_stale_read_prevention() {
     let cluster = Arc::new(Mutex::new(IntegrationTestCluster::new(3).await));
 

@@ -313,6 +313,7 @@ mod tests {
             raft_log,
             transport,
             initial_config,
+            None, // No RPC receiver for single-node tests
         )
         .await?;
 

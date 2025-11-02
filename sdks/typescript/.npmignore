@@ -1,0 +1,23 @@
+# Source files (only ship dist/)
+src/
+tests/
+examples/
+
+# Config files
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+vitest.integration.config.ts
+buf.gen.yaml
+.eslintrc.js
+.prettierrc
+
+# Development files
+.gitignore
+*.test.ts
+coverage/
+.vscode/
+.idea/
+
+# Docs (except README)
+docs/

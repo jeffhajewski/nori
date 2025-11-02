@@ -5,27 +5,27 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import * as protoLoader from '@grpc/proto-loader';
-import { initializeHasher, keyToBytes, valueToBytes, bytesToString } from './hash.js';
+// import * as protoLoader from '@grpc/proto-loader'; // TODO: Uncomment when implementing gRPC stubs
+import { initializeHasher, keyToBytes, valueToBytes } from './hash.js';
 import { ConnectionPool } from './connection.js';
 import { TopologyManager } from './topology.js';
 import { Router } from './router.js';
 import { withRetry, DEFAULT_RETRY_CONFIG } from './retry.js';
 import {
-  fromProtoVersion,
+  // fromProtoVersion, // TODO: Uncomment when implementing gRPC stubs
   toProtoVersion,
-  fromProtoClusterView,
+  // fromProtoClusterView, // TODO: Uncomment when implementing gRPC stubs
   type ProtoPutRequest,
-  type ProtoPutResponse,
+  // type ProtoPutResponse, // TODO: Uncomment when implementing gRPC stubs
   type ProtoGetRequest,
-  type ProtoGetResponse,
+  // type ProtoGetResponse, // TODO: Uncomment when implementing gRPC stubs
   type ProtoDeleteRequest,
-  type ProtoDeleteResponse,
+  // type ProtoDeleteResponse, // TODO: Uncomment when implementing gRPC stubs
 } from './proto-types.js';
 import {
-  NoriKVError,
+  // NoriKVError, // TODO: Uncomment when implementing gRPC stubs
   NotLeaderError,
-  fromGrpcError,
+  // fromGrpcError, // TODO: Uncomment when implementing gRPC stubs
   InvalidArgumentError,
   NoNodesAvailableError,
 } from './errors.js';
@@ -39,7 +39,7 @@ import type {
   GetResult,
   ClusterView,
   Version,
-  ConsistencyLevel,
+  // ConsistencyLevel, // Type-only import doesn't need to be commented
 } from './types.js';
 
 /**
@@ -231,8 +231,8 @@ export class NoriKVClient {
   /**
    * Internal put operation without retry logic.
    */
-  private async putInternal(address: string, request: ProtoPutRequest): Promise<Version> {
-    const channel = await this.connectionPool.getConnection(address);
+  private async putInternal(_address: string, _request: ProtoPutRequest): Promise<Version> {
+    // const channel = await this.connectionPool.getConnection(address); // TODO: Uncomment when implementing
 
     // TODO: Use actual gRPC client stub
     // For now, throw not implemented
@@ -318,8 +318,8 @@ export class NoriKVClient {
   /**
    * Internal get operation without retry logic.
    */
-  private async getInternal(address: string, request: ProtoGetRequest): Promise<GetResult> {
-    const channel = await this.connectionPool.getConnection(address);
+  private async getInternal(_address: string, _request: ProtoGetRequest): Promise<GetResult> {
+    // const channel = await this.connectionPool.getConnection(address); // TODO: Uncomment when implementing
 
     // TODO: Use actual gRPC client stub
     throw new Error('gRPC stub not yet implemented - pending proto generation');
@@ -397,8 +397,8 @@ export class NoriKVClient {
   /**
    * Internal delete operation without retry logic.
    */
-  private async deleteInternal(address: string, request: ProtoDeleteRequest): Promise<boolean> {
-    const channel = await this.connectionPool.getConnection(address);
+  private async deleteInternal(_address: string, _request: ProtoDeleteRequest): Promise<boolean> {
+    // const channel = await this.connectionPool.getConnection(address); // TODO: Uncomment when implementing
 
     // TODO: Use actual gRPC client stub
     throw new Error('gRPC stub not yet implemented - pending proto generation');

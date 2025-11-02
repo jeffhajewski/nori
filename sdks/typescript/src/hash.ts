@@ -8,9 +8,10 @@
  * - jumpConsistentHash: Minimal-disruption consistent hashing
  */
 
-import { create, h64 } from 'xxhash-wasm';
+import xxhash from 'xxhash-wasm';
+import type { XXHashAPI } from 'xxhash-wasm';
 
-let xxhashInstance: Awaited<ReturnType<typeof create>> | null = null;
+let xxhashInstance: XXHashAPI | null = null;
 
 /**
  * Initialize the xxhash WASM module.
@@ -18,7 +19,7 @@ let xxhashInstance: Awaited<ReturnType<typeof create>> | null = null;
  */
 export async function initializeHasher(): Promise<void> {
   if (!xxhashInstance) {
-    xxhashInstance = await create();
+    xxhashInstance = await xxhash();
   }
 }
 
@@ -45,7 +46,7 @@ export function xxhash64(key: Uint8Array | string): bigint {
     : key;
 
   // Use seed=0 to match server implementation
-  return xxhashInstance.h64(keyBytes, 0n);
+  return xxhashInstance.h64Raw(keyBytes, 0n);
 }
 
 /**
@@ -87,12 +88,10 @@ export function jumpConsistentHash(hash: bigint, numBuckets: number): number {
   }
 
   let key = BigInt.asUintN(64, hash);
-  let b = -1n;
-  let j = 0n;
+  let b = -1;
+  let j = 0;
 
-  const numBucketsBigInt = BigInt(numBuckets);
-
-  while (j < numBucketsBigInt) {
+  while (j < numBuckets) {
     b = j;
 
     // key = key * 2862933555777941757 + 1
@@ -102,11 +101,11 @@ export function jumpConsistentHash(hash: bigint, numBuckets: number): number {
 
     // j = (b + 1) * (2^31 / ((key >> 33) + 1))
     const divisor = Number((key >> 33n) + 1n);
-    const numerator = Number(b + 1n) * (1 << 31);
-    j = BigInt(Math.floor(numerator / divisor));
+    const numerator = (b + 1) * 2147483648; // 2^31
+    j = Math.floor(numerator / divisor);
   }
 
-  return Number(b);
+  return b;
 }
 
 /**

@@ -21,6 +21,12 @@ from norikv.proto.norikv_pb2_grpc import (
     AdminStub,
     KvStub,
     MetaStub,
+    KvServicer,
+    MetaServicer,
+    AdminServicer,
+    add_KvServicer_to_server,
+    add_MetaServicer_to_server,
+    add_AdminServicer_to_server,
 )
 
 __all__ = [
@@ -36,8 +42,16 @@ __all__ = [
     "ShardReplica",
     "ShardInfo",
     "ClusterView",
-    # Services
+    # Service stubs
     "KvStub",
     "MetaStub",
     "AdminStub",
+    # Servicers
+    "KvServicer",
+    "MetaServicer",
+    "AdminServicer",
+    # Server functions
+    "add_KvServicer_to_server",
+    "add_MetaServicer_to_server",
+    "add_AdminServicer_to_server",
 ]

@@ -1,0 +1,250 @@
+name: TypeScript SDK Integration Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sdks/typescript/**'
+      - 'apps/norikv-server/**'
+      - 'crates/**'
+      - '.github/workflows/integration-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sdks/typescript/**'
+      - 'apps/norikv-server/**'
+      - 'crates/**'
+  schedule:
+    # Run nightly E2E tests
+    - cron: '0 2 * * *'  # 2 AM UTC daily
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Fast mock-based tests - run on every PR
+  mock-tests:
+    name: Mock-Based Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'sdks/typescript/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./sdks/typescript
+        run: npm ci
+
+      - name: Build SDK
+        working-directory: ./sdks/typescript
+        run: npm run build
+
+      - name: Run mock-based integration tests
+        working-directory: ./sdks/typescript
+        run: npm run test:integration:mock
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-test-results
+          path: sdks/typescript/coverage/
+
+  # E2E tests with real server - run on merge to main and nightly
+  e2e-tests:
+    name: E2E Tests with Real Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build NoriKV server
+        run: cargo build -p norikv-server --release
+
+      - name: Verify server binary
+        run: |
+          ls -lh target/release/norikv-server
+          ./target/release/norikv-server --version || echo "Server built successfully"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'sdks/typescript/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./sdks/typescript
+        run: npm ci
+
+      - name: Build SDK
+        working-directory: ./sdks/typescript
+        run: npm run build
+
+      - name: Run E2E integration tests
+        working-directory: ./sdks/typescript
+        run: npm run test:integration:e2e
+        env:
+          RUST_LOG: info
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: sdks/typescript/coverage/
+
+      - name: Upload server logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-logs
+          path: |
+            /tmp/norikv-*
+
+  # Full test suite - run on release tags
+  full-suite:
+    name: Full Integration Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    strategy:
+      matrix:
+        node-version: ['18', '20', '22']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Build NoriKV server
+        run: cargo build -p norikv-server --release
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'sdks/typescript/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./sdks/typescript
+        run: npm ci
+
+      - name: Build SDK
+        working-directory: ./sdks/typescript
+        run: npm run build
+
+      - name: Run all tests (unit + integration)
+        working-directory: ./sdks/typescript
+        run: npm run test:all
+
+      - name: Generate coverage report
+        working-directory: ./sdks/typescript
+        run: npm run test:integration -- --coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./sdks/typescript/coverage/coverage-final.json
+          flags: integration-tests-node-${{ matrix.node-version }}
+          name: Integration Tests (Node ${{ matrix.node-version }})
+
+  # Test against different server versions
+  compatibility-tests:
+    name: Server Compatibility Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule'
+
+    strategy:
+      matrix:
+        server-version: ['main', 'latest-release']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.server-version == 'latest-release' && 'latest' || 'main' }}
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Build NoriKV server (${{ matrix.server-version }})
+        run: cargo build -p norikv-server --release
+
+      - name: Checkout latest SDK code
+        uses: actions/checkout@v4
+        with:
+          path: sdk-latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'sdk-latest/sdks/typescript/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./sdk-latest/sdks/typescript
+        run: npm ci
+
+      - name: Build SDK
+        working-directory: ./sdk-latest/sdks/typescript
+        run: npm run build
+
+      - name: Run compatibility tests
+        working-directory: ./sdk-latest/sdks/typescript
+        run: npm run test:integration:e2e
+        env:
+          NORIKV_SERVER_PATH: ../../../target/release/norikv-server
+
+      - name: Upload compatibility test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-test-results-${{ matrix.server-version }}
+          path: sdk-latest/sdks/typescript/coverage/

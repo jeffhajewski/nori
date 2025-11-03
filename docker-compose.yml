@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  node1:
+    build: .
+    container_name: norikv-node1
+    hostname: node1
+    ports:
+      - "7447:7447"   # gRPC
+      - "9090:9090"   # Prometheus metrics
+    environment:
+      - NORIKV_NODE_ID=node1
+      - NORIKV_RPC_ADDR=0.0.0.0:7447
+      - NORIKV_DATA_DIR=/var/lib/norikv
+      - NORIKV_SEED_NODES=node2:7447,node3:7447
+      - NORIKV_TOTAL_SHARDS=1024
+      - NORIKV_REPLICATION_FACTOR=3
+      - RUST_LOG=info
+    volumes:
+      - node1-data:/var/lib/norikv
+      - ./docker/configs/node1.yaml:/home/norikv/norikv.yaml:ro
+    networks:
+      - norikv-cluster
+    healthcheck:
+      test: ["CMD", "/bin/sh", "-c", "exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  node2:
+    build: .
+    container_name: norikv-node2
+    hostname: node2
+    ports:
+      - "7448:7447"   # gRPC
+      - "9091:9090"   # Prometheus metrics
+    environment:
+      - NORIKV_NODE_ID=node2
+      - NORIKV_RPC_ADDR=0.0.0.0:7447
+      - NORIKV_DATA_DIR=/var/lib/norikv
+      - NORIKV_SEED_NODES=node1:7447,node3:7447
+      - NORIKV_TOTAL_SHARDS=1024
+      - NORIKV_REPLICATION_FACTOR=3
+      - RUST_LOG=info
+    volumes:
+      - node2-data:/var/lib/norikv
+      - ./docker/configs/node2.yaml:/home/norikv/norikv.yaml:ro
+    networks:
+      - norikv-cluster
+    depends_on:
+      - node1
+    healthcheck:
+      test: ["CMD", "/bin/sh", "-c", "exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  node3:
+    build: .
+    container_name: norikv-node3
+    hostname: node3
+    ports:
+      - "7449:7447"   # gRPC
+      - "9092:9090"   # Prometheus metrics
+    environment:
+      - NORIKV_NODE_ID=node3
+      - NORIKV_RPC_ADDR=0.0.0.0:7447
+      - NORIKV_DATA_DIR=/var/lib/norikv
+      - NORIKV_SEED_NODES=node1:7447,node2:7447
+      - NORIKV_TOTAL_SHARDS=1024
+      - NORIKV_REPLICATION_FACTOR=3
+      - RUST_LOG=info
+    volumes:
+      - node3-data:/var/lib/norikv
+      - ./docker/configs/node3.yaml:/home/norikv/norikv.yaml:ro
+    networks:
+      - norikv-cluster
+    depends_on:
+      - node1
+      - node2
+    healthcheck:
+      test: ["CMD", "/bin/sh", "-c", "exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
+
+networks:
+  norikv-cluster:
+    driver: bridge

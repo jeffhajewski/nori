@@ -19,6 +19,41 @@ pip install norikv
 
 ## Quick Start
 
+### Ephemeral Mode (Easiest for Testing)
+
+The fastest way to get started is with an ephemeral (in-memory) NoriKV instance:
+
+```python
+import asyncio
+from norikv import create_ephemeral
+
+async def main():
+    # Create an ephemeral server (auto-starts and auto-cleans up)
+    async with create_ephemeral() as cluster:
+        client = cluster.get_client()
+
+        async with client:
+            # Put a value
+            version = await client.put("user:123", "Alice")
+            print(f"Stored with version: {version}")
+
+            # Get a value
+            result = await client.get("user:123")
+            print(f"Retrieved: {result.value.decode()}")
+
+            # Delete a value
+            deleted = await client.delete("user:123")
+            print(f"Deleted: {deleted}")
+
+asyncio.run(main())
+```
+
+**Requirements**: The `norikv-server` binary must be available in your PATH. You can:
+- Build it: `cargo build --release -p norikv-server`
+- Or set `NORIKV_SERVER_PATH` environment variable to point to the binary
+
+### Connecting to an Existing Cluster
+
 ```python
 import asyncio
 from norikv import NoriKVClient, ClientConfig
@@ -26,7 +61,7 @@ from norikv import NoriKVClient, ClientConfig
 async def main():
     # Configure the client
     config = ClientConfig(
-        nodes=["localhost:50051"],  # List of cluster nodes
+        nodes=["localhost:7447", "localhost:7448", "localhost:7449"],
         total_shards=1024,           # Number of virtual shards
         timeout=5000,                # Request timeout in milliseconds
     )

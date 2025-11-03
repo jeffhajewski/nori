@@ -26,6 +26,14 @@
 // Main client
 export { NoriKVClient, createClient } from '@norikv/client/client';
 
+// Ephemeral (in-memory) server for testing
+export {
+  EphemeralNoriKV,
+  createEphemeral,
+  EphemeralServerError,
+  type EphemeralOptions,
+} from '@norikv/client/ephemeral';
+
 // Types
 export type {
   Key,

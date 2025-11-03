@@ -25,6 +25,7 @@ Example:
 __version__ = "0.1.0"
 
 from norikv.client import NoriKVClient
+from norikv.ephemeral import EphemeralNoriKV, create_ephemeral, EphemeralServerError
 from norikv.errors import (
     AlreadyExistsError,
     ConnectionError,
@@ -51,6 +52,9 @@ __all__ = [
     "__version__",
     # Client
     "NoriKVClient",
+    # Ephemeral (in-memory) server
+    "EphemeralNoriKV",
+    "create_ephemeral",
     # Configuration
     "ClientConfig",
     "RetryConfig",
@@ -72,4 +76,5 @@ __all__ = [
     "ConnectionError",
     "NoNodesAvailableError",
     "RetryExhaustedError",
+    "EphemeralServerError",
 ]

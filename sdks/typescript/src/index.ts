@@ -24,7 +24,7 @@
  */
 
 // Main client
-export { NoriKVClient, createClient } from './client.js';
+export { NoriKVClient, createClient } from '@norikv/client/client';
 
 // Types
 export type {
@@ -44,7 +44,7 @@ export type {
   NodeConnection,
   RouteInfo,
   ConsistencyLevel,
-} from './types.js';
+} from '@norikv/client/types';
 
 // Errors
 export {
@@ -58,7 +58,7 @@ export {
   ConnectionError,
   NoNodesAvailableError,
   RetryExhaustedError,
-} from './errors.js';
+} from '@norikv/client/errors';
 
 // Utilities
 export {
@@ -69,10 +69,10 @@ export {
   valueToBytes,
   bytesToString,
   initializeHasher,
-} from './hash.js';
+} from '@norikv/client/hash';
 
 // Retry policy builder (advanced usage)
-export { retryPolicy, type RetryPolicy } from './retry.js';
+export { retryPolicy, type RetryPolicy } from '@norikv/client/retry';
 
 // Version constant
 export const VERSION = '0.1.0';

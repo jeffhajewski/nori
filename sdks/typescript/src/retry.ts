@@ -18,8 +18,8 @@ import {
   AlreadyExistsError,
   VersionMismatchError,
   InvalidArgumentError,
-} from './errors.js';
-import type { RetryConfig } from './types.js';
+} from '@norikv/client/errors';
+import type { RetryConfig } from '@norikv/client/types';
 
 /**
  * Context for a retry operation.

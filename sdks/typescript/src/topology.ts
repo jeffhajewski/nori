@@ -14,7 +14,7 @@ import type {
   ShardInfo,
   ShardReplica,
   RouteInfo,
-} from './types.js';
+} from '@norikv/client/types';
 
 /**
  * Event emitted when cluster view changes.

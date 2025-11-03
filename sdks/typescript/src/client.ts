@@ -5,11 +5,11 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import { initializeHasher, keyToBytes, valueToBytes } from './hash.js';
-import { ConnectionPool } from './connection.js';
-import { TopologyManager } from './topology.js';
-import { Router } from './router.js';
-import { withRetry, DEFAULT_RETRY_CONFIG } from './retry.js';
+import { initializeHasher, keyToBytes, valueToBytes } from '@norikv/client/hash';
+import { ConnectionPool } from '@norikv/client/connection';
+import { TopologyManager } from '@norikv/client/topology';
+import { Router } from '@norikv/client/router';
+import { withRetry, DEFAULT_RETRY_CONFIG } from '@norikv/client/retry';
 import {
   fromProtoVersion,
   toProtoVersion,
@@ -18,13 +18,13 @@ import {
   type ProtoPutRequest,
   type ProtoGetRequest,
   type ProtoDeleteRequest,
-} from './proto-types.js';
+} from '@norikv/client/proto-types';
 import {
   NotLeaderError,
   InvalidArgumentError,
   NoNodesAvailableError,
-} from './errors.js';
-import { kvPut, kvGet, kvDelete, metaWatchCluster } from './grpc-services.js';
+} from '@norikv/client/errors';
+import { kvPut, kvGet, kvDelete, metaWatchCluster } from '@norikv/client/grpc-services';
 import type {
   Key,
   Value,
@@ -36,7 +36,7 @@ import type {
   ClusterView,
   Version,
   // ConsistencyLevel, // Type-only import doesn't need to be commented
-} from './types.js';
+} from '@norikv/client/types';
 
 /**
  * Main NoriKV client.

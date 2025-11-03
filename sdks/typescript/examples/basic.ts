@@ -14,7 +14,7 @@ import {
   bytesToString,
   AlreadyExistsError,
   VersionMismatchError,
-} from '../src/index.js';
+} from '@norikv/client';
 
 async function main() {
   // Create client with seed nodes

@@ -9,10 +9,10 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import { ConnectionError, UnavailableError } from './errors.js';
-import type { NodeConnection } from './types.js';
-import { createKvClient, createMetaClient, closeClient } from './grpc-services.js';
-import type { KvClient, MetaClient } from './proto/norikv.js';
+import { ConnectionError, UnavailableError } from '@norikv/client/errors';
+import type { NodeConnection } from '@norikv/client/types';
+import { createKvClient, createMetaClient, closeClient } from '@norikv/client/grpc-services';
+import type { KvClient, MetaClient } from '@norikv/client/proto/norikv';
 
 /**
  * Configuration for connection pool.

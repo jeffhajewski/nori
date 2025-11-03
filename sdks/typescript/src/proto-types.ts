@@ -16,9 +16,9 @@ import type {
   ClusterNode as ProtoClusterNode,
   ShardInfo as ProtoShardInfo,
   ShardReplica as ProtoShardReplica,
-} from './proto/norikv.js';
+} from '@norikv/client/proto/norikv';
 
-import type { Version, ClusterView } from './types.js';
+import type { Version, ClusterView } from '@norikv/client/types';
 
 // Re-export proto types for convenience
 export type {

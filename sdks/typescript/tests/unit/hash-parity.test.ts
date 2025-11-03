@@ -9,7 +9,7 @@
  */
 
 import { describe, test, expect, beforeAll } from 'vitest';
-import { xxhash64, jumpConsistentHash, getShardForKey, initializeHasher } from '../../src/hash.js';
+import { xxhash64, jumpConsistentHash, getShardForKey, initializeHasher } from '@norikv/client/hash';
 import * as fs from 'fs';
 import * as path from 'path';
 

@@ -16,8 +16,8 @@ import {
   type DeleteRequest,
   type DeleteResponse,
   type ClusterView,
-} from './proto/norikv.js';
-import { fromGrpcError } from './errors.js';
+} from '@norikv/client/proto/norikv';
+import { fromGrpcError } from '@norikv/client/errors';
 
 /**
  * gRPC channel options optimized for NoriKV.

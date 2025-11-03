@@ -8,10 +8,10 @@
  * - Handling NOT_LEADER redirects
  */
 
-import { getShardForKey } from './hash.js';
-import type { TopologyManager } from './topology.js';
-import type { Key, RouteInfo } from './types.js';
-import { NoNodesAvailableError } from './errors.js';
+import { getShardForKey } from '@norikv/client/hash';
+import type { TopologyManager } from '@norikv/client/topology';
+import type { Key, RouteInfo } from '@norikv/client/types';
+import { NoNodesAvailableError } from '@norikv/client/errors';
 
 /**
  * Routing decision for a key.

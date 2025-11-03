@@ -14,7 +14,7 @@ import {
   keyToBytes,
   valueToBytes,
   bytesToString,
-} from '../../src/hash.js';
+} from '@norikv/client/hash';
 
 describe('Hash Functions', () => {
   beforeAll(async () => {

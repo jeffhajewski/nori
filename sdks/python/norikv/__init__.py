@@ -24,20 +24,52 @@ Example:
 
 __version__ = "0.1.0"
 
-# Main client will be imported once implemented
-# from norikv.client import NoriKVClient
-# from norikv.types import ClientConfig, GetOptions, PutOptions, DeleteOptions
-# from norikv.errors import NoriKVError, NotLeaderError, NetworkError
+from norikv.client import NoriKVClient
+from norikv.errors import (
+    AlreadyExistsError,
+    ConnectionError,
+    DeadlineExceededError,
+    InvalidArgumentError,
+    NoNodesAvailableError,
+    NoriKVError,
+    NotLeaderError,
+    RetryExhaustedError,
+    UnavailableError,
+    VersionMismatchError,
+)
+from norikv.types import (
+    ClientConfig,
+    DeleteOptions,
+    GetOptions,
+    GetResult,
+    PutOptions,
+    RetryConfig,
+    Version,
+)
 
 __all__ = [
     "__version__",
-    # Will be uncommented as modules are implemented:
-    # "NoriKVClient",
-    # "ClientConfig",
-    # "GetOptions",
-    # "PutOptions",
-    # "DeleteOptions",
-    # "NoriKVError",
-    # "NotLeaderError",
-    # "NetworkError",
+    # Client
+    "NoriKVClient",
+    # Configuration
+    "ClientConfig",
+    "RetryConfig",
+    # Options
+    "GetOptions",
+    "PutOptions",
+    "DeleteOptions",
+    # Results and types
+    "GetResult",
+    "Version",
+    # Errors
+    "NoriKVError",
+    "NotLeaderError",
+    "AlreadyExistsError",
+    "VersionMismatchError",
+    "UnavailableError",
+    "DeadlineExceededError",
+    "InvalidArgumentError",
+    "ConnectionError",
+    "NoNodesAvailableError",
+    "RetryExhaustedError",
 ]

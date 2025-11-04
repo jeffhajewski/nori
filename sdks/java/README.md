@@ -4,30 +4,30 @@ Java client SDK for **NoriKV** - a sharded, Raft-replicated, log-structured key-
 
 ## Status
 
-**🚧 IN PROGRESS** - Java SDK implementation in progress:
+**IN PROGRESS** - Java SDK implementation in progress
 
-### Completed ✅
-- [x] Maven project structure with pom.xml
-- [x] Dependencies configured (gRPC 1.59.0, Protobuf 3.25.0, JUnit 5)
-- [x] Proto file integrated
-- [x] Build configuration
-- [x] Implementation plan documented
+### Completed
+- Maven project structure with pom.xml
+- Dependencies configured (gRPC 1.59.0, Protobuf 3.25.0, JUnit 5)
+- Proto file integrated
+- Build configuration
+- Implementation plan documented
 
-### In Progress 🔄
-- [ ] Hash functions (XXHash64 + Jump Consistent Hash)
-- [ ] Protocol buffer code generation
-- [ ] Core types (Version, Options, Results)
-- [ ] Error handling
-- [ ] Connection pool
-- [ ] Retry policy
-- [ ] Router with leader caching
-- [ ] Topology manager
-- [ ] Client API
-- [ ] Unit tests
-- [ ] Ephemeral server
-- [ ] Integration tests
-- [ ] Examples
-- [ ] Documentation
+### In Progress
+- Hash functions (XXHash64 + Jump Consistent Hash)
+- Protocol buffer code generation
+- Core types (Version, Options, Results)
+- Error handling
+- Connection pool
+- Retry policy
+- Router with leader caching
+- Topology manager
+- Client API
+- Unit tests
+- Ephemeral server
+- Integration tests
+- Examples
+- Documentation
 
 ## Features (Planned)
 

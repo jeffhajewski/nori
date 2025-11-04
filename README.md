@@ -11,13 +11,13 @@ NoriKV is a distributed key-value database designed for high availability, stron
 
 ### Key Features
 
-- **📦 Sharded Architecture**: Horizontal scaling with Jump Consistent Hashing
-- **🔄 Raft Consensus**: Strong consistency with leader-based replication
-- **💾 LSM Storage**: Log-structured merge-tree with leveled compaction
-- **🌐 Multi-Language SDKs**: TypeScript, Python, Go, and Java clients
-- **📊 First-Class Observability**: Built-in metrics, tracing, and live visualization
-- **🔍 SWIM Membership**: Fast failure detection and cluster health monitoring
-- **⚡ High Performance**: Zero-copy operations, optimized hot paths
+- **Sharded Architecture**: Horizontal scaling with Jump Consistent Hashing
+- **Raft Consensus**: Strong consistency with leader-based replication
+- **LSM Storage**: Log-structured merge-tree with leveled compaction
+- **Multi-Language SDKs**: TypeScript, Python, Go, and Java clients
+- **First-Class Observability**: Built-in metrics, tracing, and live visualization
+- **SWIM Membership**: Fast failure detection and cluster health monitoring
+- **High Performance**: Zero-copy operations, optimized hot paths
 
 ## Architecture
 
@@ -52,7 +52,7 @@ NoriKV is a distributed key-value database designed for high availability, stron
 
 ### Installation
 
-#### Go SDK (Production Ready ✅)
+#### Go SDK (Production Ready)
 ```bash
 go get github.com/norikv/norikv-go
 ```
@@ -117,45 +117,45 @@ cargo build --release -p norikv-server
 
 | Crate | Status | Description |
 |-------|--------|-------------|
-| **nori-observe** | ✅ Complete | Vendor-neutral observability framework |
-| **nori-wal** | ✅ Complete | Write-ahead log with recovery |
-| **nori-sstable** | ✅ Complete | Sorted string tables with bloom filters |
-| **nori-lsm** | ✅ Complete | LSM tree engine with compaction |
-| **nori-swim** | ✅ Complete | SWIM failure detection protocol |
-| **nori-raft** | ✅ Complete | Raft consensus implementation |
+| **nori-observe** | Complete | Vendor-neutral observability framework |
+| **nori-wal** | Complete | Write-ahead log with recovery |
+| **nori-sstable** | Complete | Sorted string tables with bloom filters |
+| **nori-lsm** | Complete | LSM tree engine with compaction |
+| **nori-swim** | Complete | SWIM failure detection protocol |
+| **nori-raft** | Complete | Raft consensus implementation |
 
 ### Client SDKs
 
 | Language | Status | Features | Tests |
 |----------|--------|----------|-------|
-| **TypeScript** | ✅ Production | Smart routing, retries, pooling, ephemeral server | 100+ passing |
-| **Python** | ✅ Production | Async/await API, type hints, ephemeral server | 80+ passing |
-| **Go** | ✅ Production | Connection pooling, topology watching, integration tests | 102+ passing |
-| **Java** | 🚧 Planned | Maven/Gradle, gRPC client | Pending |
+| **TypeScript** | Production | Smart routing, retries, pooling, ephemeral server | 100+ passing |
+| **Python** | Production | Async/await API, type hints, ephemeral server | 80+ passing |
+| **Go** | Production | Connection pooling, topology watching, integration tests | 102+ passing |
+| **Java** | In Progress | Maven/Gradle, gRPC client | Pending |
 
 ### Server Components
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| **norikv-server** | 🚧 In Progress | Main server binary |
-| **norikv-placement** | ✅ Complete | Shard assignment and routing |
-| **norikv-transport-grpc** | 🚧 In Progress | gRPC/HTTP transport layer |
-| **norikv-vizd** | 📋 Planned | Visualization daemon |
-| **norikv-dashboard** | 📋 Planned | Real-time web dashboard |
+| **norikv-server** | In Progress | Main server binary |
+| **norikv-placement** | Complete | Shard assignment and routing |
+| **norikv-transport-grpc** | In Progress | gRPC/HTTP transport layer |
+| **norikv-vizd** | Planned | Visualization daemon |
+| **norikv-dashboard** | Planned | Real-time web dashboard |
 
 ## SDK Features Comparison
 
 All SDKs provide consistent functionality:
 
-- ✅ **Smart Client Routing**: Client-side shard assignment with Jump Consistent Hashing
-- ✅ **Leader-Aware Operations**: Direct requests to shard leaders with automatic failover
-- ✅ **Retry Logic**: Exponential backoff with jitter for transient failures
-- ✅ **Connection Pooling**: Efficient connection management per node
-- ✅ **Conditional Operations**: Compare-and-swap (CAS) with version matching
-- ✅ **Consistency Levels**: Lease-based, linearizable, or stale reads
-- ✅ **Idempotency Keys**: Safe retries for write operations
-- ✅ **Cluster Topology**: Dynamic cluster membership tracking
-- ✅ **Ephemeral Server**: In-memory server for testing (no external dependencies)
+- **Smart Client Routing**: Client-side shard assignment with Jump Consistent Hashing
+- **Leader-Aware Operations**: Direct requests to shard leaders with automatic failover
+- **Retry Logic**: Exponential backoff with jitter for transient failures
+- **Connection Pooling**: Efficient connection management per node
+- **Conditional Operations**: Compare-and-swap (CAS) with version matching
+- **Consistency Levels**: Lease-based, linearizable, or stale reads
+- **Idempotency Keys**: Safe retries for write operations
+- **Cluster Topology**: Dynamic cluster membership tracking
+- **Ephemeral Server**: In-memory server for testing (no external dependencies)
 
 ### Hash Function Compatibility
 
@@ -245,7 +245,7 @@ NoriKV is built with observability as a first-class concern:
 
 ## Roadmap
 
-### Completed ✅
+### Completed
 - Core storage engine (WAL, SSTable, LSM)
 - Raft consensus with read-index and leases
 - SWIM membership protocol
@@ -253,13 +253,13 @@ NoriKV is built with observability as a first-class concern:
 - Ephemeral servers for testing
 - Cross-SDK hash validation
 
-### In Progress 🚧
+### In Progress
+- Java SDK
 - Server application and transport layer
 - gRPC/HTTP API implementation
 - Integration testing with real server
 
-### Planned 📋
-- Java SDK
+### Planned
 - Live visualization dashboard
 - Multi-shard transactions
 - Streaming operations (watch API)

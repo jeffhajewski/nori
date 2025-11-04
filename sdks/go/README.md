@@ -4,31 +4,39 @@ Go client SDK for **NoriKV** - a sharded, Raft-replicated, log-structured key-va
 
 ## Status
 
-**Work in Progress** - Core foundation completed:
+**Core Implementation Complete** - Ready for integration testing:
 
 - ✅ Hash functions (xxhash64 + Jump Consistent Hash) with cross-SDK compatibility
 - ✅ Protocol buffer definitions and gRPC stubs
 - ✅ Type system (Version, Options, Results, ClusterView)
 - ✅ Comprehensive error handling
 - ✅ Retry policy with exponential backoff
-- ✅ Connection pooling
-- ✅ Router with single-flight pattern
-- ✅ Topology manager
-- 🚧 Client API implementation (pending)
+- ✅ Connection pooling with health checking
+- ✅ Router with single-flight pattern and leader caching
+- ✅ Topology manager with cluster watching
+- ✅ Client API implementation (Put, Get, Delete, Close)
+- ✅ Comprehensive unit tests (all passing)
 - 🚧 Ephemeral server support (pending)
+- 🚧 Integration tests with live server (pending)
 
-## Features (Planned)
+## Features
 
-- **Smart Client**: Client-side routing with hash-based shard assignment (Jump Consistent Hash + xxhash64)
-- **Leader-Aware Routing**: Direct requests to shard leaders, handle NOT_LEADER redirects automatically
-- **Retry Logic**: Exponential backoff with jitter for transient failures
-- **Idempotency**: Safe retries with idempotency keys
-- **Conditional Operations**: Compare-and-swap (CAS) and if-not-exists semantics
-- **Consistency Levels**: Lease-based (fast), linearizable (strict), or stale reads
-- **Connection Pooling**: Efficient gRPC connection management per node
-- **Cluster Topology Tracking**: Watch and react to cluster membership changes
-- **Zero-Allocation Routing**: Optimized hot path with no heap allocations
-- **Single-Flight Pattern**: Deduplicate concurrent leader discovery for same shard
+### Implemented
+- ✅ **Smart Client**: Client-side routing with hash-based shard assignment (Jump Consistent Hash + xxhash64)
+- ✅ **Leader-Aware Routing**: Direct requests to shard leaders, handle NOT_LEADER redirects automatically
+- ✅ **Retry Logic**: Exponential backoff with jitter for transient failures
+- ✅ **Idempotency**: Safe retries with idempotency keys
+- ✅ **Conditional Operations**: Compare-and-swap (CAS) with version matching
+- ✅ **Consistency Levels**: Lease-based (fast), linearizable (strict), or stale reads
+- ✅ **Connection Pooling**: Efficient gRPC connection management per node with health checking
+- ✅ **Cluster Topology Tracking**: Watch and react to cluster membership changes
+- ✅ **Zero-Allocation Routing**: Optimized hot path with no heap allocations
+- ✅ **Single-Flight Pattern**: Deduplicate concurrent leader discovery for same shard
+
+### Planned
+- 🚧 **If-Not-Exists semantics**: Pending proto field addition
+- 🚧 **Ephemeral server**: In-process server for testing
+- 🚧 **Integration tests**: End-to-end tests with live server
 
 ## Installation
 

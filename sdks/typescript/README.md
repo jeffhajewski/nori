@@ -27,11 +27,44 @@ pnpm add @norikv/client
 
 ## Quick Start
 
+### Ephemeral Mode (Easiest for Testing)
+
+The fastest way to get started is with an ephemeral (in-memory) NoriKV instance:
+
+```typescript
+import { createEphemeral, bytesToString } from '@norikv/client';
+
+// Create an ephemeral server (auto-starts and uses temp directory)
+const cluster = await createEphemeral();
+const client = cluster.getClient();
+
+await client.connect();
+
+// Put a value
+await client.put('user:123', 'Alice');
+
+// Get a value
+const result = await client.get('user:123');
+console.log(bytesToString(result.value)); // 'Alice'
+
+// Delete a value
+await client.delete('user:123');
+
+await client.close();
+await cluster.stop(); // Clean up
+```
+
+**Requirements**: The `norikv-server` binary must be available in your PATH. You can:
+- Build it: `cargo build --release -p norikv-server`
+- Or set `NORIKV_SERVER_PATH` environment variable to point to the binary
+
+### Connecting to an Existing Cluster
+
 ```typescript
 import { NoriKVClient, bytesToString } from '@norikv/client';
 
 const client = new NoriKVClient({
-  nodes: ['localhost:50051', 'localhost:50052', 'localhost:50053'],
+  nodes: ['localhost:7447', 'localhost:7448', 'localhost:7449'],
 });
 
 await client.connect();

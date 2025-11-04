@@ -18,6 +18,7 @@ Go client SDK for **NoriKV** - a sharded, Raft-replicated, log-structured key-va
 - ✅ Comprehensive unit tests (102+ tests, all passing)
 - ✅ Ephemeral server for testing (in-memory storage + gRPC)
 - ✅ Integration tests with live server (7 test suites)
+- ✅ Complete working examples (basic usage + ephemeral server)
 
 ## Features
 
@@ -124,6 +125,41 @@ Results:
 - XXHash64: ~2.5ns per operation (0 allocs)
 - JumpConsistentHash: ~14ns per operation (0 allocs)
 - GetShardForKey: ~23ns per operation (0 allocs)
+
+## Examples
+
+Complete working examples are available in the `examples/` directory:
+
+### Basic Usage
+
+See `examples/basic/main.go` for comprehensive examples including:
+- Simple Put/Get operations
+- Conditional updates (CAS)
+- TTL expiration
+- Consistency levels
+- Idempotent writes
+
+Run the example:
+```bash
+go run ./examples/basic/main.go
+```
+
+**Note**: This example requires a running NoriKV cluster. Configure node addresses in the code.
+
+### Ephemeral Server
+
+See `examples/ephemeral/main.go` for testing with an in-memory server:
+- Starting an ephemeral server
+- Connecting a client
+- Running operations
+- Getting server statistics
+
+Run the example:
+```bash
+go run ./examples/ephemeral/main.go
+```
+
+**Perfect for**: Unit tests, integration tests, CI/CD pipelines, local development.
 
 ## Development
 

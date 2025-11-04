@@ -13,7 +13,7 @@ Go client SDK for **NoriKV** - a sharded, Raft-replicated, log-structured key-va
 - ✅ Retry policy with exponential backoff
 - ✅ Connection pooling
 - ✅ Router with single-flight pattern
-- 🚧 Topology manager (pending)
+- ✅ Topology manager
 - 🚧 Client API implementation (pending)
 - 🚧 Ephemeral server support (pending)
 

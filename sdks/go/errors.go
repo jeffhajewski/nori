@@ -46,7 +46,9 @@ func (e *Error) Unwrap() error {
 // NotLeaderError indicates the contacted node is not the leader for the requested shard.
 // Client should retry on the leader node indicated in LeaderHint.
 type NotLeaderError struct {
-	Error
+	Code       ErrorCode
+	Message    string
+	Cause      error
 	LeaderHint string // Address of the current leader (if known)
 	ShardID    uint32 // Shard ID that was accessed
 }
@@ -54,35 +56,61 @@ type NotLeaderError struct {
 // NewNotLeaderError creates a new NotLeaderError.
 func NewNotLeaderError(message string, leaderHint string, shardID uint32) *NotLeaderError {
 	return &NotLeaderError{
-		Error: Error{
-			Code:    ErrorCodeNotLeader,
-			Message: message,
-		},
+		Code:       ErrorCodeNotLeader,
+		Message:    message,
 		LeaderHint: leaderHint,
 		ShardID:    shardID,
 	}
 }
 
+// Error implements the error interface.
+func (e *NotLeaderError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *NotLeaderError) Unwrap() error {
+	return e.Cause
+}
+
 // AlreadyExistsError indicates the key already exists (for IfNotExists operations).
 type AlreadyExistsError struct {
-	Error
-	Key []byte // The key that already exists
+	Code    ErrorCode
+	Message string
+	Cause   error
+	Key     []byte // The key that already exists
 }
 
 // NewAlreadyExistsError creates a new AlreadyExistsError.
 func NewAlreadyExistsError(message string, key []byte) *AlreadyExistsError {
 	return &AlreadyExistsError{
-		Error: Error{
-			Code:    ErrorCodeAlreadyExists,
-			Message: message,
-		},
-		Key: key,
+		Code:    ErrorCodeAlreadyExists,
+		Message: message,
+		Key:     key,
 	}
+}
+
+// Error implements the error interface.
+func (e *AlreadyExistsError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *AlreadyExistsError) Unwrap() error {
+	return e.Cause
 }
 
 // VersionMismatchError indicates version mismatch (for IfMatchVersion operations).
 type VersionMismatchError struct {
-	Error
+	Code            ErrorCode
+	Message         string
+	Cause           error
 	Key             []byte   // The key being accessed
 	ExpectedVersion *Version // Expected version
 	ActualVersion   *Version // Actual current version
@@ -91,99 +119,177 @@ type VersionMismatchError struct {
 // NewVersionMismatchError creates a new VersionMismatchError.
 func NewVersionMismatchError(message string, key []byte, expected, actual *Version) *VersionMismatchError {
 	return &VersionMismatchError{
-		Error: Error{
-			Code:    ErrorCodeVersionMismatch,
-			Message: message,
-		},
+		Code:            ErrorCodeVersionMismatch,
+		Message:         message,
 		Key:             key,
 		ExpectedVersion: expected,
 		ActualVersion:   actual,
 	}
 }
 
+// Error implements the error interface.
+func (e *VersionMismatchError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *VersionMismatchError) Unwrap() error {
+	return e.Cause
+}
+
 // UnavailableError indicates the service is temporarily unavailable.
 // Client should retry with backoff.
 type UnavailableError struct {
-	Error
+	Code    ErrorCode
+	Message string
+	Cause   error
 }
 
 // NewUnavailableError creates a new UnavailableError.
 func NewUnavailableError(message string) *UnavailableError {
 	return &UnavailableError{
-		Error: Error{
-			Code:    ErrorCodeUnavailable,
-			Message: message,
-		},
+		Code:    ErrorCodeUnavailable,
+		Message: message,
 	}
+}
+
+// Error implements the error interface.
+func (e *UnavailableError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *UnavailableError) Unwrap() error {
+	return e.Cause
 }
 
 // DeadlineExceededError indicates the request exceeded the deadline/timeout.
 type DeadlineExceededError struct {
-	Error
+	Code      ErrorCode
+	Message   string
+	Cause     error
 	TimeoutMs int // Timeout that was exceeded
 }
 
 // NewDeadlineExceededError creates a new DeadlineExceededError.
 func NewDeadlineExceededError(message string, timeoutMs int) *DeadlineExceededError {
 	return &DeadlineExceededError{
-		Error: Error{
-			Code:    ErrorCodeDeadlineExceeded,
-			Message: message,
-		},
+		Code:      ErrorCodeDeadlineExceeded,
+		Message:   message,
 		TimeoutMs: timeoutMs,
 	}
 }
 
+// Error implements the error interface.
+func (e *DeadlineExceededError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *DeadlineExceededError) Unwrap() error {
+	return e.Cause
+}
+
 // InvalidArgumentError indicates invalid request parameters.
 type InvalidArgumentError struct {
-	Error
+	Code    ErrorCode
+	Message string
+	Cause   error
 }
 
 // NewInvalidArgumentError creates a new InvalidArgumentError.
 func NewInvalidArgumentError(message string) *InvalidArgumentError {
 	return &InvalidArgumentError{
-		Error: Error{
-			Code:    ErrorCodeInvalidArgument,
-			Message: message,
-		},
+		Code:    ErrorCodeInvalidArgument,
+		Message: message,
 	}
+}
+
+// Error implements the error interface.
+func (e *InvalidArgumentError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *InvalidArgumentError) Unwrap() error {
+	return e.Cause
 }
 
 // ConnectionError indicates connection failure to the cluster.
 type ConnectionError struct {
-	Error
+	Code    ErrorCode
+	Message string
+	Cause   error
 	Address string // Address that failed to connect
 }
 
 // NewConnectionError creates a new ConnectionError.
 func NewConnectionError(message string, address string) *ConnectionError {
 	return &ConnectionError{
-		Error: Error{
-			Code:    ErrorCodeConnectionError,
-			Message: message,
-		},
+		Code:    ErrorCodeConnectionError,
+		Message: message,
 		Address: address,
 	}
 }
 
+// Error implements the error interface.
+func (e *ConnectionError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *ConnectionError) Unwrap() error {
+	return e.Cause
+}
+
 // NoNodesAvailableError indicates no nodes are available in the cluster.
 type NoNodesAvailableError struct {
-	Error
+	Code    ErrorCode
+	Message string
+	Cause   error
 }
 
 // NewNoNodesAvailableError creates a new NoNodesAvailableError.
 func NewNoNodesAvailableError() *NoNodesAvailableError {
 	return &NoNodesAvailableError{
-		Error: Error{
-			Code:    ErrorCodeNoNodesAvailable,
-			Message: "No nodes available in the cluster",
-		},
+		Code:    ErrorCodeNoNodesAvailable,
+		Message: "No nodes available in the cluster",
 	}
+}
+
+// Error implements the error interface.
+func (e *NoNodesAvailableError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *NoNodesAvailableError) Unwrap() error {
+	return e.Cause
 }
 
 // RetryExhaustedError indicates maximum retry attempts have been exhausted.
 type RetryExhaustedError struct {
-	Error
+	Code      ErrorCode
+	Message   string
+	Cause     error
 	Attempts  int   // Number of attempts made
 	LastError error // Last error encountered
 }
@@ -195,14 +301,25 @@ func NewRetryExhaustedError(attempts int, lastError error) *RetryExhaustedError 
 		message = fmt.Sprintf("%s: %v", message, lastError)
 	}
 	return &RetryExhaustedError{
-		Error: Error{
-			Code:    ErrorCodeRetryExhausted,
-			Message: message,
-			Cause:   lastError,
-		},
+		Code:      ErrorCodeRetryExhausted,
+		Message:   message,
+		Cause:     lastError,
 		Attempts:  attempts,
 		LastError: lastError,
 	}
+}
+
+// Error implements the error interface.
+func (e *RetryExhaustedError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *RetryExhaustedError) Unwrap() error {
+	return e.Cause
 }
 
 // IsRetryable returns true if the error is retryable.

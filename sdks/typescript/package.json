@@ -18,7 +18,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "proto:gen": "buf generate proto",
+    "proto:gen": "buf generate ../../proto",
     "build": "npm run proto:gen && tsup",
     "dev": "tsup --watch",
     "test": "vitest run",

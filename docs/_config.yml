@@ -1,0 +1,102 @@
+# NoriKV Documentation Site Configuration
+# Built with Jekyll and Just the Docs theme
+
+title: NoriKV Documentation
+description: Sharded, Raft-replicated, log-structured key-value store with first-class observability
+baseurl: "/norikv" # Change this to match your GitHub repo name
+url: "https://j-haj.github.io" # Change this to match your GitHub Pages URL
+
+# Theme Configuration
+theme: just-the-docs
+color_scheme: dark
+
+# Search Configuration
+search_enabled: true
+search:
+  heading_level: 2
+  previews: 3
+  preview_words_before: 5
+  preview_words_after: 10
+  tokenizer_separator: /[\s/]+/
+  rel_url: true
+  button: true
+
+# Mermaid diagrams support
+mermaid:
+  version: "9.1.6"
+
+# Heading anchors
+heading_anchors: true
+
+# Code copy button
+enable_copy_code_button: true
+
+# Back to top link
+back_to_top: true
+back_to_top_text: "Back to top"
+
+# Footer content
+footer_content: "Copyright &copy; 2024 NoriKV Contributors. Distributed under MIT OR Apache-2.0 license."
+
+# Navigation Structure
+nav_sort: case_sensitive
+nav_fold: false
+
+# Aux links (top right)
+aux_links:
+  "NoriKV on GitHub":
+    - "https://github.com/j-haj/nori"
+  "Report Issue":
+    - "https://github.com/j-haj/nori/issues"
+
+aux_links_new_tab: true
+
+# Callouts configuration
+callouts_level: quiet
+callouts:
+  highlight:
+    color: yellow
+  important:
+    title: Important
+    color: blue
+  new:
+    title: New
+    color: green
+  note:
+    title: Note
+    color: purple
+  warning:
+    title: Warning
+    color: red
+
+# Plugins
+plugins:
+  - jekyll-seo-tag
+  - jekyll-github-metadata
+  - jekyll-include-cache
+
+# Collections (if needed for organizing content)
+collections:
+  sdks:
+    output: true
+    permalink: /sdks/:path/
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+  - scope:
+      path: "sdks"
+    values:
+      layout: default
+      parent: "SDKs"
+
+# Exclude from processing
+exclude:
+  - node_modules/
+  - vendor/
+  - Gemfile
+  - Gemfile.lock
+  - README.md

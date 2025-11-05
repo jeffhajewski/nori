@@ -21,21 +21,21 @@ NoriKV is a distributed key-value store designed for:
 
 ## Quick Navigation
 
-### 🚀 [Client SDKs](./sdks/)
+### [Client SDKs](./sdks/)
 Get started with NoriKV in your preferred language:
 - **[Java SDK](./sdks/java/)** - Production-ready with 123 tests, comprehensive guides
 - **[Go SDK](./sdks/go/)** - High-performance with zero-allocation routing
 - **[TypeScript SDK](./sdks/typescript/)** - Full type safety, async/await
 - **[Python SDK](./sdks/python/)** - Asyncio-based, type hints
 
-### 📚 Architecture & Internals
+### Architecture & Internals
 Understand how NoriKV works:
 - **Storage Engine** - LSM-tree with WAL, SSTables, and compaction
 - **Consensus** - Raft protocol with read-index and leases
 - **Membership** - SWIM-based failure detection
 - **Sharding** - Jump consistent hashing with 1024 virtual shards
 
-### 🔧 Operations
+### Operations
 Deploy and manage NoriKV:
 - **Installation** - Getting started guides
 - **Configuration** - Tuning parameters
@@ -70,10 +70,10 @@ Deploy and manage NoriKV:
 
 | Language | Status | Tests | Documentation |
 |----------|--------|-------|---------------|
-| [Java](./sdks/java/) |  Production | 123/123 | Excellent |
-| [Go](./sdks/go/) |  Production | 102+ | Excellent |
-| [TypeScript](./sdks/typescript/) |  Production | 100+ | Good |
-| [Python](./sdks/python/) |  Production | 40 | Good |
+| [Java](./sdks/java/) | Production | 123/123 | Excellent |
+| [Go](./sdks/go/) | Production | 102+ | Excellent |
+| [TypeScript](./sdks/typescript/) | Production | 100+ | Good |
+| [Python](./sdks/python/) | Production | 40 | Good |
 
 ### Installation
 

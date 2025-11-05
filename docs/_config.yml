@@ -3,11 +3,11 @@
 
 title: NoriKV Documentation
 description: Sharded, Raft-replicated, log-structured key-value store with first-class observability
-baseurl: "/norikv" # Change this to match your GitHub repo name
+baseurl: "/nori" # Change this to match your GitHub repo name
 url: "https://j-haj.github.io" # Change this to match your GitHub Pages URL
 
 # Theme Configuration
-theme: just-the-docs
+remote_theme: just-the-docs/just-the-docs
 color_scheme: dark
 
 # Search Configuration
@@ -72,8 +72,8 @@ callouts:
 # Plugins
 plugins:
   - jekyll-seo-tag
-  - jekyll-github-metadata
   - jekyll-include-cache
+  - jekyll-remote-theme
 
 # Collections (if needed for organizing content)
 collections:

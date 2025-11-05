@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -25,41 +25,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.1'
-          bundler-cache: true
-          cache-version: 1
-
       - name: Setup Pages
-        id: pages
         uses: actions/configure-pages@v4
 
-      - name: Install Jekyll dependencies
-        run: |
-          cd docs
-          gem install bundler
-          cat > Gemfile <<EOF
-          source 'https://rubygems.org'
-          gem 'jekyll', '~> 4.3'
-          gem 'just-the-docs', '0.8.2'
-          gem 'jekyll-seo-tag'
-          gem 'jekyll-include-cache'
-          EOF
-          bundle install
-
       - name: Build with Jekyll
-        run: |
-          cd docs
-          bundle exec jekyll build --baseurl "${{ steps.pages.outputs.base_path }}"
-        env:
-          JEKYLL_ENV: production
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/_site
 
   deploy:
     environment:

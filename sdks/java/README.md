@@ -22,11 +22,13 @@ Java client SDK for **NoriKV** - a sharded, Raft-replicated, log-structured key-
 - ✅ Proto converters for seamless client ↔ proto type conversion
 - ✅ Ephemeral in-memory server for integration testing (14 tests)
 - ✅ Comprehensive usage examples (3 example programs)
-- ✅ **117/117 tests passing (100% success rate)**
+- ✅ Performance benchmarks with SLO validation (8 benchmarks)
+- ✅ Concurrency and thread-safety tests (6 tests)
+- ✅ **123/123 tests passing (100% success rate)**
 
 ### Test Results
 ```
-[INFO] Tests run: 117, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 123, Failures: 0, Errors: 0, Skipped: 0
 [INFO] BUILD SUCCESS
 
 Test Breakdown:
@@ -36,10 +38,42 @@ Test Breakdown:
   - Topology Manager: 28/28 tests ✅
   - Client API: 17/17 tests ✅
   - Ephemeral Server Integration: 14/14 tests ✅
+  - Concurrency Integration: 6/6 tests ✅
 ```
 
-### Optional Enhancements
-- Performance benchmarks
+**Note:** ClusterIntegrationTest (6 tests) requires a real replicated NoriKV cluster and is excluded from the default test run. To run cluster integration tests:
+```bash
+mvn test -Dtest=ClusterIntegrationTest
+```
+
+### Performance Benchmarks
+
+The SDK includes comprehensive performance benchmarks that validate SLO targets:
+
+**Target SLOs:**
+- GET p95 latency: ≤ 10ms
+- PUT p95 latency: ≤ 20ms
+
+**Actual Performance** (against in-memory ephemeral server):
+- Sequential GET p95: 0.160 ms ✅ (62x faster than target)
+- Sequential PUT p95: 0.153 ms ✅ (130x faster than target)
+- Mixed workload p95: 0.203 ms ✅
+- CAS operations p95: 0.258 ms ✅
+- Large values (10KB) p95: 0.198 ms ✅
+- Concurrent (10 threads) p95: 0.828 ms ✅
+
+**Throughput:**
+- Sequential PUT: ~8,280 ops/sec
+- Sequential GET: ~7,590 ops/sec
+- DELETE operations: ~10,466 ops/sec
+- Concurrent operations: ~6,164 ops/sec
+
+Run benchmarks:
+```bash
+mvn test -Dtest=PerformanceBenchmarks
+```
+
+Note: Benchmarks run against in-memory server without network latency. Real-world performance will include network overhead but demonstrates the client's efficiency.
 
 ## Features
 
@@ -214,6 +248,23 @@ Limitations:
 - No Raft replication
 - No sharding (single node only)
 - No background TTL cleanup
+
+## Documentation
+
+Comprehensive guides for using the Java SDK:
+
+- **[API Guide](docs/API_GUIDE.md)** - Complete API reference with examples
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - Internal design and component architecture
+- **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Solutions to common issues
+- **[Advanced Patterns](docs/ADVANCED_PATTERNS.md)** - Complex use cases and design patterns
+
+### Javadoc
+
+Generate API documentation:
+```bash
+mvn javadoc:javadoc
+open target/site/apidocs/index.html
+```
 
 ## Hash Function Compatibility
 

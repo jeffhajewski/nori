@@ -186,37 +186,56 @@ public class EphemeralServer {
                     }
                 }
 
-                // Check version match (CAS)
-                if (request.hasIfMatch()) {
-                    StorageEntry existing = store.get(keyStr);
-                    if (existing == null || existing.isExpired()) {
-                        responseObserver.onError(io.grpc.Status.FAILED_PRECONDITION
-                                .withDescription("Key does not exist")
-                                .asRuntimeException());
-                        return;
-                    }
-
-                    Norikv.Version expectedVersion = request.getIfMatch();
-                    if (existing.term != expectedVersion.getTerm() ||
-                        existing.index != expectedVersion.getIndex()) {
-                        responseObserver.onError(io.grpc.Status.FAILED_PRECONDITION
-                                .withDescription("Version mismatch")
-                                .asRuntimeException());
-                        return;
-                    }
-                }
-
                 // Compute expiration
                 Long expiresAt = null;
                 if (request.getTtlMs() > 0) {
                     expiresAt = System.currentTimeMillis() + request.getTtlMs();
                 }
 
-                // Store value
-                long index = versionCounter.incrementAndGet();
-                byte[] value = request.getValue().toByteArray();
-                StorageEntry entry = new StorageEntry(value, TERM, index, expiresAt);
-                store.put(keyStr, entry);
+                // Atomic CAS operation using compute()
+                final Long finalExpiresAt = expiresAt;
+                final byte[] value = request.getValue().toByteArray();
+
+                try {
+                    StorageEntry entry = store.compute(keyStr, (k, existing) -> {
+                        // Check version match (CAS) atomically
+                        if (request.hasIfMatch()) {
+                            if (existing == null || existing.isExpired()) {
+                                throw new IllegalStateException("KEY_NOT_FOUND");
+                            }
+
+                            Norikv.Version expectedVersion = request.getIfMatch();
+                            if (existing.term != expectedVersion.getTerm() ||
+                                existing.index != expectedVersion.getIndex()) {
+                                throw new IllegalStateException("VERSION_MISMATCH");
+                            }
+                        }
+
+                        // Store value atomically
+                        long index = versionCounter.incrementAndGet();
+                        return new StorageEntry(value, TERM, index, finalExpiresAt);
+                    });
+
+                    if (entry == null) {
+                        throw new IllegalStateException("Unexpected null entry");
+                    }
+                } catch (IllegalStateException e) {
+                    if ("KEY_NOT_FOUND".equals(e.getMessage())) {
+                        responseObserver.onError(io.grpc.Status.FAILED_PRECONDITION
+                                .withDescription("Key does not exist")
+                                .asRuntimeException());
+                        return;
+                    } else if ("VERSION_MISMATCH".equals(e.getMessage())) {
+                        responseObserver.onError(io.grpc.Status.FAILED_PRECONDITION
+                                .withDescription("Version mismatch")
+                                .asRuntimeException());
+                        return;
+                    }
+                    throw e;
+                }
+
+                // Get the stored entry for response
+                StorageEntry entry = store.get(keyStr);
 
                 // Cache for idempotency
                 if (idempotencyKey != null && !idempotencyKey.isEmpty()) {

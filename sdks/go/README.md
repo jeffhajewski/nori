@@ -161,6 +161,15 @@ go run ./examples/ephemeral/main.go
 
 **Perfect for**: Unit tests, integration tests, CI/CD pipelines, local development.
 
+## Documentation
+
+Comprehensive guides for using the Go SDK:
+
+- **[API Guide](docs/API_GUIDE.md)** - Complete API reference with examples
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - Internal design and component architecture
+- **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Solutions to common issues
+- **[Advanced Patterns](docs/ADVANCED_PATTERNS.md)** - Complex use cases and design patterns
+
 ## Development
 
 ### Building

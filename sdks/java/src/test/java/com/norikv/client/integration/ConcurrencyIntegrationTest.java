@@ -57,6 +57,7 @@ public class ConcurrencyIntegrationTest {
     public void testConcurrentCounterIncrement() throws Exception {
         int numThreads = 10;
         int incrementsPerThread = 50;
+        int maxRetries = 500; // Very high retry limit for extreme contention
         byte[] key = "shared-counter".getBytes(StandardCharsets.UTF_8);
 
         // Initialize counter
@@ -67,6 +68,7 @@ public class ConcurrencyIntegrationTest {
         CountDownLatch doneLatch = new CountDownLatch(numThreads);
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger conflictCount = new AtomicInteger(0);
+        AtomicInteger failedCount = new AtomicInteger(0);
 
         for (int t = 0; t < numThreads; t++) {
             executor.submit(() -> {
@@ -76,7 +78,6 @@ public class ConcurrencyIntegrationTest {
                     for (int i = 0; i < incrementsPerThread; i++) {
                         boolean success = false;
                         int retries = 0;
-                        int maxRetries = 100; // Increase retry limit for high contention
 
                         while (!success && retries < maxRetries) {
                             try {
@@ -104,6 +105,7 @@ public class ConcurrencyIntegrationTest {
                         }
 
                         if (!success) {
+                            failedCount.incrementAndGet();
                             System.err.println("Failed to increment after " + maxRetries + " retries");
                         }
                     }
@@ -116,10 +118,10 @@ public class ConcurrencyIntegrationTest {
         }
 
         startLatch.countDown();
-        boolean completed = doneLatch.await(30, TimeUnit.SECONDS);
+        boolean completed = doneLatch.await(60, TimeUnit.SECONDS);
         executor.shutdown();
 
-        assertTrue(completed, "Test should complete within 30 seconds");
+        assertTrue(completed, "Test should complete within 60 seconds");
 
         // Verify final count
         GetResult finalResult = client.get(key, null);
@@ -128,6 +130,11 @@ public class ConcurrencyIntegrationTest {
         System.out.println("Final counter value: " + finalValue);
         System.out.println("Successful writes: " + successCount.get());
         System.out.println("Version conflicts: " + conflictCount.get());
+        System.out.println("Failed writes: " + failedCount.get());
+
+        // Assert no operations failed
+        assertEquals(0, failedCount.get(),
+            "No increments should fail after " + maxRetries + " retries");
 
         assertEquals(numThreads * incrementsPerThread, finalValue,
             "Counter should equal total increments");

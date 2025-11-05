@@ -86,6 +86,66 @@ asyncio.run(main())
 
 See [`examples/basic_usage.py`](examples/basic_usage.py) for a complete example.
 
+## Documentation
+
+Comprehensive guides are available for the NoriKV SDKs. While Python-specific detailed guides are being developed, you can reference the comprehensive documentation from the Java and Go SDKs, which cover the same concepts and can be easily adapted to Python's async/await patterns:
+
+### Core Documentation
+- **[Java SDK Documentation](../java/docs/)** - Extremely comprehensive guides covering all patterns
+  - [API Guide](../java/docs/API_GUIDE.md) - Adapt Java examples to Python async/await
+  - [Architecture Guide](../java/docs/ARCHITECTURE.md) - Component design applies to all SDKs
+  - [Troubleshooting Guide](../java/docs/TROUBLESHOOTING.md) - Common issues and solutions
+  - [Advanced Patterns](../java/docs/ADVANCED_PATTERNS.md) - 8 real-world patterns with full implementations
+
+- **[Go SDK Documentation](../go/docs/)** - Comprehensive guides with concurrency patterns
+  - [API Guide](../go/docs/API_GUIDE.md) - Similar patterns to Python asyncio
+  - [Architecture Guide](../go/docs/ARCHITECTURE.md) - Internal design and performance
+  - [Troubleshooting Guide](../go/docs/TROUBLESHOOTING.md) - Debugging and solutions
+  - [Advanced Patterns](../go/docs/ADVANCED_PATTERNS.md) - Production-ready patterns
+
+### Python-Specific Features
+The Python SDK provides:
+- **Async/await API** built on asyncio for high performance
+- **Type hints** throughout for IDE support and mypy checking
+- **Context managers** for automatic resource cleanup
+- **Pythonic API** following PEP 8 and best practices
+- **Both sync and async** support (async recommended)
+
+### Quick Reference
+```python
+import asyncio
+from norikv import NoriKVClient, ClientConfig, PutOptions, GetOptions, ConsistencyLevel
+
+async def examples():
+    config = ClientConfig(nodes=["localhost:9001"])
+
+    async with NoriKVClient(config) as client:
+        # CAS (Compare-And-Swap) - see Java/Go docs for detailed patterns
+        result = await client.get("counter")
+        await client.put(
+            "counter",
+            new_value,
+            PutOptions(if_match_version=result.version)  # Atomic update
+        )
+
+        # TTL expiration
+        await client.put(
+            "session",
+            session_data,
+            PutOptions(ttl_ms=3600000)  # 1 hour
+        )
+
+        # Consistency levels
+        result = await client.get(
+            "key",
+            GetOptions(consistency=ConsistencyLevel.LINEARIZABLE)
+        )
+
+asyncio.run(examples())
+```
+
+All advanced patterns (distributed counters, session management, inventory control, caching, rate limiting, leader election, event sourcing, multi-tenancy) from the Java/Go documentation can be directly adapted to Python using async/await and context managers.
+
 ## Development
 
 ### Setup

@@ -403,6 +403,56 @@ See the main [NoriKV repository](https://github.com/norikv/norikv) for contribut
 - [ ] Cross-language hash validation tests
 - [ ] Performance benchmarks
 
+## Documentation
+
+Comprehensive guides are available for the NoriKV SDKs. While TypeScript-specific detailed guides are being developed, you can reference the comprehensive documentation from the Java and Go SDKs, which cover the same concepts and can be easily adapted to TypeScript/JavaScript patterns:
+
+### Core Documentation
+- **[Java SDK Documentation](../java/docs/)** - Extremely comprehensive guides covering all patterns
+  - [API Guide](../java/docs/API_GUIDE.md) - Adapt Java examples to TypeScript async/await
+  - [Architecture Guide](../java/docs/ARCHITECTURE.md) - Component design applies to all SDKs
+  - [Troubleshooting Guide](../java/docs/TROUBLESHOOTING.md) - Common issues and solutions
+  - [Advanced Patterns](../java/docs/ADVANCED_PATTERNS.md) - 8 real-world patterns with full implementations
+
+- **[Go SDK Documentation](../go/docs/)** - Comprehensive guides with Go idioms
+  - [API Guide](../go/docs/API_GUIDE.md) - Similar async patterns to TypeScript
+  - [Architecture Guide](../go/docs/ARCHITECTURE.md) - Internal design and performance
+  - [Troubleshooting Guide](../go/docs/TROUBLESHOOTING.md) - Debugging and solutions
+  - [Advanced Patterns](../go/docs/ADVANCED_PATTERNS.md) - Production patterns
+
+### TypeScript-Specific Features
+The TypeScript SDK provides:
+- **Full TypeScript types** for compile-time safety
+- **Async/await** and Promise-based API
+- **ESM + CommonJS** dual package support
+- **Browser compatibility** (with polyfills)
+- **JSDoc comments** for inline documentation
+
+### Quick Reference
+```typescript
+// All patterns from Java/Go docs work in TypeScript with async/await
+const client = new NoriKVClient({ nodes: ['localhost:9001'] });
+await client.connect();
+
+// CAS (Compare-And-Swap) - see Java/Go docs for detailed patterns
+const result = await client.get('counter');
+await client.put('counter', newValue, {
+  ifMatchVersion: result.version  // Atomic update
+});
+
+// TTL expiration
+await client.put('session', data, {
+  ttlMs: 3600000  // 1 hour
+});
+
+// Consistency levels
+const data = await client.get('key', {
+  consistency: 'linearizable'  // or 'lease', 'stale_ok'
+});
+```
+
+All advanced patterns (distributed counters, session management, inventory control, caching, rate limiting, leader election, event sourcing, multi-tenancy) from the Java/Go documentation can be directly adapted to TypeScript using async/await patterns.
+
 ## Examples
 
 See [examples/](./examples/) directory:

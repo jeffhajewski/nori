@@ -399,6 +399,12 @@ public final class NoriKVClient implements AutoCloseable {
                 return new KeyNotFoundException("Key not found", null);
             case ALREADY_EXISTS:
                 return new AlreadyExistsException("Key already exists", null);
+            case FAILED_PRECONDITION:
+                // Check if it's a version mismatch
+                if (message != null && message.contains("ersion")) {
+                    return new VersionMismatchException(message, null, null, null, e);
+                }
+                return new NoriKVException(code, message, e);
             case UNAVAILABLE:
             case DEADLINE_EXCEEDED:
                 return new ConnectionException(message, null, e);

@@ -20,11 +20,13 @@ Java client SDK for **NoriKV** - a sharded, Raft-replicated, log-structured key-
 - ✅ Topology manager with cluster watching and change detection (28 tests)
 - ✅ Client API (put, get, delete, close) fully wired to gRPC (17 tests)
 - ✅ Proto converters for seamless client ↔ proto type conversion
-- ✅ **103/103 tests passing (100% success rate)**
+- ✅ Ephemeral in-memory server for integration testing (14 tests)
+- ✅ Comprehensive usage examples (3 example programs)
+- ✅ **117/117 tests passing (100% success rate)**
 
 ### Test Results
 ```
-[INFO] Tests run: 103, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 117, Failures: 0, Errors: 0, Skipped: 0
 [INFO] BUILD SUCCESS
 
 Test Breakdown:
@@ -33,11 +35,10 @@ Test Breakdown:
   - Router: 23/23 tests ✅
   - Topology Manager: 28/28 tests ✅
   - Client API: 17/17 tests ✅
+  - Ephemeral Server Integration: 14/14 tests ✅
 ```
 
-### Optional Enhancements (Not Required)
-- Ephemeral server for testing (optional - for integration tests without real cluster)
-- Usage examples
+### Optional Enhancements
 - Performance benchmarks
 
 ## Features
@@ -82,11 +83,10 @@ Gradle:
 implementation 'com.norikv:norikv-client:0.1.0'
 ```
 
-## Quick Start (Preview)
+## Quick Start
 
 ```java
 import com.norikv.client.NoriKVClient;
-import com.norikv.client.NoriKVClientConfig;
 import com.norikv.client.types.*;
 
 import java.util.Arrays;
@@ -94,7 +94,7 @@ import java.util.Arrays;
 public class Example {
     public static void main(String[] args) throws Exception {
         // Configure client
-        NoriKVClientConfig config = NoriKVClientConfig.builder()
+        ClientConfig config = ClientConfig.builder()
             .nodes(Arrays.asList("localhost:9001", "localhost:9002"))
             .timeoutMs(5000)
             .totalShards(1024)
@@ -127,6 +127,93 @@ public class Example {
     }
 }
 ```
+
+## Examples
+
+The SDK includes comprehensive examples demonstrating common usage patterns:
+
+### BasicExample
+Simple put, get, and delete operations with different options.
+
+```bash
+mvn compile exec:java -Dexec.mainClass="com.norikv.client.examples.BasicExample"
+```
+
+Features demonstrated:
+- Simple PUT/GET/DELETE operations
+- TTL (time-to-live) for automatic expiration
+- Idempotency keys for safe retries
+- Different consistency levels (LEASE, LINEARIZABLE, STALE_OK)
+- Client statistics
+
+### ConditionalOperationsExample
+Compare-And-Swap (CAS) and version matching for optimistic concurrency control.
+
+```bash
+mvn compile exec:java -Dexec.mainClass="com.norikv.client.examples.ConditionalOperationsExample"
+```
+
+Features demonstrated:
+- Basic Compare-And-Swap operations
+- Handling version mismatch exceptions
+- Retry loops with CAS for atomic updates
+- Inventory management with conditional updates
+- Conditional delete operations
+- Preventing lost updates in concurrent scenarios
+
+### RetryAndErrorHandlingExample
+Error handling, retry policies, and recovery patterns.
+
+```bash
+mvn compile exec:java -Dexec.mainClass="com.norikv.client.examples.RetryAndErrorHandlingExample"
+```
+
+Features demonstrated:
+- Custom retry configuration
+- Handling different exception types (KeyNotFoundException, VersionMismatchException, ConnectionException)
+- Idempotency keys for safe retries
+- Application-level retry logic
+- Graceful degradation with fallback values
+- Circuit breaker and bulkhead patterns (conceptual)
+
+## Testing
+
+### Ephemeral Server
+
+The SDK includes an in-memory ephemeral server for integration testing without requiring a real cluster:
+
+```java
+import com.norikv.client.testing.EphemeralServer;
+
+// Start ephemeral server
+EphemeralServer server = EphemeralServer.start(9001);
+try {
+    ClientConfig config = ClientConfig.builder()
+        .nodes(Arrays.asList(server.getAddress()))
+        .totalShards(1024)
+        .build();
+
+    try (NoriKVClient client = new NoriKVClient(config)) {
+        // Use client for testing
+        client.put("key".getBytes(), "value".getBytes(), null);
+    }
+} finally {
+    server.stop();
+}
+```
+
+Features:
+- Thread-safe in-memory storage
+- Version tracking with monotonic counter
+- TTL support (checked on read)
+- Idempotency key tracking
+- Version matching for CAS operations
+
+Limitations:
+- No persistence (data lost on shutdown)
+- No Raft replication
+- No sharding (single node only)
+- No background TTL cleanup
 
 ## Hash Function Compatibility
 

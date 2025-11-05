@@ -101,9 +101,9 @@ public final class TopologyManager {
                 if (leaderNode != null) {
                     shardLeaderCache.put(shard.getId(), leaderNode.getAddr());
                 }
-            } else {
-                shardLeaderCache.put(shard.getId(), null);
             }
+            // Note: If no leader, we simply don't cache anything for this shard.
+            // getShardLeader() will return null for uncached entries.
         }
     }
 

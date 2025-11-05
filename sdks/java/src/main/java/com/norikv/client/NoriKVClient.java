@@ -2,12 +2,16 @@ package com.norikv.client;
 
 import com.norikv.client.hash.HashFunctions;
 import com.norikv.client.internal.conn.ConnectionPool;
+import com.norikv.client.internal.proto.ProtoConverters;
 import com.norikv.client.internal.retry.RetryPolicy;
 import com.norikv.client.internal.router.Router;
 import com.norikv.client.internal.topology.TopologyManager;
 import com.norikv.client.types.*;
 import io.grpc.ManagedChannel;
+import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import norikv.v1.KvGrpc;
+import norikv.v1.Norikv;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -318,8 +322,6 @@ public final class NoriKVClient implements AutoCloseable {
     /**
      * Performs the actual Put RPC call.
      *
-     * <p>TODO: This is a placeholder until proto stubs are generated.
-     *
      * @param channel the gRPC channel
      * @param key the key
      * @param value the value
@@ -329,21 +331,18 @@ public final class NoriKVClient implements AutoCloseable {
      */
     private Version performPut(ManagedChannel channel, byte[] key, byte[] value,
                                PutOptions options) throws NoriKVException {
-        // Placeholder implementation
-        // When proto stubs are generated, this will use:
-        // NoriKVServiceGrpc.NoriKVServiceBlockingStub stub = NoriKVServiceGrpc.newBlockingStub(channel);
-        // PutRequest request = PutRequest.newBuilder()...build();
-        // PutResponse response = stub.put(request);
-        // return new Version(response.getVersion().getTerm(), response.getVersion().getIndex());
+        KvGrpc.KvBlockingStub stub = KvGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
 
-        throw new NoriKVException("NOT_IMPLEMENTED",
-                "Put operation requires proto stubs to be generated");
+        Norikv.PutRequest request = ProtoConverters.buildPutRequest(key, value, options);
+
+        Norikv.PutResponse response = stub.put(request);
+
+        return ProtoConverters.fromProto(response.getVersion());
     }
 
     /**
      * Performs the actual Get RPC call.
-     *
-     * <p>TODO: This is a placeholder until proto stubs are generated.
      *
      * @param channel the gRPC channel
      * @param key the key
@@ -353,15 +352,18 @@ public final class NoriKVClient implements AutoCloseable {
      */
     private GetResult performGet(ManagedChannel channel, byte[] key,
                                  GetOptions options) throws NoriKVException {
-        // Placeholder implementation
-        throw new NoriKVException("NOT_IMPLEMENTED",
-                "Get operation requires proto stubs to be generated");
+        KvGrpc.KvBlockingStub stub = KvGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
+
+        Norikv.GetRequest request = ProtoConverters.buildGetRequest(key, options);
+
+        Norikv.GetResponse response = stub.get(request);
+
+        return ProtoConverters.fromProto(response);
     }
 
     /**
      * Performs the actual Delete RPC call.
-     *
-     * <p>TODO: This is a placeholder until proto stubs are generated.
      *
      * @param channel the gRPC channel
      * @param key the key
@@ -371,9 +373,14 @@ public final class NoriKVClient implements AutoCloseable {
      */
     private boolean performDelete(ManagedChannel channel, byte[] key,
                                   DeleteOptions options) throws NoriKVException {
-        // Placeholder implementation
-        throw new NoriKVException("NOT_IMPLEMENTED",
-                "Delete operation requires proto stubs to be generated");
+        KvGrpc.KvBlockingStub stub = KvGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
+
+        Norikv.DeleteRequest request = ProtoConverters.buildDeleteRequest(key, options);
+
+        Norikv.DeleteResponse response = stub.delete(request);
+
+        return response.getTombstoned();
     }
 
     /**

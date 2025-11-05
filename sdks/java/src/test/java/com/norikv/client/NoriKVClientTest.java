@@ -25,7 +25,7 @@ public class NoriKVClientTest {
     @DisplayName("NoriKVClient: constructor accepts valid config")
     public void testConstructorValid() {
         ClientConfig config = ClientConfig.builder()
-                .nodes("localhost:9001", "localhost:9002")
+                .nodes(Arrays.asList("localhost:9001", "localhost:9002"))
                 .totalShards(1024)
                 .build();
 
@@ -132,23 +132,37 @@ public class NoriKVClientTest {
             byte[] key = "test".getBytes();
             byte[] value = "value".getBytes();
 
-            // Should not throw on validation, will throw on NOT_IMPLEMENTED
+            // Should not throw on validation - will fail on connection since no server is running
+            // Expects either RETRY_EXHAUSTED (after retries) or connection-related errors
             try {
                 client.put(key, value, null);
+                fail("Should have thrown NoriKVException");
             } catch (NoriKVException e) {
-                assertEquals("NOT_IMPLEMENTED", e.getCode());
+                // Accept either RETRY_EXHAUSTED or connection errors
+                assertTrue(e.getCode().equals("RETRY_EXHAUSTED") ||
+                          e.getCode().equals("UNAVAILABLE") ||
+                          e instanceof ConnectionException,
+                          "Expected retry or connection error, got: " + e.getCode());
             }
 
             try {
                 client.get(key, null);
+                fail("Should have thrown NoriKVException");
             } catch (NoriKVException e) {
-                assertEquals("NOT_IMPLEMENTED", e.getCode());
+                assertTrue(e.getCode().equals("RETRY_EXHAUSTED") ||
+                          e.getCode().equals("UNAVAILABLE") ||
+                          e instanceof ConnectionException,
+                          "Expected retry or connection error, got: " + e.getCode());
             }
 
             try {
                 client.delete(key, null);
+                fail("Should have thrown NoriKVException");
             } catch (NoriKVException e) {
-                assertEquals("NOT_IMPLEMENTED", e.getCode());
+                assertTrue(e.getCode().equals("RETRY_EXHAUSTED") ||
+                          e.getCode().equals("UNAVAILABLE") ||
+                          e instanceof ConnectionException,
+                          "Expected retry or connection error, got: " + e.getCode());
             }
         }
     }
@@ -190,7 +204,7 @@ public class NoriKVClientTest {
     @DisplayName("NoriKVClient: getStats returns statistics")
     public void testGetStats() {
         ClientConfig config = ClientConfig.builder()
-                .nodes("localhost:9001", "localhost:9002", "localhost:9003")
+                .nodes(Arrays.asList("localhost:9001", "localhost:9002", "localhost:9003"))
                 .totalShards(1024)
                 .build();
 
@@ -257,7 +271,7 @@ public class NoriKVClientTest {
                 .build();
 
         ClientConfig config = ClientConfig.builder()
-                .nodes("localhost:9001")
+                .nodes(Arrays.asList("localhost:9001"))
                 .retry(retryConfig)
                 .build();
 

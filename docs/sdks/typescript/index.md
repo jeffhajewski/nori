@@ -12,13 +12,13 @@ Type-safe TypeScript/JavaScript client for NoriKV with full async/await support.
 
 ## Status
 
-**✅ PRODUCTION READY** - Fully functional TypeScript SDK
+** PRODUCTION READY** - Fully functional TypeScript SDK
 
-- ✅ **100+ tests passing** with comprehensive coverage
-- ✅ Full TypeScript types for compile-time safety
-- ✅ Async/await Promise-based API
-- ✅ Dual package support (ESM + CommonJS)
-- ✅ Browser compatible with polyfills
+-  **100+ tests passing** with comprehensive coverage
+-  Full TypeScript types for compile-time safety
+-  Async/await Promise-based API
+-  Dual package support (ESM + CommonJS)
+-  Browser compatible with polyfills
 
 ## Quick Start
 
@@ -70,22 +70,22 @@ await client.close();
 ## Features
 
 ### Core Features
-- ✅ Smart client-side routing
-- ✅ Leader-aware routing with failover
-- ✅ Automatic retries with exponential backoff
-- ✅ Idempotency support
-- ✅ CAS operations with version matching
-- ✅ Multiple consistency levels
-- ✅ Connection pooling
-- ✅ Topology tracking
+-  Smart client-side routing
+-  Leader-aware routing with failover
+-  Automatic retries with exponential backoff
+-  Idempotency support
+-  CAS operations with version matching
+-  Multiple consistency levels
+-  Connection pooling
+-  Topology tracking
 
 ### TypeScript-Specific
-- ✅ Full TypeScript types
-- ✅ Async/await Promise API
-- ✅ ESM + CommonJS dual package
-- ✅ Browser compatible
-- ✅ JSDoc inline documentation
-- ✅ Tree-shakeable exports
+-  Full TypeScript types
+-  Async/await Promise API
+-  ESM + CommonJS dual package
+-  Browser compatible
+-  JSDoc inline documentation
+-  Tree-shakeable exports
 
 ## Requirements
 

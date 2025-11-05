@@ -627,11 +627,11 @@ log.Printf("[%s] Request complete: err=%v", traceID, err)
 ### 1. Not checking errors
 
 ```go
-// ❌ Bad
+//  Bad
 result, _ := client.Get(ctx, key, nil)
 process(result.Value) // May panic if result is nil
 
-// ✅ Good
+//  Good
 result, err := client.Get(ctx, key, nil)
 if err != nil {
     log.Printf("Get failed: %v", err)
@@ -643,14 +643,14 @@ process(result.Value)
 ### 2. Creating client per request
 
 ```go
-// ❌ Bad - closes connections!
+//  Bad - closes connections!
 func handleRequest() {
     client, _ := norikv.NewClient(ctx, config)
     defer client.Close()
     client.Get(ctx, key, nil)
 }
 
-// ✅ Good - reuse client
+//  Good - reuse client
 var globalClient *norikv.Client
 
 func init() {
@@ -661,10 +661,10 @@ func init() {
 ### 3. Ignoring context cancellation
 
 ```go
-// ❌ Bad
+//  Bad
 _, err := client.Get(context.Background(), key, nil)
 
-// ✅ Good
+//  Good
 ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 defer cancel()
 _, err := client.Get(ctx, key, nil)
@@ -673,12 +673,12 @@ _, err := client.Get(ctx, key, nil)
 ### 4. Not using CAS for concurrent updates
 
 ```go
-// ❌ Bad - lost updates
+//  Bad - lost updates
 result, _ := client.Get(ctx, key, nil)
 value, _ := strconv.Atoi(string(result.Value))
 client.Put(ctx, key, []byte(strconv.Itoa(value+1)), nil)
 
-// ✅ Good - CAS prevents lost updates
+//  Good - CAS prevents lost updates
 result, _ := client.Get(ctx, key, nil)
 value, _ := strconv.Atoi(string(result.Value))
 client.Put(ctx, key, []byte(strconv.Itoa(value+1)), &norikv.PutOptions{

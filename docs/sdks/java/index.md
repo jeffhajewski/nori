@@ -12,13 +12,13 @@ Production-ready Java client for NoriKV with comprehensive documentation and 100
 
 ## Status
 
-**✅ PRODUCTION READY** - Fully functional Java SDK
+** PRODUCTION READY** - Fully functional Java SDK
 
-- ✅ **123/123 tests passing** (100% success rate)
-- ✅ Maven/Gradle support with published artifacts
-- ✅ Complete API with all operations (put, get, delete)
-- ✅ Comprehensive documentation (4 detailed guides)
-- ✅ Performance benchmarks exceeding SLO targets by 60-130x
+-  **123/123 tests passing** (100% success rate)
+-  Maven/Gradle support with published artifacts
+-  Complete API with all operations (put, get, delete)
+-  Comprehensive documentation (4 detailed guides)
+-  Performance benchmarks exceeding SLO targets by 60-130x
 
 ## Quick Start
 
@@ -109,23 +109,23 @@ The Java SDK includes comprehensive documentation:
 ## Features
 
 ### Core Features
-- ✅ Smart client-side routing with hash-based shard assignment
-- ✅ Leader-aware routing with automatic failover
-- ✅ Retry logic with exponential backoff
-- ✅ Idempotency support for safe retries
-- ✅ Conditional operations (CAS) with version matching
-- ✅ Multiple consistency levels (lease, linearizable, stale)
-- ✅ Connection pooling with graceful shutdown
-- ✅ Cluster topology tracking and change notifications
-- ✅ Thread-safe operations
-- ✅ AutoCloseable for try-with-resources
+-  Smart client-side routing with hash-based shard assignment
+-  Leader-aware routing with automatic failover
+-  Retry logic with exponential backoff
+-  Idempotency support for safe retries
+-  Conditional operations (CAS) with version matching
+-  Multiple consistency levels (lease, linearizable, stale)
+-  Connection pooling with graceful shutdown
+-  Cluster topology tracking and change notifications
+-  Thread-safe operations
+-  AutoCloseable for try-with-resources
 
 ### Java-Specific
-- ✅ Builder patterns for configuration
-- ✅ Comprehensive exception hierarchy
-- ✅ Stream-based operations
-- ✅ Javadoc for all public APIs
-- ✅ Maven Central distribution
+-  Builder patterns for configuration
+-  Comprehensive exception hierarchy
+-  Stream-based operations
+-  Javadoc for all public APIs
+-  Maven Central distribution
 
 ## Performance
 
@@ -134,12 +134,12 @@ The Java SDK includes comprehensive documentation:
 - PUT p95 latency: ≤ 20ms
 
 **Actual Performance** (against in-memory ephemeral server):
-- Sequential GET p95: 0.160 ms ✅ (62x faster than target)
-- Sequential PUT p95: 0.153 ms ✅ (130x faster than target)
-- Mixed workload p95: 0.203 ms ✅
-- CAS operations p95: 0.258 ms ✅
-- Large values (10KB) p95: 0.198 ms ✅
-- Concurrent (10 threads) p95: 0.828 ms ✅
+- Sequential GET p95: 0.160 ms  (62x faster than target)
+- Sequential PUT p95: 0.153 ms  (130x faster than target)
+- Mixed workload p95: 0.203 ms 
+- CAS operations p95: 0.258 ms 
+- Large values (10KB) p95: 0.198 ms 
+- Concurrent (10 threads) p95: 0.828 ms 
 
 **Throughput:**
 - Sequential PUT: ~8,280 ops/sec

@@ -418,7 +418,7 @@ result, err := client.Get(ctx, key, nil)
 Clients manage connection pools and should be reused:
 
 ```go
-// ✅ Good: Single client instance
+//  Good: Single client instance
 var client *norikv.Client
 
 func init() {
@@ -426,7 +426,7 @@ func init() {
     client, _ = norikv.NewClient(context.Background(), config)
 }
 
-// ❌ Bad: Creating client per request
+//  Bad: Creating client per request
 func handleRequest() {
     client, _ := norikv.NewClient(context.Background(), config)
     defer client.Close() // Closes connections!

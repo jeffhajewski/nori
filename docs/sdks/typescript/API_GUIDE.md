@@ -396,7 +396,7 @@ try {
 ### 2. Reuse Client Instances
 
 ```typescript
-// ✅ Good: Single client instance
+//  Good: Single client instance
 let client: NoriKVClient;
 
 async function init() {
@@ -404,7 +404,7 @@ async function init() {
   await client.connect();
 }
 
-// ❌ Bad: Creating client per request
+//  Bad: Creating client per request
 async function handleRequest() {
   const client = new NoriKVClient(config);
   await client.connect();
@@ -448,14 +448,14 @@ async function safeGet(key: string): Promise<string | null> {
 ### 5. Use Async/Await Consistently
 
 ```typescript
-// ✅ Good: Clean async/await
+//  Good: Clean async/await
 async function processUser(userId: string) {
   const userData = await client.get(`user:${userId}`);
   const processed = await processData(userData.value);
   await client.put(`processed:${userId}`, processed);
 }
 
-// ❌ Bad: Mixing promises and async/await
+//  Bad: Mixing promises and async/await
 async function processUserBad(userId: string) {
   return client.get(`user:${userId}`).then(userData => {
     return processData(userData.value).then(processed => {

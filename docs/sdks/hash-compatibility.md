@@ -356,10 +356,10 @@ def test_hash_compatibility():
 **Problem**: Using a non-zero seed for XXHash64
 
 ```python
-# ❌ Wrong
+#  Wrong
 hasher = xxhash.xxh64(seed=12345)
 
-# ✅ Correct
+#  Correct
 hasher = xxhash.xxh64(seed=0)
 ```
 
@@ -368,12 +368,12 @@ hasher = xxhash.xxh64(seed=0)
 **Problem**: Different UTF-8 encoding between languages
 
 ```java
-// ✅ Correct: Use UTF-8 explicitly
+//  Correct: Use UTF-8 explicitly
 byte[] key = "user:123".getBytes(StandardCharsets.UTF_8);
 ```
 
 ```typescript
-// ✅ Correct: TextEncoder uses UTF-8
+//  Correct: TextEncoder uses UTF-8
 const key = new TextEncoder().encode("user:123");
 ```
 
@@ -382,7 +382,7 @@ const key = new TextEncoder().encode("user:123");
 **Problem**: Integer overflow in jump consistent hash
 
 ```python
-# ✅ Correct: Mask to 64 bits
+#  Correct: Mask to 64 bits
 key = ((key * 2862933555777941757) + 1) & 0xFFFFFFFFFFFFFFFF
 ```
 
@@ -391,7 +391,7 @@ key = ((key * 2862933555777941757) + 1) & 0xFFFFFFFFFFFFFFFF
 **Problem**: Loss of precision in jump consistent hash calculation
 
 ```go
-// ✅ Correct: Use proper type conversions
+//  Correct: Use proper type conversions
 j = int64(float64(b+1) * (float64(int64(1)<<31) / float64((key>>33)+1)))
 ```
 

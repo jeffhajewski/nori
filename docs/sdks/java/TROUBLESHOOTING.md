@@ -185,25 +185,25 @@ ping -c 10 server-host
 
 1. **Large values**:
 ```java
-// ❌ Bad: Storing large values
+//  Bad: Storing large values
 byte[] huge = new byte[100 * 1024 * 1024]; // 100 MB
 client.put(key, huge, null);
 
-// ✅ Good: Keep values small
+//  Good: Keep values small
 byte[] reasonable = new byte[10 * 1024]; // 10 KB
 client.put(key, reasonable, null);
 ```
 
 2. **Not closing clients**:
 ```java
-// ❌ Bad: Leaking clients
+//  Bad: Leaking clients
 public void handleRequest() {
     NoriKVClient client = new NoriKVClient(config);
     client.get(key, null);
     // Never closed!
 }
 
-// ✅ Good: Use try-with-resources
+//  Good: Use try-with-resources
 public void handleRequest() {
     try (NoriKVClient client = new NoriKVClient(config)) {
         client.get(key, null);
@@ -213,14 +213,14 @@ public void handleRequest() {
 
 3. **Creating too many clients**:
 ```java
-// ❌ Bad: Client per request
+//  Bad: Client per request
 for (int i = 0; i < 1000; i++) {
     try (NoriKVClient client = new NoriKVClient(config)) {
         client.get(key, null);
     }
 }
 
-// ✅ Good: Reuse single client
+//  Good: Reuse single client
 NoriKVClient client = new NoriKVClient(config);
 for (int i = 0; i < 1000; i++) {
     client.get(key, null);
@@ -265,10 +265,10 @@ for (int attempt = 0; attempt < maxRetries; attempt++) {
 
 2. **Reduce contention**:
 ```java
-// ❌ Bad: Single hot key
+//  Bad: Single hot key
 client.put("global_counter".getBytes(), value, null);
 
-// ✅ Good: Shard across multiple keys
+//  Good: Shard across multiple keys
 int shardId = threadId % 10;
 client.put(("counter_shard_" + shardId).getBytes(), value, null);
 ```
@@ -342,11 +342,11 @@ for (int retry = 0; retry < 10; retry++) {
 
 **Fix**:
 ```java
-// ❌ Bad
+//  Bad
 byte[] key = null;
 client.put(key, value, null); // IllegalArgumentException
 
-// ✅ Good
+//  Good
 byte[] key = "user:123".getBytes(StandardCharsets.UTF_8);
 if (key.length > 0) {
     client.put(key, value, null);
@@ -389,13 +389,13 @@ try {
 
 **Fix**:
 ```java
-// ❌ Wrong
+//  Wrong
 ClientConfig config = ClientConfig.builder()
     .nodes(nodes)
     .totalShards(512) // Cluster has 1024!
     .build();
 
-// ✅ Correct
+//  Correct
 ClientConfig config = ClientConfig.builder()
     .nodes(nodes)
     .totalShards(1024) // Match cluster config
@@ -412,12 +412,12 @@ ClientConfig config = ClientConfig.builder()
 
 **Fix**:
 ```java
-// ❌ Bad: Missing nodes
+//  Bad: Missing nodes
 ClientConfig config = ClientConfig.builder()
     .nodes(Arrays.asList("node1:9001")) // Only 1 of 3 nodes!
     .build();
 
-// ✅ Good: All nodes
+//  Good: All nodes
 ClientConfig config = ClientConfig.builder()
     .nodes(Arrays.asList(
         "node1:9001",
@@ -435,13 +435,13 @@ ClientConfig config = ClientConfig.builder()
 
 **Fix**:
 ```java
-// ❌ Too many retries
+//  Too many retries
 RetryConfig config = RetryConfig.builder()
     .maxAttempts(100) // Way too many!
     .maxDelayMs(60000) // 60 second backoff!
     .build();
 
-// ✅ Reasonable
+//  Reasonable
 RetryConfig config = RetryConfig.builder()
     .maxAttempts(5)
     .initialDelayMs(100)
@@ -550,22 +550,22 @@ LatencyMonitor.measureOperation("PUT", () -> {
 ### 1. Not Using UTF-8 Encoding
 
 ```java
-// ❌ Bad: Platform default encoding
+//  Bad: Platform default encoding
 byte[] key = "user:123".getBytes();
 
-// ✅ Good: Explicit UTF-8
+//  Good: Explicit UTF-8
 byte[] key = "user:123".getBytes(StandardCharsets.UTF_8);
 ```
 
 ### 2. Forgetting to Close Client
 
 ```java
-// ❌ Bad: Resource leak
+//  Bad: Resource leak
 NoriKVClient client = new NoriKVClient(config);
 client.get(key, null);
 // Never closed!
 
-// ✅ Good: Always close
+//  Good: Always close
 try (NoriKVClient client = new NoriKVClient(config)) {
     client.get(key, null);
 } // Automatically closed
@@ -574,14 +574,14 @@ try (NoriKVClient client = new NoriKVClient(config)) {
 ### 3. Creating Client Per Request
 
 ```java
-// ❌ Bad: Expensive
+//  Bad: Expensive
 public void handleRequest() {
     try (NoriKVClient client = new NoriKVClient(config)) {
         client.get(key, null);
     }
 }
 
-// ✅ Good: Reuse client
+//  Good: Reuse client
 private final NoriKVClient client = new NoriKVClient(config);
 
 public void handleRequest() {
@@ -592,14 +592,14 @@ public void handleRequest() {
 ### 4. Not Handling Version Conflicts
 
 ```java
-// ❌ Bad: No retry
+//  Bad: No retry
 try {
     client.put(key, newValue, casOptions);
 } catch (VersionMismatchException e) {
     // Just fail? Should retry!
 }
 
-// ✅ Good: Retry with backoff
+//  Good: Retry with backoff
 for (int i = 0; i < maxRetries; i++) {
     try {
         GetResult current = client.get(key, null);
@@ -618,7 +618,7 @@ for (int i = 0; i < maxRetries; i++) {
 ### 5. Ignoring Client Statistics
 
 ```java
-// ✅ Monitor health
+//  Monitor health
 ClientStats stats = client.getStats();
 if (stats.isClosed()) {
     throw new IllegalStateException("Client is closed!");
@@ -632,12 +632,12 @@ if (stats.getPoolStats().getActiveChannels() == 0) {
 ### 6. Using Wrong Consistency Level
 
 ```java
-// ❌ Bad: Always linearizable (slow)
+//  Bad: Always linearizable (slow)
 GetOptions options = GetOptions.builder()
     .consistency(ConsistencyLevel.LINEARIZABLE)
     .build();
 
-// ✅ Good: Use appropriate level
+//  Good: Use appropriate level
 // - LEASE (default): Most operations
 // - LINEARIZABLE: Critical reads only
 // - STALE_OK: Caching, read-heavy
@@ -646,13 +646,13 @@ GetOptions options = GetOptions.builder()
 ### 7. Not Setting Timeouts
 
 ```java
-// ❌ Bad: Default might be too short/long
+//  Bad: Default might be too short/long
 ClientConfig config = ClientConfig.builder()
     .nodes(nodes)
     .totalShards(1024)
     .build(); // Uses default 5s
 
-// ✅ Good: Set appropriate timeout
+//  Good: Set appropriate timeout
 ClientConfig config = ClientConfig.builder()
     .nodes(nodes)
     .totalShards(1024)
@@ -663,11 +663,11 @@ ClientConfig config = ClientConfig.builder()
 ### 8. Large Keys
 
 ```java
-// ❌ Bad: Huge keys
+//  Bad: Huge keys
 String hugeKey = "x".repeat(1000000); // 1MB key!
 client.put(hugeKey.getBytes(), value, null);
 
-// ✅ Good: Reasonable key sizes
+//  Good: Reasonable key sizes
 String key = "user:123"; // < 1KB
 client.put(key.getBytes(StandardCharsets.UTF_8), value, null);
 ```

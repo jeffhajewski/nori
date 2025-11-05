@@ -602,7 +602,7 @@ with ThreadPoolExecutor() as executor:
 ### 1. Reuse Client Instances
 
 ```python
-# ✅ Good: Reuse client
+#  Good: Reuse client
 class Application:
     def __init__(self):
         self.client = NoriKVClient(config)
@@ -610,7 +610,7 @@ class Application:
     async def handle_request(self):
         await self.client.put(key, value)
 
-# ❌ Bad: Create client per request
+#  Bad: Create client per request
 async def handle_request():
     async with NoriKVClient(config) as client:
         await client.put(key, value)
@@ -628,10 +628,10 @@ await asyncio.gather(
 ### 3. Use bytes Directly
 
 ```python
-# ✅ Good: No encoding overhead
+#  Good: No encoding overhead
 await client.put(b"key", b"value")
 
-# ❌ Less efficient: Encoding overhead
+#  Less efficient: Encoding overhead
 await client.put("key", "value")
 ```
 

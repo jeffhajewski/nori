@@ -370,11 +370,11 @@ async def get_with_fallback(
 ### 1. Use Context Managers
 
 ```python
-# ✅ Good: Context manager ensures cleanup
+#  Good: Context manager ensures cleanup
 async with NoriKVClient(config) as client:
     await client.put(key, value)
 
-# ❌ Bad: Manual cleanup required
+#  Bad: Manual cleanup required
 client = NoriKVClient(config)
 await client.connect()
 await client.put(key, value)
@@ -384,7 +384,7 @@ await client.close()
 ### 2. Reuse Client Instances
 
 ```python
-# ✅ Good: Single client instance
+#  Good: Single client instance
 client: NoriKVClient | None = None
 
 async def init():
@@ -393,7 +393,7 @@ async def init():
     client = NoriKVClient(config)
     await client.connect()
 
-# ❌ Bad: Creating client per request
+#  Bad: Creating client per request
 async def handle_request():
     async with NoriKVClient(config) as client:
         await client.put(key, value)
@@ -434,13 +434,13 @@ async def safe_get(key: str) -> str | None:
 ### 5. Use asyncio Consistently
 
 ```python
-# ✅ Good: Clean async/await
+#  Good: Clean async/await
 async def process_user(user_id: str):
     user_data = await client.get(f"user:{user_id}")
     processed = await process_data(user_data.value)
     await client.put(f"processed:{user_id}", processed)
 
-# ❌ Bad: Mixing sync and async
+#  Bad: Mixing sync and async
 def process_user_bad(user_id: str):
     loop = asyncio.get_event_loop()
     user_data = loop.run_until_complete(client.get(f"user:{user_id}"))

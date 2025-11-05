@@ -232,7 +232,7 @@ All client components are goroutine-safe:
 ### Concurrency Design
 
 ```go
-// ✅ Safe: Single client, multiple goroutines
+//  Safe: Single client, multiple goroutines
 client, _ := norikv.NewClient(ctx, config)
 
 var wg sync.WaitGroup

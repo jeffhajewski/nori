@@ -300,17 +300,17 @@ const transport = new GrpcWebFetchTransport({
 ### 1. Not awaiting promises
 
 ```typescript
-// ❌ Bad
+//  Bad
 client.put(key, value); // Promise ignored
 
-// ✅ Good
+//  Good
 await client.put(key, value);
 ```
 
 ### 2. Creating client per request
 
 ```typescript
-// ❌ Bad
+//  Bad
 async function handleRequest() {
   const client = new NoriKVClient(config);
   await client.connect();
@@ -318,7 +318,7 @@ async function handleRequest() {
   await client.close(); // Expensive!
 }
 
-// ✅ Good
+//  Good
 const client = new NoriKVClient(config);
 await client.connect();
 // Reuse client across requests
@@ -327,10 +327,10 @@ await client.connect();
 ### 3. Not handling errors
 
 ```typescript
-// ❌ Bad
+//  Bad
 const result = await client.get(key); // May throw
 
-// ✅ Good
+//  Good
 try {
   const result = await client.get(key);
 } catch (err) {
@@ -344,14 +344,14 @@ try {
 ### 4. Mixing callbacks and async/await
 
 ```typescript
-// ❌ Bad
+//  Bad
 client.put(key, value).then(() => {
   client.get(key).then(result => {
     console.log(result);
   });
 });
 
-// ✅ Good
+//  Good
 const version = await client.put(key, value);
 const result = await client.get(key);
 console.log(result);

@@ -12,13 +12,13 @@ Pythonic async client for NoriKV with type hints and context managers.
 
 ## Status
 
-**✅ PRODUCTION READY** - Fully functional Python SDK
+** PRODUCTION READY** - Fully functional Python SDK
 
-- ✅ **40 tests passing** with comprehensive coverage
-- ✅ Async/await API built on asyncio
-- ✅ Full type hints for mypy checking
-- ✅ Context managers for automatic cleanup
-- ✅ Cross-SDK hash validation passing
+-  **40 tests passing** with comprehensive coverage
+-  Async/await API built on asyncio
+-  Full type hints for mypy checking
+-  Context managers for automatic cleanup
+-  Cross-SDK hash validation passing
 
 ## Quick Start
 
@@ -67,21 +67,21 @@ asyncio.run(main())
 ## Features
 
 ### Core Features
-- ✅ Smart client-side routing
-- ✅ Leader-aware routing with failover
-- ✅ Automatic retries with exponential backoff
-- ✅ Idempotency support
-- ✅ CAS operations with version matching
-- ✅ Multiple consistency levels
-- ✅ Connection pooling
-- ✅ Topology tracking
+-  Smart client-side routing
+-  Leader-aware routing with failover
+-  Automatic retries with exponential backoff
+-  Idempotency support
+-  CAS operations with version matching
+-  Multiple consistency levels
+-  Connection pooling
+-  Topology tracking
 
 ### Python-Specific
-- ✅ Async/await API with asyncio
-- ✅ Type hints throughout
-- ✅ Context managers (async with)
-- ✅ Pythonic API following PEP 8
-- ✅ Compatible with type checkers (mypy, pyright)
+-  Async/await API with asyncio
+-  Type hints throughout
+-  Context managers (async with)
+-  Pythonic API following PEP 8
+-  Compatible with type checkers (mypy, pyright)
 
 ## Requirements
 

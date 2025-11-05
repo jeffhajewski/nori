@@ -396,10 +396,10 @@ try (NoriKVClient client = new NoriKVClient(config)) {
 Clients are thread-safe and should be reused:
 
 ```java
-// ✅ Good: Single client instance
+//  Good: Single client instance
 private final NoriKVClient client = new NoriKVClient(config);
 
-// ❌ Bad: Creating client per request
+//  Bad: Creating client per request
 public void handleRequest() {
     try (NoriKVClient client = new NoriKVClient(config)) {
         // ...

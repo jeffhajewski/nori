@@ -16,10 +16,10 @@ All SDKs provide the same core functionality with language-specific idioms and o
 
 | SDK | Status | Tests | Documentation | Best For |
 |-----|--------|-------|---------------|----------|
-| [Java](./java/) | ✅ Production Ready | 123/123 (100%) | Excellent | Enterprise apps, Android |
-| [Go](./go/) | ✅ Production Ready | 102+ passing | Excellent | High-performance services |
-| [TypeScript](./typescript/) | ✅ Production Ready | 100+ passing | Good | Node.js, web apps |
-| [Python](./python/) | ✅ Production Ready | 40 passing | Good | Data science, scripting |
+| [Java](./java/) |  Production Ready | 123/123 (100%) | Excellent | Enterprise apps, Android |
+| [Go](./go/) |  Production Ready | 102+ passing | Excellent | High-performance services |
+| [TypeScript](./typescript/) |  Production Ready | 100+ passing | Good | Node.js, web apps |
+| [Python](./python/) |  Production Ready | 40 passing | Good | Data science, scripting |
 
 ## Quick Start by Language
 
@@ -104,14 +104,14 @@ async with NoriKVClient(config) as client:
 
 All SDKs support:
 
-✅ **Smart Routing** - Direct requests to shard leaders
-✅ **Automatic Retries** - Exponential backoff with jitter
-✅ **Connection Pooling** - Efficient resource management
-✅ **CAS Operations** - Compare-and-swap for optimistic locking
-✅ **TTL Support** - Automatic key expiration
-✅ **Consistency Levels** - Lease, linearizable, or stale reads
-✅ **Idempotency Keys** - Safe retry semantics
-✅ **Topology Tracking** - React to cluster changes
+ **Smart Routing** - Direct requests to shard leaders
+ **Automatic Retries** - Exponential backoff with jitter
+ **Connection Pooling** - Efficient resource management
+ **CAS Operations** - Compare-and-swap for optimistic locking
+ **TTL Support** - Automatic key expiration
+ **Consistency Levels** - Lease, linearizable, or stale reads
+ **Idempotency Keys** - Safe retry semantics
+ **Topology Tracking** - React to cluster changes
 
 ## Choosing an SDK
 

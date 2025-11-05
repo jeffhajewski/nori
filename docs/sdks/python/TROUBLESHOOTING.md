@@ -454,23 +454,23 @@ pip show norikv
 ### 1. Not awaiting async functions
 
 ```python
-# ❌ Bad
+#  Bad
 client.put(key, value)  # Returns coroutine, not executed
 
-# ✅ Good
+#  Good
 await client.put(key, value)
 ```
 
 ### 2. Creating client per request
 
 ```python
-# ❌ Bad
+#  Bad
 async def handle_request():
     async with NoriKVClient(config) as client:
         await client.put(key, value)
     # Closes connections!
 
-# ✅ Good
+#  Good
 client = NoriKVClient(config)
 await client.connect()
 # Reuse client across requests
@@ -479,10 +479,10 @@ await client.connect()
 ### 3. Not handling errors
 
 ```python
-# ❌ Bad
+#  Bad
 result = await client.get(key)  # May raise
 
-# ✅ Good
+#  Good
 try:
     result = await client.get(key)
 except KeyNotFoundError:
@@ -492,12 +492,12 @@ except KeyNotFoundError:
 ### 4. Blocking the event loop
 
 ```python
-# ❌ Bad
+#  Bad
 async def handler():
     time.sleep(1)  # Blocks event loop
     await client.put(key, value)
 
-# ✅ Good
+#  Good
 async def handler():
     await asyncio.sleep(1)  # Non-blocking
     await client.put(key, value)
@@ -506,13 +506,13 @@ async def handler():
 ### 5. Not using context managers
 
 ```python
-# ❌ Bad
+#  Bad
 client = NoriKVClient(config)
 await client.connect()
 await client.put(key, value)
 # Forgot to close!
 
-# ✅ Good
+#  Good
 async with NoriKVClient(config) as client:
     await client.put(key, value)
 ```

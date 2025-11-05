@@ -229,7 +229,7 @@ All client components are thread-safe:
 ### Concurrency Design
 
 ```java
-// ✅ Safe: Single client, multiple threads
+//  Safe: Single client, multiple threads
 NoriKVClient client = new NoriKVClient(config);
 
 ExecutorService executor = Executors.newFixedThreadPool(10);

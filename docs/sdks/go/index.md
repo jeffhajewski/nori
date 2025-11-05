@@ -12,13 +12,13 @@ High-performance Go client for NoriKV with zero-allocation routing and comprehen
 
 ## Status
 
-**✅ PRODUCTION READY** - Fully functional Go SDK
+** PRODUCTION READY** - Fully functional Go SDK
 
-- ✅ **102+ tests passing** with full coverage
-- ✅ Zero-allocation routing hot path (23ns/op, 0 allocs)
-- ✅ Complete API with all operations
-- ✅ Comprehensive documentation (4 detailed guides)
-- ✅ Cross-SDK hash validation passing
+-  **102+ tests passing** with full coverage
+-  Zero-allocation routing hot path (23ns/op, 0 allocs)
+-  Complete API with all operations
+-  Comprehensive documentation (4 detailed guides)
+-  Cross-SDK hash validation passing
 
 ## Quick Start
 
@@ -107,23 +107,23 @@ The Go SDK includes comprehensive documentation:
 ## Features
 
 ### Core Features
-- ✅ Smart client-side routing
-- ✅ Leader-aware routing with failover
-- ✅ Retry logic with exponential backoff
-- ✅ Idempotency support
-- ✅ Conditional operations (CAS)
-- ✅ Multiple consistency levels
-- ✅ Connection pooling
-- ✅ Topology tracking
-- ✅ Goroutine-safe operations
+-  Smart client-side routing
+-  Leader-aware routing with failover
+-  Retry logic with exponential backoff
+-  Idempotency support
+-  Conditional operations (CAS)
+-  Multiple consistency levels
+-  Connection pooling
+-  Topology tracking
+-  Goroutine-safe operations
 
 ### Go-Specific
-- ✅ Context-aware operations
-- ✅ Zero-allocation routing (0 B/op, 0 allocs/op)
-- ✅ Single-flight pattern for leader discovery
-- ✅ defer-based resource management
-- ✅ Native error wrapping
-- ✅ Efficient concurrency with goroutines
+-  Context-aware operations
+-  Zero-allocation routing (0 B/op, 0 allocs/op)
+-  Single-flight pattern for leader discovery
+-  defer-based resource management
+-  Native error wrapping
+-  Efficient concurrency with goroutines
 
 ## Performance
 

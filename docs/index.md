@@ -70,10 +70,10 @@ Deploy and manage NoriKV:
 
 | Language | Status | Tests | Documentation |
 |----------|--------|-------|---------------|
-| [Java](./sdks/java/) | ✅ Production | 123/123 | Excellent |
-| [Go](./sdks/go/) | ✅ Production | 102+ | Excellent |
-| [TypeScript](./sdks/typescript/) | ✅ Production | 100+ | Good |
-| [Python](./sdks/python/) | ✅ Production | 40 | Good |
+| [Java](./sdks/java/) |  Production | 123/123 | Excellent |
+| [Go](./sdks/go/) |  Production | 102+ | Excellent |
+| [TypeScript](./sdks/typescript/) |  Production | 100+ | Good |
+| [Python](./sdks/python/) |  Production | 40 | Good |
 
 ### Installation
 

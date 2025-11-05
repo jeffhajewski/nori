@@ -666,7 +666,7 @@ except NoriKVError as err:
 ### 1. Handle Specific Errors
 
 ```python
-# ✅ Good: Handle specific errors
+#  Good: Handle specific errors
 try:
     result = await client.get(key)
 except KeyNotFoundError:
@@ -675,7 +675,7 @@ except VersionMismatchError:
     # Retry with updated version
     pass
 
-# ❌ Bad: Catch all exceptions
+#  Bad: Catch all exceptions
 try:
     result = await client.get(key)
 except Exception:

@@ -47,9 +47,10 @@ impl Kv for KvService {
             .await
         {
             Ok(index) => {
-                // Success - return version
+                // Success - return version with actual term and index
+                let term = self.replicated_lsm.raft().current_term();
                 let version = Some(proto::Version {
-                    term: 0, // TODO: Get actual term from Raft
+                    term: term.as_u64(),
                     index: index.0,
                 });
 
@@ -100,11 +101,15 @@ impl Kv for KvService {
         // Attempt the get operation
         match self.replicated_lsm.replicated_get(&req.key).await {
             Ok(Some(value)) => {
+                // Get current term and commit index for linearizable read
+                let term = self.replicated_lsm.raft().current_term();
+                let commit_index = self.replicated_lsm.raft().commit_index();
+
                 Ok(Response::new(proto::GetResponse {
                     value: value.to_vec(),
                     version: Some(proto::Version {
-                        term: 0, // TODO: Get actual term
-                        index: 0, // TODO: Get actual index
+                        term: term.as_u64(),
+                        index: commit_index.as_u64(),
                     }),
                     meta: std::collections::HashMap::new(),
                 }))
@@ -161,9 +166,17 @@ impl Kv for KvService {
             .replicated_delete(bytes::Bytes::from(req.key))
             .await
         {
-            Ok(_index) => {
+            Ok(index) => {
+                // Success - return version with actual term and index
+                let term = self.replicated_lsm.raft().current_term();
+                let version = Some(proto::Version {
+                    term: term.as_u64(),
+                    index: index.0,
+                });
+
                 Ok(Response::new(proto::DeleteResponse {
                     tombstoned: true,
+                    version,
                 }))
             }
             Err(e) => {
@@ -175,6 +188,7 @@ impl Kv for KvService {
 
                     let mut response = Response::new(proto::DeleteResponse {
                         tombstoned: false,
+                        version: None,
                     });
 
                     if !leader_hint.is_empty() {

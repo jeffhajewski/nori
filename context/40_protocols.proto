@@ -10,7 +10,7 @@ message PutResponse { Version version = 1; map<string,string> meta = 2; }
 message GetRequest { bytes key = 1; string consistency = 2; }
 message GetResponse { bytes value = 1; Version version = 2; map<string,string> meta = 3; }
 message DeleteRequest { bytes key = 1; string idempotency_key = 2; Version if_match = 3; }
-message DeleteResponse { bool tombstoned = 1; }
+message DeleteResponse { bool tombstoned = 1; Version version = 2; }
 message ClusterNode { string id = 1; string addr = 2; string role = 3; }
 message ShardReplica { string node_id = 1; bool leader = 2; }
 message ShardInfo { uint32 id = 1; repeated ShardReplica replicas = 2; }

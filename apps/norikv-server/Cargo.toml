@@ -8,6 +8,7 @@ publish = false
 nori-observe = { path = "../../crates/nori-observe" }
 nori-lsm = { path = "../../crates/nori-lsm" }
 nori-raft = { path = "../../crates/nori-raft" }
+nori-swim = { path = "../../crates/nori-swim" }
 norikv-transport-grpc = { path = "../../crates/norikv-transport-grpc" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 serde = { version = "1", features = ["derive"] }

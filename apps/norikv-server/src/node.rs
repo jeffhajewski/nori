@@ -5,6 +5,7 @@
 use crate::config::ServerConfig;
 use nori_lsm::ATLLConfig;
 use nori_raft::{log::RaftLog, transport::RpcMessage, ConfigEntry, NodeId, RaftConfig, ReplicatedLSM};
+use nori_swim::{Membership, SwimMembership};
 use norikv_transport_grpc::{GrpcRaftTransport, GrpcServer};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,6 +23,9 @@ pub struct Node {
 
     /// Raft RPC receiver channel (if multi-node)
     raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
+
+    /// SWIM membership (optional, for multi-node clusters)
+    swim: Option<Arc<SwimMembership>>,
 
     /// gRPC server (optional, created on start)
     grpc_server: Option<GrpcServer>,
@@ -146,10 +150,24 @@ impl Node {
 
         tracing::info!("ReplicatedLSM created successfully");
 
+        // Create SWIM membership if multi-node
+        let swim = if !is_single_node {
+            tracing::info!("Creating SWIM membership for cluster");
+            let swim_addr = config.rpc_addr.parse().map_err(|e| {
+                NodeError::Initialization(format!("Invalid rpc_addr for SWIM: {}", e))
+            })?;
+            let swim = Arc::new(SwimMembership::new(config.node_id.clone(), swim_addr));
+            Some(swim)
+        } else {
+            tracing::info!("Single-node mode: SWIM membership disabled");
+            None
+        };
+
         Ok(Self {
             config,
             replicated_lsm: Arc::new(replicated_lsm),
             raft_rpc_tx,
+            swim,
             grpc_server: None,
         })
     }
@@ -201,7 +219,30 @@ impl Node {
         tracing::info!("gRPC server started on {}", addr);
         self.grpc_server = Some(grpc_server);
 
-        // TODO: Join SWIM cluster
+        // Start SWIM membership and join cluster
+        if let Some(swim) = &self.swim {
+            tracing::info!("Starting SWIM membership");
+            swim.start().await
+                .map_err(|e| NodeError::Startup(format!("Failed to start SWIM: {:?}", e)))?;
+
+            // Join cluster via seed nodes
+            if !self.config.cluster.seed_nodes.is_empty() {
+                for seed in &self.config.cluster.seed_nodes {
+                    let seed_addr = seed.parse().map_err(|e| {
+                        NodeError::Startup(format!("Invalid seed node address: {}", e))
+                    })?;
+
+                    tracing::info!("Joining cluster via seed: {}", seed_addr);
+                    swim.join(seed_addr).await
+                        .map_err(|e| NodeError::Startup(format!("Failed to join cluster: {:?}", e)))?;
+
+                    // For now, just join one seed successfully
+                    break;
+                }
+            }
+
+            tracing::info!("SWIM membership initialized");
+        }
 
         Ok(())
     }
@@ -223,7 +264,13 @@ impl Node {
             tracing::info!("gRPC server shutdown complete");
         }
 
-        // TODO: SWIM leave
+        // SWIM leave
+        if let Some(swim) = &self.swim {
+            tracing::info!("Leaving SWIM cluster");
+            swim.shutdown().await
+                .map_err(|e| NodeError::Shutdown(format!("Failed to shutdown SWIM: {:?}", e)))?;
+            tracing::info!("SWIM shutdown complete");
+        }
 
         // Shutdown ReplicatedLSM
         self.replicated_lsm

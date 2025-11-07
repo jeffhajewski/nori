@@ -85,30 +85,61 @@ impl LsmStateMachine {
 
     /// Create a snapshot of the LSM state.
     ///
-    /// For now, returns empty snapshot. Full snapshot support would require:
-    /// - Iterating over all LSM levels
-    /// - Serializing SSTable file references
-    /// - Pausing compaction during snapshot
+    /// Serializes the current manifest snapshot, which includes:
+    /// - Version and sequence numbers
+    /// - All SSTable file references and metadata
+    /// - Level structure and key ranges
     ///
-    /// TODO: Implement full snapshot in Phase 4 of integration.
+    /// The snapshot captures a consistent point-in-time view of the LSM tree.
     pub fn create_snapshot(&self) -> Result<Bytes> {
-        // Placeholder: empty snapshot
-        // In production, this would serialize the manifest + SSTable references
-        Ok(Bytes::new())
+        // Get the current manifest snapshot (consistent view of all SSTables)
+        let manifest_snapshot = {
+            let manifest = self.engine.manifest.read();
+            let snapshot_arc = manifest.snapshot();
+            let snapshot_guard = snapshot_arc.read().expect("RwLock poisoned");
+            (*snapshot_guard).clone()
+        };
+
+        // Serialize using bincode (same as used for commands)
+        bincode::serialize(&manifest_snapshot)
+            .map(Bytes::from)
+            .map_err(|e| Error::Internal(format!("Failed to serialize snapshot: {}", e)))
     }
 
     /// Restore LSM state from a snapshot.
     ///
-    /// For now, does nothing. Full restore would require:
-    /// - Deserializing manifest
-    /// - Copying/linking SSTable files
-    /// - Rebuilding memtable
+    /// Deserializes and validates the snapshot. Full restoration would require:
+    /// - Ensuring all SSTable files referenced in snapshot exist on disk
+    /// - Stopping ongoing compactions
+    /// - Clearing memtable and WAL
+    /// - Applying manifest snapshot atomically
     ///
-    /// TODO: Implement full restore in Phase 4 of integration.
-    pub fn restore_snapshot(&mut self, _snapshot: &[u8]) -> Result<()> {
-        // Placeholder: no-op
-        // In production, this would restore manifest + SSTable files
-        Ok(())
+    /// For now, this validates deserialization and logs snapshot metadata.
+    /// File transfer and atomic restoration will be implemented when needed.
+    pub fn restore_snapshot(&mut self, snapshot: &[u8]) -> Result<()> {
+        // Deserialize the manifest snapshot
+        let manifest_snapshot: crate::manifest::ManifestSnapshot = bincode::deserialize(snapshot)
+            .map_err(|e| Error::Internal(format!("Failed to deserialize snapshot: {}", e)))?;
+
+        tracing::info!(
+            "Snapshot deserialized: version={}, files={}, levels={}",
+            manifest_snapshot.version,
+            manifest_snapshot.all_files().len(),
+            manifest_snapshot.levels.len()
+        );
+
+        // TODO: Full restoration requires:
+        // 1. Verify all SSTable files exist (or transfer them via Raft InstallSnapshot)
+        // 2. Stop compaction tasks
+        // 3. Clear memtable and WAL
+        // 4. Atomically replace manifest snapshot
+        // 5. Restart compaction
+
+        tracing::warn!("restore_snapshot: full restoration not yet implemented");
+
+        Err(Error::Internal(
+            "Snapshot restoration not fully implemented - requires SSTable file transfer".to_string()
+        ))
     }
 }
 
@@ -195,11 +226,19 @@ mod tests {
         let (engine, _temp) = create_test_engine().await;
         let mut sm = LsmStateMachine::new(engine);
 
-        // Create snapshot (currently no-op)
+        // Create snapshot - should serialize manifest
         let snapshot = sm.create_snapshot().unwrap();
-        assert_eq!(snapshot.len(), 0);
+        assert!(snapshot.len() > 0, "Snapshot should contain serialized manifest");
 
-        // Restore snapshot (currently no-op)
-        sm.restore_snapshot(&snapshot).unwrap();
+        // Restore snapshot - should deserialize but not fully restore
+        let result = sm.restore_snapshot(&snapshot);
+        assert!(
+            result.is_err(),
+            "Restore should fail with unimplemented error"
+        );
+        assert!(
+            result.unwrap_err().to_string().contains("not fully implemented"),
+            "Error should indicate incomplete implementation"
+        );
     }
 }

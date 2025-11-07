@@ -390,3 +390,160 @@ async fn test_delete_replication() {
 
     tracing::info!("=== Delete replication test completed successfully ===");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_snapshot_creation() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_test_writer()
+        .try_init()
+        .ok();
+
+    tracing::info!("=== Testing snapshot creation in cluster ===");
+
+    // Create temporary directories
+    let temp_dir1 = TempDir::new().unwrap();
+    let temp_dir2 = TempDir::new().unwrap();
+
+    let data_dir1 = temp_dir1.path().to_path_buf();
+    let data_dir2 = temp_dir2.path().to_path_buf();
+
+    let port1 = 19031;
+    let port2 = 19032;
+
+    let seed_nodes1 = vec![format!("127.0.0.1:{}", port2)];
+    let seed_nodes2 = vec![format!("127.0.0.1:{}", port1)];
+
+    let config1 = create_test_config("node0", port1, seed_nodes1, data_dir1);
+    let config2 = create_test_config("node1", port2, seed_nodes2, data_dir2);
+
+    tracing::info!("Creating nodes...");
+
+    let mut node1 = Node::new(config1).await.unwrap();
+    let mut node2 = Node::new(config2).await.unwrap();
+
+    tracing::info!("Starting nodes...");
+
+    node1.start().await.unwrap();
+    node2.start().await.unwrap();
+
+    // Wait for leader election
+    sleep(Duration::from_secs(2)).await;
+
+    let is_leader1 = node1.replicated_lsm().is_leader();
+    let is_leader2 = node2.replicated_lsm().is_leader();
+
+    tracing::info!(
+        "Leadership state: node1={}, node2={}",
+        is_leader1,
+        is_leader2
+    );
+
+    // Pick a leader node for testing (tolerate split-brain for now)
+    let leader = if is_leader1 { &node1 } else { &node2 };
+
+    tracing::info!("Writing data to leader...");
+
+    // Write multiple keys to build up state
+    for i in 0..50 {
+        let key = Bytes::from(format!("snapshot_key_{}", i));
+        let value = Bytes::from(format!("snapshot_value_{}", i));
+
+        leader
+            .replicated_lsm()
+            .replicated_put(key, value, None)
+            .await
+            .expect("Write failed");
+    }
+
+    // Wait for replication
+    sleep(Duration::from_secs(1)).await;
+
+    tracing::info!("Creating snapshot...");
+
+    // Access the LSM engine to create a snapshot of the manifest
+    // Note: This demonstrates the snapshot API works in a cluster context
+    let lsm_engine = leader.replicated_lsm().lsm();
+
+    // Create a snapshot of the LSM manifest
+    let snapshot_result = lsm_engine.snapshot().await;
+
+    match snapshot_result {
+        Ok(snapshot_stream) => {
+            // Read the snapshot data
+            use std::io::Read;
+            let mut snapshot_data = String::new();
+            let mut reader = snapshot_stream;
+            reader.read_to_string(&mut snapshot_data)
+                .expect("Failed to read snapshot");
+
+            tracing::info!("✓ Snapshot created: {} bytes", snapshot_data.len());
+
+            assert!(
+                snapshot_data.len() > 0,
+                "Snapshot should contain manifest data"
+            );
+
+            // Verify the snapshot contains manifest information
+            assert!(
+                snapshot_data.contains("ManifestSnapshot") || snapshot_data.contains("version"),
+                "Snapshot should contain manifest metadata"
+            );
+
+            tracing::info!("✓ Snapshot contains valid manifest data");
+
+            // Verify we can still read data after snapshot
+            let test_key = Bytes::from("snapshot_key_25");
+            let test_value = leader
+                .replicated_lsm()
+                .replicated_get(test_key.as_ref())
+                .await
+                .expect("Read failed");
+
+            assert_eq!(
+                test_value,
+                Some(Bytes::from("snapshot_value_25")),
+                "Data should still be readable after snapshot"
+            );
+
+            tracing::info!("✓ Data readable after snapshot creation");
+        }
+        Err(e) => {
+            panic!("Snapshot creation failed: {:?}", e);
+        }
+    }
+
+    // Verify writes still work after snapshot
+    tracing::info!("Testing writes after snapshot...");
+
+    let post_snapshot_key = Bytes::from("post_snapshot_key");
+    let post_snapshot_value = Bytes::from("post_snapshot_value");
+
+    leader
+        .replicated_lsm()
+        .replicated_put(post_snapshot_key.clone(), post_snapshot_value.clone(), None)
+        .await
+        .expect("Write after snapshot failed");
+
+    sleep(Duration::from_millis(500)).await;
+
+    let result = leader
+        .replicated_lsm()
+        .replicated_get(post_snapshot_key.as_ref())
+        .await
+        .expect("Read failed");
+
+    assert_eq!(
+        result,
+        Some(post_snapshot_value),
+        "Should be able to write after snapshot"
+    );
+
+    tracing::info!("✓ Writes work after snapshot");
+
+    // Cleanup
+    node1.shutdown().await.unwrap();
+    node2.shutdown().await.unwrap();
+
+    tracing::info!("=== Snapshot creation test completed successfully ===");
+}

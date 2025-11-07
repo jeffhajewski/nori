@@ -215,6 +215,54 @@ pub async fn advance_commit_index(state: Arc<RaftState>) -> Result<bool> {
     Ok(false)
 }
 
+/// Send immediate heartbeats to all followers (called after becoming leader).
+///
+/// This prevents split-brain by immediately notifying followers of the new leader,
+/// resetting their election timers before they can timeout and start new elections.
+pub async fn send_immediate_heartbeats(
+    state: Arc<RaftState>,
+    transport: Arc<dyn RaftTransport>,
+) {
+    if state.role() != Role::Leader {
+        return;
+    }
+
+    tracing::debug!("Sending immediate heartbeats to all followers after election");
+
+    // Get list of followers
+    let followers = {
+        let volatile = state.volatile_state().read();
+        let all_nodes = volatile.config.all_nodes();
+        all_nodes
+            .into_iter()
+            .filter(|node| node != state.node_id())
+            .collect::<Vec<_>>()
+    };
+
+    // Replicate to all followers in parallel
+    let mut replicate_futures = Vec::new();
+
+    for follower in followers {
+        let state_clone = state.clone();
+        let transport_clone = transport.clone();
+        let follower_clone = follower.clone();
+
+        let fut = async move {
+            replicate_to_follower(state_clone, &follower_clone, transport_clone).await
+        };
+
+        replicate_futures.push(fut);
+    }
+
+    // Wait for all replication attempts
+    let _results = futures::future::join_all(replicate_futures).await;
+
+    // Try to advance commit index
+    let _ = advance_commit_index(state.clone()).await;
+
+    tracing::debug!("Immediate heartbeats sent");
+}
+
 /// Heartbeat loop for leader.
 ///
 /// Sends AppendEntries (heartbeat or with entries) to all followers

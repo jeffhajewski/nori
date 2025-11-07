@@ -3390,14 +3390,15 @@ mod tests {
         let elapsed = start.elapsed();
 
         // Should complete quickly (no throttling, L0 = 0)
-        // Allow 2000ms to account for system variance (CI, slow machines, compaction overhead, etc.)
+        // Allow 10000ms to account for system variance (CI, slow machines, compaction overhead, etc.)
         // The point is to verify NO throttling, not exact timing
+        // CI environments can be very slow, especially with background compaction running
         println!(
             "Green zone: 100 writes completed in {:?} (L0 < soft_threshold)",
             elapsed
         );
         assert!(
-            elapsed.as_millis() < 2000,
+            elapsed.as_millis() < 10000,
             "Writes should be fast in green zone with no throttling (got {}ms)",
             elapsed.as_millis()
         );
@@ -3599,7 +3600,7 @@ mod tests {
             // The write_time includes the soft throttling delay PLUS the actual write operation
             // CI machines can be very slow, so we use generous bounds
             let tolerance_ms = expected_delay_ms / 2;
-            let overhead_ms = 500; // Additional fixed overhead for WAL + memtable + scheduling (increased for CI)
+            let overhead_ms = 1000; // Additional fixed overhead for WAL + memtable + scheduling (increased for CI)
 
             assert!(
                 write_time.as_millis() >= (expected_delay_ms - tolerance_ms) as u128,

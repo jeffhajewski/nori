@@ -547,3 +547,230 @@ async fn test_snapshot_creation() {
 
     tracing::info!("=== Snapshot creation test completed successfully ===");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_leader_failure_and_recovery() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_test_writer()
+        .try_init()
+        .ok();
+
+    tracing::info!("=== Starting leader failure and recovery test ===");
+
+    // Create temp directories for 3 nodes
+    let temp_dir1 = tempfile::tempdir().unwrap();
+    let temp_dir2 = tempfile::tempdir().unwrap();
+    let temp_dir3 = tempfile::tempdir().unwrap();
+
+    // Configure nodes (same as 3-node test)
+    let data_dir1 = temp_dir1.path().to_path_buf();
+    let data_dir2 = temp_dir2.path().to_path_buf();
+    let data_dir3 = temp_dir3.path().to_path_buf();
+
+    let config1 = create_test_config("node1", 9010, vec![
+        "127.0.0.1:9011".to_string(),
+        "127.0.0.1:9012".to_string(),
+    ], data_dir1);
+
+    let config2 = create_test_config("node2", 9011, vec![
+        "127.0.0.1:9010".to_string(),
+        "127.0.0.1:9012".to_string(),
+    ], data_dir2);
+
+    let config3 = create_test_config("node3", 9012, vec![
+        "127.0.0.1:9010".to_string(),
+        "127.0.0.1:9011".to_string(),
+    ], data_dir3);
+
+    // Create and start all nodes
+    let mut node1 = Node::new(config1).await.unwrap();
+    let mut node2 = Node::new(config2).await.unwrap();
+    let mut node3 = Node::new(config3).await.unwrap();
+
+    node1.start().await.unwrap();
+    node2.start().await.unwrap();
+    node3.start().await.unwrap();
+
+    tracing::info!("All 3 nodes started");
+
+    // Wait for initial leader election
+    sleep(Duration::from_millis(1000)).await;
+
+    // Find the initial leader
+    let is_node1_leader = node1.replicated_lsm().is_leader();
+    let is_node2_leader = node2.replicated_lsm().is_leader();
+    let is_node3_leader = node3.replicated_lsm().is_leader();
+
+    let leader_count = [is_node1_leader, is_node2_leader, is_node3_leader]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+
+    assert_eq!(
+        leader_count, 1,
+        "Expected exactly 1 leader after initial election"
+    );
+
+    tracing::info!(
+        "Initial leader: node1={}, node2={}, node3={}",
+        is_node1_leader, is_node2_leader, is_node3_leader
+    );
+
+    // Write some data to the initial leader
+    let key_before_failure = Bytes::from("key_before_failure");
+    let value_before_failure = Bytes::from("value_before_failure");
+
+    if is_node1_leader {
+        node1
+            .replicated_lsm()
+            .replicated_put(
+                key_before_failure.clone(),
+                value_before_failure.clone(),
+                None,
+            )
+            .await
+            .expect("Write before failure should succeed");
+    } else if is_node2_leader {
+        node2
+            .replicated_lsm()
+            .replicated_put(
+                key_before_failure.clone(),
+                value_before_failure.clone(),
+                None,
+            )
+            .await
+            .expect("Write before failure should succeed");
+    } else {
+        node3
+            .replicated_lsm()
+            .replicated_put(
+                key_before_failure.clone(),
+                value_before_failure.clone(),
+                None,
+            )
+            .await
+            .expect("Write before failure should succeed");
+    }
+
+    tracing::info!("Wrote test data to initial leader");
+
+    // Allow replication to complete
+    sleep(Duration::from_millis(500)).await;
+
+    // Shutdown the leader to simulate failure
+    tracing::info!("Simulating leader failure");
+
+    if is_node1_leader {
+        node1.shutdown().await.unwrap();
+        tracing::info!("Node1 (leader) shut down");
+
+        // Wait for new leader election
+        sleep(Duration::from_millis(1500)).await;
+
+        // Find new leader among node2 and node3
+        let is_node2_new_leader = node2.replicated_lsm().is_leader();
+        let is_node3_new_leader = node3.replicated_lsm().is_leader();
+
+        assert_eq!(
+            [is_node2_new_leader, is_node3_new_leader].iter().filter(|&&x| x).count(),
+            1,
+            "Expected exactly 1 new leader after failure"
+        );
+
+        let new_leader = if is_node2_new_leader { &node2 } else { &node3 };
+
+        // Verify writes work
+        let key_after_failure = Bytes::from("key_after_failure");
+        let value_after_failure = Bytes::from("value_after_failure");
+        new_leader
+            .replicated_lsm()
+            .replicated_put(key_after_failure.clone(), value_after_failure.clone(), None)
+            .await
+            .expect("Write to new leader should succeed");
+
+        // Verify old data still accessible
+        let result = new_leader
+            .replicated_lsm()
+            .replicated_get(key_before_failure.as_ref())
+            .await
+            .expect("Read should succeed");
+        assert_eq!(result, Some(value_before_failure));
+
+        // Cleanup
+        node2.shutdown().await.unwrap();
+        node3.shutdown().await.unwrap();
+    } else if is_node2_leader {
+        node2.shutdown().await.unwrap();
+        tracing::info!("Node2 (leader) shut down");
+
+        sleep(Duration::from_millis(1500)).await;
+
+        let is_node1_new_leader = node1.replicated_lsm().is_leader();
+        let is_node3_new_leader = node3.replicated_lsm().is_leader();
+
+        assert_eq!(
+            [is_node1_new_leader, is_node3_new_leader].iter().filter(|&&x| x).count(),
+            1,
+            "Expected exactly 1 new leader after failure"
+        );
+
+        let new_leader = if is_node1_new_leader { &node1 } else { &node3 };
+
+        let key_after_failure = Bytes::from("key_after_failure");
+        let value_after_failure = Bytes::from("value_after_failure");
+        new_leader
+            .replicated_lsm()
+            .replicated_put(key_after_failure.clone(), value_after_failure.clone(), None)
+            .await
+            .expect("Write to new leader should succeed");
+
+        let result = new_leader
+            .replicated_lsm()
+            .replicated_get(key_before_failure.as_ref())
+            .await
+            .expect("Read should succeed");
+        assert_eq!(result, Some(value_before_failure));
+
+        node1.shutdown().await.unwrap();
+        node3.shutdown().await.unwrap();
+    } else {
+        node3.shutdown().await.unwrap();
+        tracing::info!("Node3 (leader) shut down");
+
+        sleep(Duration::from_millis(1500)).await;
+
+        let is_node1_new_leader = node1.replicated_lsm().is_leader();
+        let is_node2_new_leader = node2.replicated_lsm().is_leader();
+
+        assert_eq!(
+            [is_node1_new_leader, is_node2_new_leader].iter().filter(|&&x| x).count(),
+            1,
+            "Expected exactly 1 new leader after failure"
+        );
+
+        let new_leader = if is_node1_new_leader { &node1 } else { &node2 };
+
+        let key_after_failure = Bytes::from("key_after_failure");
+        let value_after_failure = Bytes::from("value_after_failure");
+        new_leader
+            .replicated_lsm()
+            .replicated_put(key_after_failure.clone(), value_after_failure.clone(), None)
+            .await
+            .expect("Write to new leader should succeed");
+
+        let result = new_leader
+            .replicated_lsm()
+            .replicated_get(key_before_failure.as_ref())
+            .await
+            .expect("Read should succeed");
+        assert_eq!(result, Some(value_before_failure));
+
+        node1.shutdown().await.unwrap();
+        node2.shutdown().await.unwrap();
+    }
+
+    tracing::info!("✓ Leader failure and recovery test passed");
+
+    tracing::info!("=== Leader failure and recovery test completed successfully ===");
+}

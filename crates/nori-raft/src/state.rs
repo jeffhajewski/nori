@@ -274,8 +274,16 @@ impl RaftState {
                 volatile.last_heartbeat = Instant::now();
                 volatile.leader_id = Some(request.leader_id.clone());
 
-                // If we're a candidate, step down to follower
-                if volatile.role == Role::Candidate {
+                // If we're a candidate or leader, step down to follower
+                // (This prevents split-brain when two leaders exist in the same term)
+                if volatile.role == Role::Candidate || volatile.role == Role::Leader {
+                    if volatile.role == Role::Leader {
+                        tracing::warn!(
+                            term = %persistent.current_term,
+                            "Leader stepping down after receiving AppendEntries from {}",
+                            request.leader_id
+                        );
+                    }
                     volatile.role = Role::Follower;
                     volatile.leader_state = None;
                 }

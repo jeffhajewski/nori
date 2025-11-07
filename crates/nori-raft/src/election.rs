@@ -192,6 +192,10 @@ pub async fn election_loop(
                         // Transition to leader
                         if let Err(e) = state.become_leader().await {
                             tracing::error!(error = ?e, "Failed to become leader");
+                        } else {
+                            // Send immediate heartbeats to prevent split-brain
+                            // This resets followers' election timers before they can timeout
+                            crate::replication::send_immediate_heartbeats(state.clone(), transport.clone()).await;
                         }
                     }
                     Ok(ElectionOutcome::Lost { current_term }) => {

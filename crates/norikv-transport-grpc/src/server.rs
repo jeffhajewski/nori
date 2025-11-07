@@ -3,7 +3,12 @@
 use crate::admin::AdminService;
 use crate::kv::KvService;
 use crate::meta::MetaService;
-use crate::proto::{admin_server::AdminServer, kv_server::KvServer, meta_server::MetaServer};
+use crate::raft_service::RaftService;
+use crate::proto::{
+    admin_server::AdminServer, kv_server::KvServer, meta_server::MetaServer,
+    raft_server::RaftServer,
+};
+use nori_raft::transport::RpcMessage;
 use nori_raft::ReplicatedLSM;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -12,10 +17,11 @@ use tonic::transport::Server;
 
 /// gRPC server wrapper.
 ///
-/// Hosts all gRPC services (Kv, Meta, Admin) and manages the server lifecycle.
+/// Hosts all gRPC services (Kv, Meta, Admin, optionally Raft) and manages the server lifecycle.
 pub struct GrpcServer {
     addr: SocketAddr,
     replicated_lsm: Arc<ReplicatedLSM>,
+    raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     server_handle: Option<JoinHandle<Result<(), tonic::transport::Error>>>,
 }
@@ -30,9 +36,21 @@ impl GrpcServer {
         Self {
             addr,
             replicated_lsm,
+            raft_rpc_tx: None,
             shutdown_tx: None,
             server_handle: None,
         }
+    }
+
+    /// Set the Raft RPC channel.
+    ///
+    /// If provided, the Raft service will be enabled and RPCs will be forwarded to this channel.
+    ///
+    /// # Arguments
+    /// - `rpc_tx`: Channel to forward Raft RPCs to Raft core
+    pub fn with_raft_rpc(mut self, rpc_tx: tokio::sync::mpsc::Sender<RpcMessage>) -> Self {
+        self.raft_rpc_tx = Some(rpc_tx);
+        self
     }
 
     /// Start the gRPC server.
@@ -52,13 +70,21 @@ impl GrpcServer {
         self.shutdown_tx = Some(shutdown_tx);
 
         // Build the server
-        let server = Server::builder()
+        let mut server_builder = Server::builder()
             .add_service(KvServer::new(kv_service))
             .add_service(MetaServer::new(meta_service))
-            .add_service(AdminServer::new(admin_service))
-            .serve_with_shutdown(self.addr, async {
-                shutdown_rx.await.ok();
-            });
+            .add_service(AdminServer::new(admin_service));
+
+        // Add Raft service if RPC channel provided
+        if let Some(rpc_tx) = self.raft_rpc_tx.clone() {
+            tracing::info!("Enabling Raft peer-to-peer service");
+            let raft_service = RaftService::new(rpc_tx);
+            server_builder = server_builder.add_service(RaftServer::new(raft_service));
+        }
+
+        let server = server_builder.serve_with_shutdown(self.addr, async {
+            shutdown_rx.await.ok();
+        });
 
         // Spawn server task
         let handle = tokio::spawn(async move {

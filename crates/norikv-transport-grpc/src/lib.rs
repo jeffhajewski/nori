@@ -4,6 +4,7 @@
 //! - Kv: Put, Get, Delete
 //! - Meta: WatchCluster
 //! - Admin: TransferShard, SnapshotShard
+//! - Raft: RequestVote, AppendEntries, InstallSnapshot, ReadIndex
 
 pub mod proto {
     //! Generated protobuf types and service traits.
@@ -13,8 +14,12 @@ pub mod proto {
 pub mod kv;
 pub mod meta;
 pub mod admin;
+pub mod raft;
+pub mod raft_service;
 pub mod server;
 pub mod health;
 
 pub use server::GrpcServer;
 pub use health::{HealthService, HealthStatus};
+pub use raft::GrpcRaftTransport;
+pub use raft_service::RaftService;

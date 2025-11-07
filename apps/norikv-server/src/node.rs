@@ -4,8 +4,8 @@
 
 use crate::config::ServerConfig;
 use nori_lsm::ATLLConfig;
-use nori_raft::{log::RaftLog, ConfigEntry, NodeId, RaftConfig, ReplicatedLSM};
-use norikv_transport_grpc::GrpcServer;
+use nori_raft::{log::RaftLog, transport::RpcMessage, ConfigEntry, NodeId, RaftConfig, ReplicatedLSM};
+use norikv_transport_grpc::{GrpcRaftTransport, GrpcServer};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +19,9 @@ pub struct Node {
 
     /// Replicated LSM (Raft + LSM integration)
     replicated_lsm: Arc<ReplicatedLSM>,
+
+    /// Raft RPC receiver channel (if multi-node)
+    raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
 
     /// gRPC server (optional, created on start)
     grpc_server: Option<GrpcServer>,
@@ -66,19 +69,59 @@ impl Node {
         let mut lsm_config = ATLLConfig::default();
         lsm_config.data_dir = lsm_dir.clone();
 
-        // Create transport (currently in-memory for single-node)
-        // TODO: Replace with TCP transport for multi-node
         let node_id = NodeId::new(&config.node_id);
-        let transport = Arc::new(nori_raft::transport::InMemoryTransport::new(
-            node_id.clone(),
-            HashMap::new(),
-        ));
 
-        // Initial cluster configuration (single node for now)
-        // TODO: Load from config.cluster.seed_nodes
-        let initial_config = ConfigEntry::Single(vec![node_id.clone()]);
+        // Determine cluster mode: single-node or multi-node
+        let is_single_node = config.cluster.seed_nodes.is_empty();
 
-        tracing::info!("Creating ReplicatedLSM");
+        let (transport, initial_config, raft_rpc_tx, raft_rpc_rx) = if is_single_node {
+            tracing::info!("Starting in single-node mode (no seed nodes configured)");
+
+            // Single-node: Use in-memory transport
+            let transport = Arc::new(nori_raft::transport::InMemoryTransport::new(
+                node_id.clone(),
+                HashMap::new(),
+            ));
+            let config = ConfigEntry::Single(vec![node_id.clone()]);
+
+            (transport as Arc<dyn nori_raft::transport::RaftTransport>, config, None, None)
+        } else {
+            tracing::info!("Starting in multi-node mode with {} seed nodes", config.cluster.seed_nodes.len());
+
+            // Multi-node: Use gRPC transport
+            // Build peer address map: NodeId -> "host:port"
+            let mut peer_addrs = HashMap::new();
+
+            // Parse own address from rpc_addr
+            let own_addr = config.rpc_addr.clone();
+            peer_addrs.insert(config.node_id.clone(), own_addr.clone());
+
+            // Add seed nodes (using hostname as node_id for now)
+            // TODO: Use proper node discovery to map node_id -> address
+            for (i, seed) in config.cluster.seed_nodes.iter().enumerate() {
+                let node_name = format!("node{}", i);
+                peer_addrs.insert(node_name.clone(), seed.clone());
+            }
+
+            tracing::info!("Peer addresses configured: {:?}", peer_addrs);
+
+            let transport = Arc::new(GrpcRaftTransport::new(peer_addrs));
+
+            // Build cluster configuration from seed nodes
+            let mut cluster_nodes = vec![node_id.clone()];
+            for (i, _seed) in config.cluster.seed_nodes.iter().enumerate() {
+                cluster_nodes.push(NodeId::new(format!("node{}", i)));
+            }
+
+            let config = ConfigEntry::Single(cluster_nodes);
+
+            // Create RPC receiver channel (bounded, capacity 1000)
+            let (tx, rx) = tokio::sync::mpsc::channel(1000);
+
+            (transport as Arc<dyn nori_raft::transport::RaftTransport>, config, Some(tx), Some(rx))
+        };
+
+        tracing::info!("Creating ReplicatedLSM with initial config: {:?}", initial_config);
 
         // Create ReplicatedLSM
         let replicated_lsm = ReplicatedLSM::new(
@@ -88,7 +131,7 @@ impl Node {
             raft_log,
             transport,
             initial_config,
-            None, // No RPC receiver for single-node
+            raft_rpc_rx,
         )
         .await
         .map_err(|e| {
@@ -100,6 +143,7 @@ impl Node {
         Ok(Self {
             config,
             replicated_lsm: Arc::new(replicated_lsm),
+            raft_rpc_tx,
             grpc_server: None,
         })
     }
@@ -138,6 +182,13 @@ impl Node {
             .map_err(|e| NodeError::Startup(format!("Invalid rpc_addr: {}", e)))?;
 
         let mut grpc_server = GrpcServer::new(addr, self.replicated_lsm.clone());
+
+        // Wire Raft RPC channel if multi-node
+        if let Some(raft_rpc_tx) = self.raft_rpc_tx.clone() {
+            tracing::info!("Enabling Raft peer-to-peer RPC service");
+            grpc_server = grpc_server.with_raft_rpc(raft_rpc_tx);
+        }
+
         grpc_server.start().await
             .map_err(|e| NodeError::Startup(format!("Failed to start gRPC server: {:?}", e)))?;
 

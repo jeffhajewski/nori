@@ -105,12 +105,18 @@ impl Node {
 
             tracing::info!("Peer addresses configured: {:?}", peer_addrs);
 
-            let transport = Arc::new(GrpcRaftTransport::new(peer_addrs));
+            let transport = Arc::new(GrpcRaftTransport::new(peer_addrs.clone()));
 
             // Build cluster configuration from seed nodes
+            // Use unique node IDs based on addresses to avoid duplicates
             let mut cluster_nodes = vec![node_id.clone()];
-            for (i, _seed) in config.cluster.seed_nodes.iter().enumerate() {
-                cluster_nodes.push(NodeId::new(format!("node{}", i)));
+
+            // Add peer nodes (avoiding duplicates)
+            for (peer_id, _addr) in &peer_addrs {
+                let peer_node_id = NodeId::new(peer_id);
+                if peer_node_id != node_id {
+                    cluster_nodes.push(peer_node_id);
+                }
             }
 
             let config = ConfigEntry::Single(cluster_nodes);

@@ -74,12 +74,17 @@ impl Raft {
         state_machine: Option<Arc<Mutex<dyn StateMachine>>>,
         rpc_rx: Option<RpcReceiver>,
     ) -> Self {
+        // Default to NoopMeter for backward compatibility
+        // Can be overridden via with_meter()
+        let meter = Arc::new(nori_observe::NoopMeter::default());
+
         let state = Arc::new(RaftState::new(
             node_id,
             config.clone(),
             log,
             transport.clone(),
             initial_config,
+            meter,
         ));
 
         let election_timer = Arc::new(ElectionTimer::new(config.clone()));

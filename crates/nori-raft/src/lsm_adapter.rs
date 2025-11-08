@@ -134,19 +134,69 @@ mod tests {
     async fn test_adapter_snapshot() {
         let (adapter, _temp) = create_test_adapter().await;
 
-        // Create snapshot
+        // Write some data first
+        use nori_lsm::raft_sm::Command;
+        let cmd = Command::Put {
+            key: Bytes::from("snap_key"),
+            value: Bytes::from("snap_value"),
+            ttl: None,
+        };
+        let serialized = cmd.serialize().unwrap();
+        adapter.inner.lock().await.apply_command(&serialized).await.unwrap();
+
+        // Create snapshot - should now contain actual data
         let snapshot = adapter.snapshot().unwrap();
 
-        // Currently returns empty snapshot
-        assert_eq!(snapshot.len(), 0);
+        // Snapshot should contain serialized manifest data
+        assert!(
+            snapshot.len() > 0,
+            "Snapshot should contain data (got {} bytes)",
+            snapshot.len()
+        );
+
+        // Verify snapshot contains valid serialized data by checking it's not empty
+        // and has reasonable size (manifest snapshots are typically 200-500 bytes)
+        assert!(
+            snapshot.len() < 10000,
+            "Snapshot size seems unreasonable: {} bytes",
+            snapshot.len()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_adapter_restore() {
         let (mut adapter, _temp) = create_test_adapter().await;
 
-        // Restore from snapshot (currently no-op)
-        let snapshot = Bytes::new();
-        adapter.restore(&snapshot).unwrap();
+        // Write some data and create a snapshot
+        use nori_lsm::raft_sm::Command;
+        let cmd = Command::Put {
+            key: Bytes::from("restore_key"),
+            value: Bytes::from("restore_value"),
+            ttl: None,
+        };
+        let serialized = cmd.serialize().unwrap();
+        adapter.inner.get_mut().apply_command(&serialized).await.unwrap();
+
+        let snapshot = adapter.snapshot().unwrap();
+
+        // Restore from snapshot
+        // Note: Full restoration requires SSTable file transfer, which isn't implemented yet
+        // So we expect this to fail with a specific error message
+        let result = adapter.restore(&snapshot);
+
+        // Should fail with "not fully implemented" message
+        assert!(
+            result.is_err(),
+            "Restore should fail until SSTable file transfer is implemented"
+        );
+
+        if let Err(e) = result {
+            let error_msg = format!("{:?}", e);
+            assert!(
+                error_msg.contains("not fully implemented") || error_msg.contains("SSTable file transfer"),
+                "Expected 'not fully implemented' error, got: {}",
+                error_msg
+            );
+        }
     }
 }

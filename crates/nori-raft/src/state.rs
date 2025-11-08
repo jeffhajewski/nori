@@ -55,6 +55,9 @@ pub struct RaftState {
 
     /// Transport for RPC communication
     transport: Arc<dyn RaftTransport>,
+
+    /// Observability meter for metrics and events
+    meter: Arc<dyn nori_observe::Meter>,
 }
 
 /// Persistent state (must survive crashes).
@@ -124,12 +127,14 @@ impl RaftState {
     /// - `log`: Log storage
     /// - `transport`: RPC transport
     /// - `initial_config`: Initial cluster membership
+    /// - `meter`: Observability meter for metrics and events
     pub fn new(
         node_id: NodeId,
         config: RaftConfig,
         log: RaftLog,
         transport: Arc<dyn RaftTransport>,
         initial_config: ConfigEntry,
+        meter: Arc<dyn nori_observe::Meter>,
     ) -> Self {
         Self {
             node_id,
@@ -150,6 +155,7 @@ impl RaftState {
             })),
             log,
             transport,
+            meter,
         }
     }
 
@@ -510,7 +516,32 @@ impl RaftState {
             lease: LeaseState::new(&self.config),
         });
 
+        let term = self.persistent.read().current_term;
+
+        // Drop the volatile write lock before emitting event
+        drop(volatile);
+
+        // Emit VizEvent for leader election
+        self.meter.emit(nori_observe::VizEvent::Raft(nori_observe::RaftEvt {
+            shard: 0, // TODO: Add shard_id when sharding is implemented
+            term: term.as_u64(),
+            kind: nori_observe::RaftKind::LeaderElected {
+                node: self.node_id_as_u32(),
+            },
+        }));
+
         Ok(())
+    }
+
+    /// Helper to convert NodeId to u32 for metrics
+    fn node_id_as_u32(&self) -> u32 {
+        // Simple hash of node ID for now
+        // In production, you'd want a proper node ID → numeric mapping
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        self.node_id.as_str().hash(&mut hasher);
+        hasher.finish() as u32
     }
 }
 
@@ -537,7 +568,8 @@ mod tests {
             NodeId::new("n3"),
         ]);
 
-        let state = RaftState::new(NodeId::new("n1"), config, log, transport, initial_config);
+        let meter = Arc::new(nori_observe::NoopMeter::default());
+        let state = RaftState::new(NodeId::new("n1"), config, log, transport, initial_config, meter);
         (state, temp_dir)
     }
 

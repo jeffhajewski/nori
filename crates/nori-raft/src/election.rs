@@ -268,12 +268,14 @@ mod tests {
             NodeId::new("n3"),
         ]);
 
+        let meter = Arc::new(nori_observe::NoopMeter::default());
         let state = Arc::new(RaftState::new(
             NodeId::new("n1"),
             config,
             log,
             transport,
             initial_config,
+            meter,
         ));
         (state, temp_dir)
     }

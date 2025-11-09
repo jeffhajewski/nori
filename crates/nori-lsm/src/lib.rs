@@ -197,6 +197,60 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::io::{Cursor, Read};
+use std::collections::VecDeque;
+
+/// Tracks write throughput over a sliding time window for pressure estimation.
+///
+/// Used to detect write bursts and inform adaptive compaction behaviors.
+struct WritePressureTracker {
+    /// Recent write operations: (timestamp, bytes_written)
+    recent_writes: parking_lot::RwLock<VecDeque<(Instant, usize)>>,
+
+    /// Sliding window duration (e.g., 5 seconds)
+    window: Duration,
+}
+
+impl WritePressureTracker {
+    /// Creates a new write pressure tracker with the given window duration.
+    fn new(window: Duration) -> Self {
+        Self {
+            recent_writes: parking_lot::RwLock::new(VecDeque::new()),
+            window,
+        }
+    }
+
+    /// Records a write operation.
+    ///
+    /// Automatically trims entries outside the sliding window.
+    fn record_write(&self, bytes: usize) {
+        let now = Instant::now();
+        let mut writes = self.recent_writes.write();
+        writes.push_back((now, bytes));
+
+        // Trim old entries outside window
+        let cutoff = now - self.window;
+        while let Some(&(ts, _)) = writes.front() {
+            if ts < cutoff {
+                writes.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Returns current write rate in MB/s over the sliding window.
+    fn write_rate_mbps(&self) -> f64 {
+        let writes = self.recent_writes.read();
+        let total_bytes: usize = writes.iter().map(|(_, b)| b).sum();
+        let elapsed = self.window.as_secs_f64();
+        (total_bytes as f64) / (1024.0 * 1024.0 * elapsed)
+    }
+
+    /// Returns the number of write operations in the current window.
+    fn write_count(&self) -> usize {
+        self.recent_writes.read().len()
+    }
+}
 
 /// Main LSM engine implementing the ATLL (Adaptive Tiered-Leveled LSM) design.
 ///
@@ -270,6 +324,9 @@ pub struct LsmEngine {
     cache_misses: Arc<AtomicU64>,
     /// Total WAL bytes written
     wal_bytes_written: Arc<AtomicU64>,
+
+    /// Write pressure tracker for adaptive throttling
+    write_pressure: Arc<WritePressureTracker>,
 
     /// Observability meter for emitting events and metrics
     meter: Arc<dyn Meter>,
@@ -410,6 +467,7 @@ impl LsmEngine {
             cache_hits: Arc::new(AtomicU64::new(0)),
             cache_misses: Arc::new(AtomicU64::new(0)),
             wal_bytes_written: Arc::new(AtomicU64::new(0)),
+            write_pressure: Arc::new(WritePressureTracker::new(Duration::from_secs(5))),
             meter,
         };
 
@@ -707,6 +765,9 @@ impl LsmEngine {
         let wal_bytes = (key.len() + value.len() + 20) as u64;
         self.wal_bytes_written
             .fetch_add(wal_bytes, Ordering::Relaxed);
+
+        // Track write pressure for adaptive throttling
+        self.write_pressure.record_write(wal_bytes as usize);
 
         // 3. Get next sequence number
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
@@ -1595,20 +1656,31 @@ impl LsmEngine {
 
             // Yellow Zone: Light soft throttling
             MemoryPressure::Moderate => {
-                // Calculate L0 excess over soft_threshold (maintains old behavior)
+                // Calculate L0 excess over soft_threshold
                 let soft_threshold = self.config.l0.soft_throttle_threshold;
                 let l0_files = stats.l0_files;
                 let l0_excess = l0_files.saturating_sub(soft_threshold);
 
-                // Use original formula: base_delay_ms × l0_excess
-                // This maintains backward compatibility with existing tests
-                let delay_ms = base_delay_ms * l0_excess as u64;
+                // Adaptive multiplier based on write rate (burst detection)
+                let write_rate = self.write_rate_mbps();
+                let burst_multiplier = if write_rate > 10.0 {
+                    2.0 // High write burst: double delay
+                } else if write_rate > 5.0 {
+                    1.5 // Medium write rate: 1.5x delay
+                } else {
+                    1.0 // Normal rate: base delay
+                };
+
+                let base_delay = (base_delay_ms * l0_excess as u64) as f64;
+                let delay_ms = (base_delay * burst_multiplier) as u64;
 
                 tracing::debug!(
-                    "Moderate system pressure: {}, applying {}ms delay (L0 excess: {})",
+                    "Moderate system pressure: {}, write_rate: {:.2} MB/s, applying {}ms delay (L0 excess: {}, burst_multiplier: {:.1}x)",
                     pressure.description(),
+                    write_rate,
                     delay_ms,
-                    l0_excess
+                    l0_excess,
+                    burst_multiplier
                 );
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
@@ -1617,19 +1689,31 @@ impl LsmEngine {
 
             // Orange Zone: Heavy soft throttling
             MemoryPressure::High => {
-                // Heavier delay for high pressure: 2x the moderate zone delay
+                // Heavier delay for high pressure zone with adaptive burst multiplier
                 let soft_threshold = self.config.l0.soft_throttle_threshold;
                 let l0_files = stats.l0_files;
                 let l0_excess = l0_files.saturating_sub(soft_threshold);
 
-                // Apply 2x multiplier for high pressure zone
-                let delay_ms = base_delay_ms * l0_excess as u64 * 2;
+                // Adaptive multiplier based on write rate (more aggressive in high zone)
+                let write_rate = self.write_rate_mbps();
+                let burst_multiplier = if write_rate > 10.0 {
+                    3.0 // High write burst: 3x delay
+                } else if write_rate > 5.0 {
+                    2.5 // Medium write rate: 2.5x delay
+                } else {
+                    2.0 // Normal rate: 2x delay (maintains baseline behavior)
+                };
+
+                let base_delay = (base_delay_ms * l0_excess as u64) as f64;
+                let delay_ms = (base_delay * burst_multiplier) as u64;
 
                 tracing::warn!(
-                    "High system pressure: {}, applying {}ms delay (L0 excess: {})",
+                    "High system pressure: {}, write_rate: {:.2} MB/s, applying {}ms delay (L0 excess: {}, burst_multiplier: {:.1}x)",
                     pressure.description(),
+                    write_rate,
                     delay_ms,
-                    l0_excess
+                    l0_excess,
+                    burst_multiplier
                 );
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
@@ -2006,6 +2090,23 @@ impl LsmEngine {
             total_bytes,
             total_files,
         }
+    }
+
+    /// Returns the current write rate in MB/s over a sliding 5-second window.
+    ///
+    /// This metric can be used for:
+    /// - Detecting write bursts
+    /// - Adaptive throttling
+    /// - Capacity planning
+    pub fn write_rate_mbps(&self) -> f64 {
+        self.write_pressure.write_rate_mbps()
+    }
+
+    /// Returns the number of write operations in the current tracking window.
+    ///
+    /// Useful for understanding write frequency patterns.
+    pub fn write_count(&self) -> usize {
+        self.write_pressure.write_count()
     }
 
     /// Computes current system pressure metrics.

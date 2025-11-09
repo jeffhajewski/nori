@@ -674,8 +674,34 @@ pub struct MultiWayMerger {
     /// Bytes written so far (for cooperative yielding)
     bytes_written: u64,
 
-    /// Slice size for cooperative yielding (from config)
+    /// Slice size for cooperative yielding (adaptive based on pressure)
     slice_size: u64,
+}
+
+impl MultiWayMerger {
+    /// Calculates adaptive slice size based on L0 pressure.
+    ///
+    /// Smaller slices provide more cooperative yielding and better responsiveness
+    /// under pressure, at the cost of slightly higher overhead:
+    /// - Green zone (0-49% of max): 128MB (larger slices, less overhead)
+    /// - Yellow zone (50-74% of max): 64MB (normal, default)
+    /// - Orange zone (75-89% of max): 32MB (smaller slices, more responsive)
+    /// - Red zone (90%+ of max): 16MB (emergency, maximum responsiveness)
+    fn adaptive_slice_size(l0_count: usize, max_files: usize, default_mb: u64) -> u64 {
+        let pressure_ratio = l0_count as f64 / max_files as f64;
+
+        let slice_mb = if pressure_ratio >= 0.90 {
+            16 // Red zone: emergency responsiveness
+        } else if pressure_ratio >= 0.75 {
+            32 // Orange zone: more responsive
+        } else if pressure_ratio >= 0.50 {
+            default_mb // Yellow zone: normal (use config default)
+        } else {
+            128 // Green zone: larger slices for efficiency
+        };
+
+        slice_mb * 1024 * 1024
+    }
 }
 
 /// Heap entry for K-way merge.
@@ -714,12 +740,16 @@ impl Ord for MergeCandidate {
 }
 
 impl MultiWayMerger {
-    /// Creates a new K-way merger.
+    /// Creates a new K-way merger with optional adaptive slice sizing.
+    ///
+    /// If `l0_count` is provided, uses adaptive slice size based on pressure.
+    /// Otherwise, uses the default from config.
     pub async fn new(
         input_paths: Vec<PathBuf>,
         output_path: PathBuf,
         can_drop_tombstones: bool,
         config: &ATLLConfig,
+        l0_count: Option<usize>,
     ) -> Result<Self> {
         // Open all input SSTables
         let mut readers = Vec::new();
@@ -747,13 +777,31 @@ impl MultiWayMerger {
             .await
             .map_err(|e| Error::Internal(format!("Failed to create SSTable builder: {}", e)))?;
 
+        // Calculate slice size: adaptive if l0_count provided, otherwise use config default
+        let slice_size = if let Some(l0_count) = l0_count {
+            let adaptive_size = Self::adaptive_slice_size(
+                l0_count,
+                config.l0.max_files,
+                config.io.compaction_slice_mb as u64,
+            );
+            tracing::trace!(
+                l0_count = l0_count,
+                max_files = config.l0.max_files,
+                slice_mb = adaptive_size / (1024 * 1024),
+                "Adaptive compaction slice size"
+            );
+            adaptive_size
+        } else {
+            (config.io.compaction_slice_mb as u64) * 1024 * 1024
+        };
+
         Ok(Self {
             readers,
             heap: BinaryHeap::new(),
             builder,
             can_drop_tombstones,
             bytes_written: 0,
-            slice_size: (config.io.compaction_slice_mb as u64) * 1024 * 1024,
+            slice_size,
         })
     }
 
@@ -1085,10 +1133,23 @@ impl CompactionExecutor {
         // Can drop tombstones only if this is the last level
         let can_drop_tombstones = level == self.config.max_levels;
 
-        // Perform K-way merge
-        let merger =
-            MultiWayMerger::new(input_paths, output_path, can_drop_tombstones, &self.config)
-                .await?;
+        // Get L0 count for adaptive slice sizing
+        let l0_count = {
+            let manifest_guard = manifest.read();
+            let snapshot = manifest_guard.snapshot();
+            let snapshot_guard = snapshot.read().unwrap();
+            snapshot_guard.l0_file_count()
+        };
+
+        // Perform K-way merge with adaptive slice size
+        let merger = MultiWayMerger::new(
+            input_paths,
+            output_path,
+            can_drop_tombstones,
+            &self.config,
+            Some(l0_count),
+        )
+        .await?;
 
         let mut merged_run = merger.merge().await?;
         merged_run.file_number = output_file_number;
@@ -1238,10 +1299,23 @@ impl CompactionExecutor {
         // Force tombstone dropping for cleanup
         let can_drop_tombstones = true;
 
-        // Perform merge with tombstone dropping
-        let merger =
-            MultiWayMerger::new(input_paths, output_path, can_drop_tombstones, &self.config)
-                .await?;
+        // Get L0 count for adaptive slice sizing
+        let l0_count = {
+            let manifest_guard = manifest.read();
+            let snapshot = manifest_guard.snapshot();
+            let snapshot_guard = snapshot.read().unwrap();
+            snapshot_guard.l0_file_count()
+        };
+
+        // Perform merge with tombstone dropping and adaptive slice size
+        let merger = MultiWayMerger::new(
+            input_paths,
+            output_path,
+            can_drop_tombstones,
+            &self.config,
+            Some(l0_count),
+        )
+        .await?;
 
         let mut merged_run = merger.merge().await?;
         merged_run.file_number = output_file_number;
@@ -1640,6 +1714,25 @@ impl CompactionCoordinator {
         }
     }
 
+    /// Calculates adaptive maximum concurrent compactions based on L0 pressure.
+    ///
+    /// Increases parallelism under pressure to process compactions faster:
+    /// - Green/Yellow zone (0-74% of max): 2 concurrent (default)
+    /// - Orange zone (75-89% of max): 3 concurrent (increased)
+    /// - Red zone (90%+ of max): 4 concurrent (emergency)
+    fn adaptive_max_concurrent(&self, l0_count: usize) -> usize {
+        let max_files = self.config.l0.max_files;
+        let pressure_ratio = l0_count as f64 / max_files as f64;
+
+        if pressure_ratio >= 0.90 {
+            4 // Red zone: emergency parallelism
+        } else if pressure_ratio >= 0.75 {
+            3 // Orange zone: increased parallelism
+        } else {
+            2 // Green/Yellow zone: default parallelism
+        }
+    }
+
     /// Starts the background compaction loop.
     ///
     /// Returns a join handle that can be awaited for graceful shutdown.
@@ -1671,9 +1764,18 @@ impl CompactionCoordinator {
                     break;
                 }
 
-                // Check if we can start a new compaction
+                // Check if we can start a new compaction (adaptive concurrency limit)
                 let active = *self.active_count.read();
-                if active >= self.max_concurrent {
+                let max_concurrent = self.adaptive_max_concurrent(l0_count);
+
+                tracing::trace!(
+                    active = active,
+                    max_concurrent = max_concurrent,
+                    l0_count = l0_count,
+                    "Adaptive concurrency limit"
+                );
+
+                if active >= max_concurrent {
                     continue; // At capacity, wait
                 }
 
@@ -2122,7 +2224,7 @@ mod tests {
 
         let config = ATLLConfig::default();
 
-        let merger = MultiWayMerger::new(vec![], output_path, false, &config)
+        let merger = MultiWayMerger::new(vec![], output_path, false, &config, None)
             .await
             .unwrap();
 
@@ -2155,7 +2257,7 @@ mod tests {
         let input_path = sst_dir.join("sst-000001.sst");
         let output_path = temp_dir.path().join("merged.sst");
 
-        let merger = MultiWayMerger::new(vec![input_path], output_path, false, &config)
+        let merger = MultiWayMerger::new(vec![input_path], output_path, false, &config, None)
             .await
             .unwrap();
 
@@ -2202,7 +2304,7 @@ mod tests {
         let input2 = sst_dir.join("sst-000002.sst");
         let output_path = temp_dir.path().join("merged.sst");
 
-        let merger = MultiWayMerger::new(vec![input1, input2], output_path.clone(), false, &config)
+        let merger = MultiWayMerger::new(vec![input1, input2], output_path.clone(), false, &config, None)
             .await
             .unwrap();
 
@@ -2257,6 +2359,7 @@ mod tests {
             output_path1.clone(),
             false,
             &config,
+            None,
         )
         .await
         .unwrap();
@@ -2276,7 +2379,7 @@ mod tests {
         // Merge with can_drop_tombstones = true
         let output_path2 = temp_dir.path().join("merged_drop.sst");
 
-        let merger2 = MultiWayMerger::new(vec![input_path], output_path2.clone(), true, &config)
+        let merger2 = MultiWayMerger::new(vec![input_path], output_path2.clone(), true, &config, None)
             .await
             .unwrap();
 
@@ -2320,7 +2423,7 @@ mod tests {
         let input2 = sst_dir.join("sst-000002.sst");
         let output_path = temp_dir.path().join("merged.sst");
 
-        let merger = MultiWayMerger::new(vec![input1, input2], output_path.clone(), false, &config)
+        let merger = MultiWayMerger::new(vec![input1, input2], output_path.clone(), false, &config, None)
             .await
             .unwrap();
 
@@ -2540,6 +2643,184 @@ mod tests {
         let l0_count = max_files;
         let interval = coordinator.adaptive_interval(l0_count);
         assert_eq!(interval.as_millis(), 50, "At max capacity should be red (50ms)");
+    }
+
+    #[test]
+    fn test_adaptive_slice_size() {
+        let max_files = 12; // Default max_files
+        let default_mb = 64; // Default compaction slice size
+
+        // Test green zone (0-49% of max_files): should be 128MB
+        let l0_count = 3; // 25% of 12
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            128 * 1024 * 1024,
+            "Green zone should be 128MB"
+        );
+
+        // Test yellow zone (50-74% of max_files): should be default (64MB)
+        let l0_count = 7; // 58% of 12
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            64 * 1024 * 1024,
+            "Yellow zone should use default (64MB)"
+        );
+
+        // Test boundary: at 50% threshold
+        let l0_count = 6; // Exactly 50%
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            64 * 1024 * 1024,
+            "50% threshold should be yellow (64MB default)"
+        );
+
+        // Test boundary: just below 75% threshold (8/12 = 0.666)
+        let l0_count = 8; // 66.6%
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            64 * 1024 * 1024,
+            "Just below 75% should still be yellow (64MB)"
+        );
+
+        // Test boundary: at 75% threshold (9/12 = 0.75)
+        let l0_count = 9; // Exactly 75%
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            32 * 1024 * 1024,
+            "75% threshold should be orange (32MB)"
+        );
+
+        // Test boundary: just below 90% threshold (10/12 = 0.833)
+        let l0_count = 10; // 83.3%
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            32 * 1024 * 1024,
+            "Just below 90% should still be orange (32MB)"
+        );
+
+        // Test boundary: at 90% threshold (11/12 = 0.916)
+        let l0_count = 11; // 91.6%
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            16 * 1024 * 1024,
+            "90% threshold should be red (16MB)"
+        );
+
+        // Test at max capacity
+        let l0_count = 12; // 100%
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            16 * 1024 * 1024,
+            "At max capacity should be red (16MB)"
+        );
+
+        // Test beyond max capacity (should still be red zone)
+        let l0_count = 15; // 125% (over capacity)
+        let slice_size = MultiWayMerger::adaptive_slice_size(l0_count, max_files, default_mb);
+        assert_eq!(
+            slice_size,
+            16 * 1024 * 1024,
+            "Over max capacity should be red (16MB)"
+        );
+    }
+
+    #[test]
+    fn test_adaptive_max_concurrent() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = ATLLConfig::default();
+        let max_levels = config.max_levels;
+
+        let heat_tracker = Arc::new(HeatTracker::new(config.clone()));
+        let manifest = Arc::new(parking_lot::RwLock::new(
+            ManifestLog::open(temp_dir.path(), max_levels).unwrap(),
+        ));
+
+        let coordinator = CompactionCoordinator::new(
+            temp_dir.path(),
+            config,
+            heat_tracker,
+            manifest,
+        )
+        .unwrap();
+
+        // Test green zone (0-49% of max_files): should be 2 concurrent
+        let l0_count = 3; // 25% of 12
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(max_concurrent, 2, "Green zone should have 2 concurrent compactions");
+
+        // Test yellow zone (50-74% of max_files): should be 2 concurrent
+        let l0_count = 7; // 58% of 12
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(
+            max_concurrent, 2,
+            "Yellow zone should have 2 concurrent compactions"
+        );
+
+        // Test boundary: at 50% threshold
+        let l0_count = 6; // Exactly 50%
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(
+            max_concurrent, 2,
+            "50% threshold should be 2 concurrent (default)"
+        );
+
+        // Test boundary: just below 75% threshold (8/12 = 0.666)
+        let l0_count = 8; // 66.6%
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(
+            max_concurrent, 2,
+            "Just below 75% should still be 2 concurrent"
+        );
+
+        // Test boundary: at 75% threshold (9/12 = 0.75)
+        let l0_count = 9; // Exactly 75%
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(
+            max_concurrent, 3,
+            "75% threshold should be orange (3 concurrent)"
+        );
+
+        // Test boundary: just below 90% threshold (10/12 = 0.833)
+        let l0_count = 10; // 83.3%
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(
+            max_concurrent, 3,
+            "Just below 90% should still be orange (3 concurrent)"
+        );
+
+        // Test boundary: at 90% threshold (11/12 = 0.916)
+        let l0_count = 11; // 91.6%
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(
+            max_concurrent, 4,
+            "90% threshold should be red (4 concurrent)"
+        );
+
+        // Test at max capacity
+        let l0_count = 12; // 100%
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(
+            max_concurrent, 4,
+            "At max capacity should be red (4 concurrent)"
+        );
+
+        // Test beyond max capacity (should still be red zone)
+        let l0_count = 15; // 125% (over capacity)
+        let max_concurrent = coordinator.adaptive_max_concurrent(l0_count);
+        assert_eq!(
+            max_concurrent, 4,
+            "Over max capacity should be red (4 concurrent)"
+        );
     }
 
     #[test]

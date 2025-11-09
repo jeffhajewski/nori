@@ -339,6 +339,25 @@ impl BanditScheduler {
         ));
     }
 
+    /// Calculates adaptive L0 compaction trigger threshold based on pressure.
+    ///
+    /// More aggressive thresholds under pressure to prevent L0 accumulation:
+    /// - Green zone (0-49% of max): 4 files (relaxed)
+    /// - Yellow zone (50-74% of max): 3 files (normal)
+    /// - Orange/Red zone (75%+ of max): 2 files (aggressive)
+    fn adaptive_l0_threshold(&self, l0_count: usize) -> usize {
+        let max_files = self.config.l0.max_files;
+        let pressure_ratio = l0_count as f64 / max_files as f64;
+
+        if pressure_ratio >= 0.75 {
+            2 // Orange/Red zone: aggressive compaction
+        } else if pressure_ratio >= 0.50 {
+            3 // Yellow zone: moderate compaction
+        } else {
+            4 // Green zone: relaxed (default)
+        }
+    }
+
     /// Generates candidate compaction actions from current LSM state.
     fn generate_candidates(
         &self,
@@ -348,8 +367,17 @@ impl BanditScheduler {
         let mut candidates = Vec::new();
 
         // Trigger 1: L0 tiering (merge ALL L0 files to reduce read amplification)
+        // Uses adaptive threshold based on current L0 pressure
         let l0_count = snapshot.l0_file_count();
-        if l0_count >= 4 {
+        let l0_threshold = self.adaptive_l0_threshold(l0_count);
+
+        tracing::trace!(
+            l0_count = l0_count,
+            threshold = l0_threshold,
+            "Adaptive L0 compaction threshold"
+        );
+
+        if l0_count >= l0_threshold {
             // Merge ALL L0 files, not just a subset
             // This ensures MVCC correctness: newest version must be preserved
             candidates.push(CompactionAction::Tier {
@@ -1525,6 +1553,9 @@ pub struct CompactionCoordinator {
     /// SSTable directory for file cleanup
     sst_dir: std::path::PathBuf,
 
+    /// Configuration for adaptive behavior
+    config: ATLLConfig,
+
     /// Maximum concurrent background compactions
     max_concurrent: usize,
 
@@ -1551,7 +1582,7 @@ impl CompactionCoordinator {
             config.clone(),
             meter,
         )));
-        let executor = CompactionExecutor::new(&sst_dir, config)?;
+        let executor = CompactionExecutor::new(&sst_dir, config.clone())?;
 
         Ok(Self {
             scheduler,
@@ -1559,10 +1590,54 @@ impl CompactionCoordinator {
             heat_tracker,
             manifest,
             sst_dir,
+            config,
             max_concurrent,
             active_count: Arc::new(parking_lot::RwLock::new(0)),
             shutdown: Arc::new(parking_lot::RwLock::new(false)),
         })
+    }
+
+    /// Calculates adaptive polling interval based on L0 pressure.
+    ///
+    /// Uses L0 file count as a proxy for system pressure:
+    /// - Green zone (0-49% of max): 500ms (relaxed)
+    /// - Yellow zone (50-74% of max): 200ms (normal)
+    /// - Orange zone (75-89% of max): 100ms (aggressive)
+    /// - Red zone (90%+ of max): 50ms (emergency)
+    fn adaptive_interval(&self, l0_count: usize) -> std::time::Duration {
+        let max_files = self.config.l0.max_files;
+        let pressure_ratio = l0_count as f64 / max_files as f64;
+
+        let interval_ms = if pressure_ratio >= 0.90 {
+            50 // Red zone: emergency
+        } else if pressure_ratio >= 0.75 {
+            100 // Orange zone: aggressive
+        } else if pressure_ratio >= 0.50 {
+            200 // Yellow zone: normal (default)
+        } else {
+            500 // Green zone: relaxed
+        };
+
+        std::time::Duration::from_millis(interval_ms)
+    }
+
+    /// Calculates adaptive L0 compaction trigger threshold based on pressure.
+    ///
+    /// More aggressive thresholds under pressure to prevent L0 accumulation:
+    /// - Green zone (0-49% of max): 4 files (relaxed)
+    /// - Yellow zone (50-74% of max): 3 files (normal)
+    /// - Orange/Red zone (75%+ of max): 2 files (aggressive)
+    fn adaptive_l0_threshold(&self, l0_count: usize) -> usize {
+        let max_files = self.config.l0.max_files;
+        let pressure_ratio = l0_count as f64 / max_files as f64;
+
+        if pressure_ratio >= 0.75 {
+            2 // Orange/Red zone: aggressive compaction
+        } else if pressure_ratio >= 0.50 {
+            3 // Yellow zone: moderate compaction
+        } else {
+            4 // Green zone: relaxed (default)
+        }
     }
 
     /// Starts the background compaction loop.
@@ -1570,10 +1645,26 @@ impl CompactionCoordinator {
     /// Returns a join handle that can be awaited for graceful shutdown.
     pub fn start(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_millis(200));
-
             loop {
-                interval.tick().await;
+                // Calculate adaptive interval based on current L0 pressure
+                let (interval, l0_count) = {
+                    let manifest_guard = self.manifest.read();
+                    let snapshot = manifest_guard.snapshot();
+                    let snapshot_guard = snapshot.read().unwrap();
+                    let l0_count = snapshot_guard.l0_files().len();
+                    let interval = self.adaptive_interval(l0_count);
+                    (interval, l0_count)
+                };
+
+                // Sleep for adaptive duration
+                tokio::time::sleep(interval).await;
+
+                // Log adaptive interval for observability
+                tracing::trace!(
+                    l0_count = l0_count,
+                    interval_ms = interval.as_millis(),
+                    "Adaptive compaction interval"
+                );
 
                 // Check shutdown signal
                 if *self.shutdown.read() {
@@ -2378,4 +2469,126 @@ mod tests {
         assert_eq!(slot_id, 3);
     }
 
+    #[test]
+    fn test_adaptive_interval() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = ATLLConfig::default();
+        let max_files = config.l0.max_files; // Default is 12
+        let max_levels = config.max_levels;
+
+        let heat_tracker = Arc::new(HeatTracker::new(config.clone()));
+        let manifest = Arc::new(parking_lot::RwLock::new(
+            ManifestLog::open(temp_dir.path(), max_levels).unwrap(),
+        ));
+
+        let coordinator = CompactionCoordinator::new(
+            temp_dir.path(),
+            config,
+            heat_tracker,
+            manifest,
+        )
+        .unwrap();
+
+        // Test green zone (0-49% of max_files): should be 500ms
+        let l0_count = (max_files as f64 * 0.3) as usize; // 30%
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 500, "Green zone should be 500ms");
+
+        // Test yellow zone (50-74% of max_files): should be 200ms
+        let l0_count = (max_files as f64 * 0.6) as usize; // 60%
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 200, "Yellow zone should be 200ms");
+
+        // Test orange zone (75-89% of max_files): should be 100ms
+        let l0_count = (max_files as f64 * 0.8) as usize; // 80%
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 100, "Orange zone should be 100ms");
+
+        // Test red zone (90%+ of max_files): should be 50ms
+        let l0_count = (max_files as f64 * 0.95) as usize; // 95%
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 50, "Red zone should be 50ms");
+
+        // Test boundary: exactly at 50% threshold (6/12 = 0.50)
+        let l0_count = max_files / 2; // Exactly 50%
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 200, "50% threshold should be yellow (200ms)");
+
+        // Test boundary: just below 75% threshold (8/12 = 0.666)
+        let l0_count = (max_files as f64 * 0.74) as usize;
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 200, "Just below 75% should still be yellow (200ms)");
+
+        // Test boundary: at 75% threshold (9/12 = 0.75)
+        let l0_count = (max_files * 3) / 4; // Exactly 75%
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 100, "75% threshold should be orange (100ms)");
+
+        // Test boundary: just below 90% threshold (10/12 = 0.833)
+        let l0_count = (max_files as f64 * 0.89) as usize;
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 100, "Just below 90% should still be orange (100ms)");
+
+        // Test boundary: at 90% threshold (11/12 = 0.916)
+        let l0_count = max_files - 1; // One below max, definitely >= 0.90
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 50, "90% threshold should be red (50ms)");
+
+        // Test at max capacity
+        let l0_count = max_files;
+        let interval = coordinator.adaptive_interval(l0_count);
+        assert_eq!(interval.as_millis(), 50, "At max capacity should be red (50ms)");
+    }
+
+    #[test]
+    fn test_adaptive_l0_threshold() {
+        let config = ATLLConfig::default();
+        let max_files = config.l0.max_files; // Default is 12
+        let meter = Arc::new(nori_observe::NoopMeter);
+        let scheduler = BanditScheduler::new(config, meter);
+
+        // Test green zone (0-49% of max_files): threshold should be 4
+        let l0_count = 3; // 25% of 12
+        let threshold = scheduler.adaptive_l0_threshold(l0_count);
+        assert_eq!(threshold, 4, "Green zone should have threshold of 4 files");
+
+        // Test yellow zone (50-74% of max_files): threshold should be 3
+        let l0_count = 7; // 58% of 12
+        let threshold = scheduler.adaptive_l0_threshold(l0_count);
+        assert_eq!(threshold, 3, "Yellow zone should have threshold of 3 files");
+
+        // Test orange/red zone (75%+ of max_files): threshold should be 2
+        let l0_count = 10; // 83% of 12
+        let threshold = scheduler.adaptive_l0_threshold(l0_count);
+        assert_eq!(threshold, 2, "Orange/Red zone should have threshold of 2 files");
+
+        // Test boundary: exactly at 50% threshold (6/12 = 0.50)
+        let l0_count = max_files / 2;
+        let threshold = scheduler.adaptive_l0_threshold(l0_count);
+        assert_eq!(threshold, 3, "50% threshold should be yellow (3 files)");
+
+        // Test boundary: exactly at 75% threshold (9/12 = 0.75)
+        let l0_count = (max_files * 3) / 4;
+        let threshold = scheduler.adaptive_l0_threshold(l0_count);
+        assert_eq!(threshold, 2, "75% threshold should be orange (2 files)");
+
+        // Test boundary: just below 75% (8/12 = 0.666)
+        let l0_count = 8;
+        let threshold = scheduler.adaptive_l0_threshold(l0_count);
+        assert_eq!(threshold, 3, "Just below 75% should be yellow (3 files)");
+
+        // Test near max capacity (11/12 = 0.916)
+        let l0_count = max_files - 1;
+        let threshold = scheduler.adaptive_l0_threshold(l0_count);
+        assert_eq!(threshold, 2, "Near max should be aggressive (2 files)");
+
+        // Test at max capacity
+        let l0_count = max_files;
+        let threshold = scheduler.adaptive_l0_threshold(l0_count);
+        assert_eq!(threshold, 2, "At max should be aggressive (2 files)");
+    }
+
 }
+

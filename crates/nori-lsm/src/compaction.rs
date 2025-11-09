@@ -245,8 +245,17 @@ impl BanditScheduler {
             return CompactionAction::DoNothing;
         }
 
-        // Epsilon-greedy selection
-        let explore = rand::random::<f64>() < self.epsilon;
+        // Adaptive epsilon-greedy selection based on L0 pressure
+        let l0_count = snapshot.l0_file_count();
+        let epsilon = self.adaptive_epsilon(l0_count);
+        let explore = rand::random::<f64>() < epsilon;
+
+        tracing::trace!(
+            l0_count = l0_count,
+            epsilon = epsilon,
+            explore = explore,
+            "Adaptive bandit exploration"
+        );
 
         let chosen_idx = if explore {
             // Explore: random action
@@ -299,6 +308,7 @@ impl BanditScheduler {
         bytes_written: u64,
         latency_reduction_ms: f64,
         heat_score: f32,
+        l0_count: usize,
     ) {
         let (level, slot_id) = match action {
             CompactionAction::Tier { level, slot_id, .. }
@@ -308,12 +318,36 @@ impl BanditScheduler {
             _ => return, // No reward for DoNothing or GuardMove
         };
 
-        // Compute reward: (latency improvement × heat) / bytes rewritten
-        let reward = if bytes_written > 0 {
+        // Calculate pressure weight: boost rewards for actions that reduce L0 pressure
+        let max_files = self.config.l0.max_files;
+        let pressure_ratio = l0_count as f64 / max_files as f64;
+
+        // Pressure weight increases with pressure (1.0x -> 3.0x)
+        let pressure_weight = if pressure_ratio >= 0.90 {
+            3.0 // Red zone: 3x reward for pressure reduction
+        } else if pressure_ratio >= 0.75 {
+            2.0 // Orange zone: 2x reward
+        } else if pressure_ratio >= 0.50 {
+            1.5 // Yellow zone: 1.5x reward
+        } else {
+            1.0 // Green zone: baseline reward
+        };
+
+        // Boost L0 actions more than deeper levels when under pressure
+        let level_multiplier = if level == 0 && pressure_ratio >= 0.75 {
+            1.5 // Extra boost for L0 actions under pressure
+        } else {
+            1.0
+        };
+
+        // Compute pressure-weighted reward: (latency × heat × pressure × level) / bytes
+        let base_reward = if bytes_written > 0 {
             (latency_reduction_ms * heat_score as f64) / bytes_written as f64
         } else {
             0.0
         };
+
+        let reward = base_reward * pressure_weight * level_multiplier;
 
         // Update arm statistics
         let arm = self
@@ -355,6 +389,28 @@ impl BanditScheduler {
             3 // Yellow zone: moderate compaction
         } else {
             4 // Green zone: relaxed (default)
+        }
+    }
+
+    /// Calculates adaptive epsilon (exploration rate) based on L0 pressure.
+    ///
+    /// Reduces exploration under pressure to exploit known-good strategies:
+    /// - Green zone (0-49% of max): 0.10 (10% exploration - default)
+    /// - Yellow zone (50-74% of max): 0.05 (5% exploration)
+    /// - Orange zone (75-89% of max): 0.02 (2% exploration)
+    /// - Red zone (90%+ of max): 0.0 (pure exploitation - emergency)
+    fn adaptive_epsilon(&self, l0_count: usize) -> f64 {
+        let max_files = self.config.l0.max_files;
+        let pressure_ratio = l0_count as f64 / max_files as f64;
+
+        if pressure_ratio >= 0.90 {
+            0.0 // Red zone: pure exploitation (emergency)
+        } else if pressure_ratio >= 0.75 {
+            0.02 // Orange zone: minimal exploration
+        } else if pressure_ratio >= 0.50 {
+            0.05 // Yellow zone: reduced exploration
+        } else {
+            0.10 // Green zone: default exploration (10%)
         }
     }
 
@@ -1844,12 +1900,21 @@ impl CompactionCoordinator {
                                 let (level, slot_id) = Self::extract_slot(&action_clone);
                                 let heat_score = heat_tracker.get_heat(level, slot_id);
 
+                                // Get current L0 count for pressure-weighted rewards
+                                let l0_count = {
+                                    let manifest_guard = manifest_clone.read();
+                                    let snapshot = manifest_guard.snapshot();
+                                    let snapshot_guard = snapshot.read().unwrap();
+                                    snapshot_guard.l0_file_count()
+                                };
+
                                 let mut scheduler = scheduler_clone.lock();
                                 scheduler.update_reward(
                                     &action_clone,
                                     bytes_written,
                                     latency_reduction,
                                     heat_score,
+                                    l0_count,
                                 );
 
                                 tracing::debug!(
@@ -2019,7 +2084,7 @@ mod tests {
             run_count: 3,
         };
 
-        scheduler.update_reward(&action, 1024, 5.0, 0.8);
+        scheduler.update_reward(&action, 1024, 5.0, 0.8, 5); // l0_count = 5 (mid-range)
 
         let arm = scheduler.arms.get(&(1, 0)).unwrap();
         assert_eq!(arm.selection_count, 1);
@@ -2115,7 +2180,7 @@ mod tests {
         // Apply rewards for different actions
         for action in &actions {
             for _ in 0..10 {
-                scheduler.update_reward(action, 1024, 5.0, 0.8);
+                scheduler.update_reward(action, 1024, 5.0, 0.8, 5); // l0_count = 5
             }
         }
 
@@ -2177,7 +2242,7 @@ mod tests {
 
         // Apply consistent rewards
         for _ in 0..50 {
-            scheduler.update_reward(&action, 1024, 10.0, 0.5);
+            scheduler.update_reward(&action, 1024, 10.0, 0.5, 5); // l0_count = 5
         }
 
         // Check reward events
@@ -2869,6 +2934,59 @@ mod tests {
         let l0_count = max_files;
         let threshold = scheduler.adaptive_l0_threshold(l0_count);
         assert_eq!(threshold, 2, "At max should be aggressive (2 files)");
+    }
+
+    #[test]
+    fn test_adaptive_epsilon() {
+        let config = ATLLConfig::default();
+        let max_files = config.l0.max_files; // Default is 12
+        let meter = Arc::new(nori_observe::NoopMeter);
+        let scheduler = BanditScheduler::new(config, meter);
+
+        // Test green zone (0-49% of max_files): epsilon should be 0.10 (10%)
+        let l0_count = 3; // 25% of 12
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.10, "Green zone should have 10% exploration");
+
+        // Test yellow zone (50-74% of max_files): epsilon should be 0.05 (5%)
+        let l0_count = 7; // 58% of 12
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.05, "Yellow zone should have 5% exploration");
+
+        // Test orange zone (75-89% of max_files): epsilon should be 0.02 (2%)
+        let l0_count = 10; // 83% of 12
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.02, "Orange zone should have 2% exploration");
+
+        // Test red zone (90%+ of max_files): epsilon should be 0.0 (pure exploitation)
+        let l0_count = 11; // 91.6% of 12
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.0, "Red zone should have 0% exploration (pure exploitation)");
+
+        // Test boundary: exactly at 50% threshold (6/12 = 0.50)
+        let l0_count = max_files / 2;
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.05, "50% threshold should be yellow (5%)");
+
+        // Test boundary: exactly at 75% threshold (9/12 = 0.75)
+        let l0_count = (max_files * 3) / 4;
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.02, "75% threshold should be orange (2%)");
+
+        // Test boundary: just below 75% (8/12 = 0.666)
+        let l0_count = 8;
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.05, "Just below 75% should be yellow (5%)");
+
+        // Test boundary: exactly at 90% threshold (10.8/12, round to 11)
+        let l0_count = max_files - 1; // 91.6%
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.0, "90% threshold should be red (0%)");
+
+        // Test at max capacity (12/12 = 1.0)
+        let l0_count = max_files;
+        let epsilon = scheduler.adaptive_epsilon(l0_count);
+        assert_eq!(epsilon, 0.0, "At max capacity should be red (0%)");
     }
 
 }

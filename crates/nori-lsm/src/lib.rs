@@ -2533,11 +2533,20 @@ impl LsmEngine {
                                 let heat_score = heat.get_heat(level, slot_id);
                                 let latency_reduction_ms = (bytes_written / 1024) as f64; // 1ms per KB written (rough estimate)
 
+                                // Get current L0 count for pressure-weighted rewards
+                                let l0_count = {
+                                    let manifest_guard = manifest.read();
+                                    let snapshot = manifest_guard.snapshot();
+                                    let snapshot_guard = snapshot.read().unwrap();
+                                    snapshot_guard.l0_file_count()
+                                };
+
                                 scheduler.update_reward(
                                     &action,
                                     bytes_written,
                                     latency_reduction_ms,
                                     heat_score,
+                                    l0_count,
                                 );
 
                                 // Delete old SSTable files

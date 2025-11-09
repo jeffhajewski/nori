@@ -518,11 +518,12 @@ impl LsmEngine {
 
         // L0 files are stored oldest-first in manifest, so iterate in reverse
         for run in l0_files.iter().rev() {
-            // Debug: check if key should be in this file
+            // Check if key is in this file's range
             let key_in_range = key >= run.min_key.as_ref() && key <= run.max_key.as_ref();
             if key_in_range {
-                println!(
-                    "  DEBUG get(): Key {:?} should be in L0 file {} (range: {} to {})",
+                // Trace logging (disabled in release builds)
+                tracing::trace!(
+                    "Key {:?} should be in L0 file {} (range: {} to {})",
                     String::from_utf8_lossy(key),
                     run.file_number,
                     String::from_utf8_lossy(&run.min_key),
@@ -546,9 +547,8 @@ impl LsmEngine {
 
             match reader.get(key).await {
                 Ok(Some(entry)) => {
-                    if key_in_range {
-                        println!("  DEBUG get(): Found key in L0 file {}", run.file_number);
-                    }
+                    // Trace logging (disabled in release builds)
+                    tracing::trace!("Found key in L0 file {}", run.file_number);
                     // Track latency before returning
                     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
                     nori_observe::obs_hist!(
@@ -565,12 +565,11 @@ impl LsmEngine {
                     };
                 }
                 Ok(None) => {
-                    if key_in_range {
-                        println!(
-                            "  DEBUG get(): Key NOT found in L0 file {} (bloom filter or missing)",
-                            run.file_number
-                        );
-                    }
+                    // Trace logging (disabled in release builds)
+                    tracing::trace!(
+                        "Key NOT found in L0 file {} (bloom filter or missing)",
+                        run.file_number
+                    );
                     continue; // Key not in this SSTable
                 }
                 Err(e) => {

@@ -38,7 +38,7 @@ fn bench_put(c: &mut Criterion) {
         b.iter(|| {
             counter += 1;
             let key = Bytes::from(format!("key-{:010}", counter));
-            rt.block_on(engine.put(black_box(key), black_box(value.clone()))).unwrap();
+            rt.block_on(engine.put(black_box(key), black_box(value.clone()), None)).unwrap();
         });
     });
 
@@ -50,7 +50,7 @@ fn bench_put(c: &mut Criterion) {
         b.iter(|| {
             counter += 1;
             let key = Bytes::from(format!("key-{:010}", counter));
-            rt.block_on(engine.put(black_box(key), black_box(value.clone()))).unwrap();
+            rt.block_on(engine.put(black_box(key), black_box(value.clone()), None)).unwrap();
         });
     });
 }
@@ -67,7 +67,7 @@ fn bench_get_memtable(c: &mut Criterion) {
             for i in 0..1000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 1024]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
 
             (engine, temp)
@@ -95,7 +95,7 @@ fn bench_get_l0(c: &mut Criterion) {
             for i in 0..1000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 1024]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
 
             // Trigger flush to move data to L0
@@ -126,7 +126,7 @@ fn bench_delete(c: &mut Criterion) {
             for i in 0..10000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 1024]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
 
             (engine, temp)
@@ -154,7 +154,7 @@ fn bench_mixed_workload(c: &mut Criterion) {
             for i in 0..1000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 1024]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
 
             (engine, temp)
@@ -169,7 +169,7 @@ fn bench_mixed_workload(c: &mut Criterion) {
                 // 20% writes
                 let key = Bytes::from(format!("key-{:010}", counter % 1000));
                 let value = Bytes::from(vec![0u8; 1024]);
-                rt.block_on(engine.put(black_box(key), black_box(value))).unwrap();
+                rt.block_on(engine.put(black_box(key), black_box(value), None)).unwrap();
             } else {
                 // 80% reads
                 let key = format!("key-{:010}", counter % 1000);
@@ -194,7 +194,7 @@ fn bench_value_sizes(c: &mut Criterion) {
             b.iter(|| {
                 counter += 1;
                 let key = Bytes::from(format!("key-{:010}", counter));
-                rt.block_on(engine.put(black_box(key), black_box(value.clone()))).unwrap();
+                rt.block_on(engine.put(black_box(key), black_box(value.clone()), None)).unwrap();
             });
         });
     }
@@ -214,7 +214,7 @@ fn bench_concurrent(c: &mut Criterion) {
                 for i in 0..100 {
                     let key = Bytes::from(format!("key-{:010}", i));
                     let value = Bytes::from(vec![0u8; 1024]);
-                    engine.put(key, value).await.unwrap();
+                    engine.put(key, value, None).await.unwrap();
                 }
             });
         });

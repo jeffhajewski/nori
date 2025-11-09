@@ -94,10 +94,10 @@ impl Flusher {
                 }
             };
 
-            // Log first and last few keys
+            // Trace logging (disabled in release builds)
             if entry_count < 3 || entry_count >= memtable.len() - 3 {
-                println!(
-                    "  FLUSH entry {}: {}",
+                tracing::trace!(
+                    "Flushing entry {}: {}",
                     entry_count,
                     String::from_utf8_lossy(&key)
                 );
@@ -116,8 +116,8 @@ impl Flusher {
             entry_count += 1;
         }
 
-        println!(
-            "=== FLUSH: Flushed {} entries to SSTable {} (from memtable with {} total) ===",
+        tracing::debug!(
+            "Flushed {} entries to SSTable {} (from memtable with {} total)",
             entry_count,
             file_number,
             memtable.len()

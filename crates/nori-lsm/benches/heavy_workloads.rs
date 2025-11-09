@@ -37,7 +37,7 @@ fn bench_sustained_writes(c: &mut Criterion) {
                     for i in 0..10000 {
                         let key = Bytes::from(format!("key-{:010}", i));
                         let value = Bytes::from(vec![0u8; 1024]);
-                        engine.put(key, value).await.unwrap();
+                        engine.put(key, value, None).await.unwrap();
                     }
                     black_box(engine);
                 });
@@ -182,7 +182,7 @@ fn bench_concurrent_mixed(c: &mut Criterion) {
                         // Write
                         let key = Bytes::from(format!("key-{:010}", counter % 1000));
                         let value = Bytes::from(vec![0u8; 1024]);
-                        engine.put(key, value).await.unwrap();
+                        engine.put(key, value, None).await.unwrap();
                     }
                     counter += 1;
                 }
@@ -216,7 +216,7 @@ fn bench_write_amplification(c: &mut Criterion) {
                 for i in 0..1000 {
                     let key = Bytes::from(format!("key-{:010}", i));
                     let value = Bytes::from(vec![1u8; 1024]);
-                    engine.put(black_box(key), black_box(value)).await.unwrap();
+                    engine.put(black_box(key), black_box(value), None).await.unwrap();
                 }
             });
         });

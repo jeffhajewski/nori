@@ -62,7 +62,7 @@ fn bench_cache_scenarios(c: &mut Criterion) {
             for i in 0..100 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 4096]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
             engine.flush().await.unwrap();
 
@@ -88,7 +88,7 @@ fn bench_cache_scenarios(c: &mut Criterion) {
             for i in 0..10000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 4096]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
             engine.flush().await.unwrap();
 
@@ -118,7 +118,7 @@ fn bench_concurrent_readers(c: &mut Criterion) {
             for i in 0..1000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 1024]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
 
             (engine, temp)
@@ -162,7 +162,7 @@ fn bench_concurrent_mixed(c: &mut Criterion) {
             for i in 0..1000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 1024]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
 
             (engine, temp)
@@ -203,7 +203,7 @@ fn bench_write_amplification(c: &mut Criterion) {
             for i in 0..1000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 1024]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
             engine.flush().await.unwrap();
 
@@ -235,7 +235,7 @@ fn bench_zipfian_reads(c: &mut Criterion) {
             for i in 0..10000 {
                 let key = Bytes::from(format!("key-{:010}", i));
                 let value = Bytes::from(vec![0u8; 1024]);
-                engine.put(key, value).await.unwrap();
+                engine.put(key, value, None).await.unwrap();
             }
 
             (engine, temp)

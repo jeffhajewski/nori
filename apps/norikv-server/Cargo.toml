@@ -9,6 +9,7 @@ nori-observe = { path = "../../crates/nori-observe" }
 nori-lsm = { path = "../../crates/nori-lsm" }
 nori-raft = { path = "../../crates/nori-raft" }
 nori-swim = { path = "../../crates/nori-swim" }
+norikv-placement = { path = "../../crates/norikv-placement" }
 norikv-transport-grpc = { path = "../../crates/norikv-transport-grpc" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 serde = { version = "1", features = ["derive"] }
@@ -17,6 +18,9 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 thiserror = "1"
+async-trait = "0.1"
+bytes = "1"
+futures = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

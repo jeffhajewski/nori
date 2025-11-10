@@ -12,6 +12,7 @@ pub mod proto {
 }
 
 pub mod kv;
+pub mod kv_backend;
 pub mod meta;
 pub mod admin;
 pub mod raft;
@@ -23,3 +24,4 @@ pub use server::GrpcServer;
 pub use health::{HealthService, HealthStatus};
 pub use raft::GrpcRaftTransport;
 pub use raft_service::RaftService;
+pub use kv_backend::{KvBackend, SingleShardBackend};

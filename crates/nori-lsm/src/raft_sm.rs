@@ -96,7 +96,7 @@ impl LsmStateMachine {
         let manifest_snapshot = {
             let manifest = self.engine.manifest.read();
             let snapshot_arc = manifest.snapshot();
-            let snapshot_guard = snapshot_arc.read().expect("RwLock poisoned");
+            let snapshot_guard = snapshot_arc.read();
             (*snapshot_guard).clone()
         };
 

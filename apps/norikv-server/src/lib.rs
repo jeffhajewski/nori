@@ -5,3 +5,4 @@
 pub mod config;
 pub mod node;
 pub mod shard_manager;
+pub mod multi_shard_backend;

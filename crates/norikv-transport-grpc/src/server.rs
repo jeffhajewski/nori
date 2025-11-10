@@ -2,6 +2,7 @@
 
 use crate::admin::AdminService;
 use crate::kv::KvService;
+use crate::kv_backend::{KvBackend, SingleShardBackend};
 use crate::meta::MetaService;
 use crate::raft_service::RaftService;
 use crate::proto::{
@@ -20,22 +21,39 @@ use tonic::transport::Server;
 /// Hosts all gRPC services (Kv, Meta, Admin, optionally Raft) and manages the server lifecycle.
 pub struct GrpcServer {
     addr: SocketAddr,
-    replicated_lsm: Arc<ReplicatedLSM>,
+    backend: Arc<dyn KvBackend>,
     raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     server_handle: Option<JoinHandle<Result<(), tonic::transport::Error>>>,
 }
 
 impl GrpcServer {
-    /// Create a new gRPC server.
+    /// Create a new gRPC server (single-shard mode).
     ///
     /// # Arguments
     /// - `addr`: Socket address to bind to
     /// - `replicated_lsm`: ReplicatedLSM instance for KV operations
     pub fn new(addr: SocketAddr, replicated_lsm: Arc<ReplicatedLSM>) -> Self {
+        // Wrap in SingleShardBackend for backwards compatibility
+        let backend: Arc<dyn KvBackend> = Arc::new(SingleShardBackend::new(replicated_lsm));
         Self {
             addr,
-            replicated_lsm,
+            backend,
+            raft_rpc_tx: None,
+            shutdown_tx: None,
+            server_handle: None,
+        }
+    }
+
+    /// Create a new gRPC server with a custom backend.
+    ///
+    /// # Arguments
+    /// - `addr`: Socket address to bind to
+    /// - `backend`: KvBackend implementation (single-shard or multi-shard routing)
+    pub fn with_backend(addr: SocketAddr, backend: Arc<dyn KvBackend>) -> Self {
+        Self {
+            addr,
+            backend,
             raft_rpc_tx: None,
             shutdown_tx: None,
             server_handle: None,
@@ -61,7 +79,7 @@ impl GrpcServer {
         tracing::info!("Starting gRPC server on {}", self.addr);
 
         // Create services
-        let kv_service = KvService::new(self.replicated_lsm.clone());
+        let kv_service = KvService::new(self.backend.clone());
         let meta_service = MetaService::new();
         let admin_service = AdminService::new();
 

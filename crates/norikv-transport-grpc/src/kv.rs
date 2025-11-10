@@ -1,25 +1,25 @@
 //! KV service implementation.
 //!
-//! Handles Put, Get, Delete operations by routing to ReplicatedLSM.
+//! Handles Put, Get, Delete operations by routing to a KvBackend.
 
+use crate::kv_backend::KvBackend;
 use crate::proto::{self, kv_server::Kv};
-use nori_raft::ReplicatedLSM;
 use std::sync::Arc;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
 
 /// KV service implementation.
 ///
-/// Routes requests to the underlying ReplicatedLSM.
+/// Routes requests to the underlying KvBackend (single-shard or multi-shard).
 /// Returns NOT_LEADER errors with leader hint in metadata when not leader.
 pub struct KvService {
-    replicated_lsm: Arc<ReplicatedLSM>,
+    backend: Arc<dyn KvBackend>,
 }
 
 impl KvService {
     /// Create a new KV service.
-    pub fn new(replicated_lsm: Arc<ReplicatedLSM>) -> Self {
-        Self { replicated_lsm }
+    pub fn new(backend: Arc<dyn KvBackend>) -> Self {
+        Self { backend }
     }
 }
 
@@ -42,13 +42,13 @@ impl Kv for KvService {
 
         // Attempt the put operation
         match self
-            .replicated_lsm
-            .replicated_put(bytes::Bytes::from(req.key), bytes::Bytes::from(req.value), ttl)
+            .backend
+            .put(bytes::Bytes::from(req.key), bytes::Bytes::from(req.value), ttl)
             .await
         {
             Ok(index) => {
                 // Success - return version with actual term and index
-                let term = self.replicated_lsm.raft().current_term();
+                let term = self.backend.current_term();
                 let version = Some(proto::Version {
                     term: term.as_u64(),
                     index: index.0,
@@ -63,7 +63,7 @@ impl Kv for KvService {
                 // Check if it's a NotLeader error
                 if format!("{:?}", e).contains("NotLeader") {
                     // Get leader hint if available
-                    let leader_hint = self.replicated_lsm.leader()
+                    let leader_hint = self.backend.leader()
                         .map(|id| id.to_string())
                         .unwrap_or_default();
 
@@ -99,11 +99,11 @@ impl Kv for KvService {
         tracing::debug!("GET request: key_len={}", req.key.len());
 
         // Attempt the get operation
-        match self.replicated_lsm.replicated_get(&req.key).await {
+        match self.backend.get(&req.key).await {
             Ok(Some(value)) => {
                 // Get current term and commit index for linearizable read
-                let term = self.replicated_lsm.raft().current_term();
-                let commit_index = self.replicated_lsm.raft().commit_index();
+                let term = self.backend.current_term();
+                let commit_index = self.backend.commit_index();
 
                 Ok(Response::new(proto::GetResponse {
                     value: value.to_vec(),
@@ -125,7 +125,7 @@ impl Kv for KvService {
             Err(e) => {
                 // Check if it's a NotLeader error
                 if format!("{:?}", e).contains("NotLeader") {
-                    let leader_hint = self.replicated_lsm.leader()
+                    let leader_hint = self.backend.leader()
                         .map(|id| id.to_string())
                         .unwrap_or_default();
 
@@ -162,13 +162,13 @@ impl Kv for KvService {
 
         // Attempt the delete operation
         match self
-            .replicated_lsm
-            .replicated_delete(bytes::Bytes::from(req.key))
+            .backend
+            .delete(bytes::Bytes::from(req.key))
             .await
         {
             Ok(index) => {
                 // Success - return version with actual term and index
-                let term = self.replicated_lsm.raft().current_term();
+                let term = self.backend.current_term();
                 let version = Some(proto::Version {
                     term: term.as_u64(),
                     index: index.0,
@@ -182,7 +182,7 @@ impl Kv for KvService {
             Err(e) => {
                 // Check if it's a NotLeader error
                 if format!("{:?}", e).contains("NotLeader") {
-                    let leader_hint = self.replicated_lsm.leader()
+                    let leader_hint = self.backend.leader()
                         .map(|id| id.to_string())
                         .unwrap_or_default();
 

@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Complete snapshot of the LSM tree structure.
 ///
@@ -459,7 +459,7 @@ pub struct ManifestLog {
     manifest_dir: PathBuf,
 
     /// Current in-memory snapshot
-    snapshot: Arc<RwLock<ManifestSnapshot>>,
+    snapshot: Arc<parking_lot::RwLock<ManifestSnapshot>>,
 
     /// Active MANIFEST file writer
     writer: Option<BufWriter<File>>,
@@ -509,7 +509,7 @@ impl ManifestLog {
 
         Ok(Self {
             manifest_dir: manifest_dir.to_path_buf(),
-            snapshot: Arc::new(RwLock::new(snapshot)),
+            snapshot: Arc::new(parking_lot::RwLock::new(snapshot)),
             writer: Some(writer),
             current_manifest_number: manifest_number,
             edits_since_snapshot: 0,
@@ -548,7 +548,7 @@ impl ManifestLog {
 
         // Apply to in-memory snapshot
         {
-            let mut snapshot = self.snapshot.write().unwrap();
+            let mut snapshot = self.snapshot.write();
             snapshot.apply_edit(edit)?;
         }
 
@@ -564,7 +564,7 @@ impl ManifestLog {
 
     /// Writes a complete snapshot and starts a new MANIFEST file.
     pub fn write_snapshot(&mut self) -> Result<()> {
-        let snapshot = self.snapshot.read().unwrap().clone();
+        let snapshot = self.snapshot.read().clone();
 
         // Start new MANIFEST file
         let new_manifest_number = self.current_manifest_number + 1;
@@ -601,7 +601,7 @@ impl ManifestLog {
     }
 
     /// Returns a read-only view of the current snapshot.
-    pub fn snapshot(&self) -> Arc<RwLock<ManifestSnapshot>> {
+    pub fn snapshot(&self) -> Arc<parking_lot::RwLock<ManifestSnapshot>> {
         Arc::clone(&self.snapshot)
     }
 
@@ -912,7 +912,7 @@ mod tests {
         assert!(manifest_dir.join("MANIFEST-000001").exists());
 
         let snapshot = log.snapshot();
-        let snapshot = snapshot.read().unwrap();
+        let snapshot = snapshot.read();
         assert_eq!(snapshot.levels.len(), 8); // L0-L7
     }
 
@@ -949,7 +949,7 @@ mod tests {
                 .unwrap();
 
             let snapshot = log.snapshot();
-            let snapshot = snapshot.read().unwrap();
+            let snapshot = snapshot.read();
             assert_eq!(snapshot.l0_file_count(), 1);
             assert_eq!(snapshot.last_seqno, 200);
         }
@@ -958,7 +958,7 @@ mod tests {
         {
             let log = ManifestLog::open(&manifest_dir, 7).unwrap();
             let snapshot = log.snapshot();
-            let snapshot = snapshot.read().unwrap();
+            let snapshot = snapshot.read();
 
             assert_eq!(snapshot.l0_file_count(), 1);
             assert_eq!(snapshot.last_seqno, 200);
@@ -983,7 +983,7 @@ mod tests {
         assert!(manifest_dir.join("MANIFEST-000002").exists());
 
         let snapshot = log.snapshot();
-        let snapshot = snapshot.read().unwrap();
+        let snapshot = snapshot.read();
         assert_eq!(snapshot.last_seqno, 60);
     }
 }

@@ -554,7 +554,7 @@ impl LsmEngine {
 
         // Initialize sequence number from manifest's max seqno
         let snapshot = manifest.snapshot();
-        let snapshot_guard = snapshot.read().unwrap();
+        let snapshot_guard = snapshot.read();
         let max_seqno = snapshot_guard
             .all_files()
             .iter()
@@ -770,7 +770,7 @@ impl LsmEngine {
         // 2. Check L0 files (newest to oldest)
         let l0_files = {
             let snapshot = self.manifest.read().snapshot();
-            let snapshot_guard = snapshot.read().unwrap();
+            let snapshot_guard = snapshot.read();
             snapshot_guard.l0_files().to_vec()
         };
 
@@ -848,7 +848,7 @@ impl LsmEngine {
         // Get L1+ runs (clone to drop lock before await)
         let level_runs: Vec<(u8, Vec<_>)> = {
             let snapshot = self.manifest.read().snapshot();
-            let snapshot_guard = snapshot.read().unwrap();
+            let snapshot_guard = snapshot.read();
             (1..self.config.max_levels)
                 .map(|level| (level, snapshot_guard.slot_runs(level, slot_id).to_vec()))
                 .collect()
@@ -1266,7 +1266,7 @@ impl LsmEngine {
         let manifest_snapshot = {
             let manifest = self.manifest.read();
             let snapshot_arc = manifest.snapshot();
-            let snapshot_guard = snapshot_arc.read().expect("RwLock poisoned");
+            let snapshot_guard = snapshot_arc.read();
             (*snapshot_guard).clone()
         };
 
@@ -1330,7 +1330,7 @@ impl LsmEngine {
         // 2. Estimate from SSTables via manifest
         let manifest = self.manifest.read();
         let snapshot_arc = manifest.snapshot();
-        let snapshot = snapshot_arc.read().expect("RwLock poisoned");
+        let snapshot = snapshot_arc.read();
 
         let start_key = Bytes::copy_from_slice(start);
         let end_key = Bytes::copy_from_slice(end);
@@ -1403,7 +1403,7 @@ impl LsmEngine {
 
         // Get snapshot for stable view
         let snapshot = self.manifest.read().snapshot();
-        let snapshot_guard = snapshot.read().unwrap();
+        let snapshot_guard = snapshot.read();
 
         // 2. Add L0 files (all overlapping files)
         let l0_files = snapshot_guard.l0_files();
@@ -1697,7 +1697,7 @@ impl LsmEngine {
         let file_number = {
             let manifest = self.manifest.read();
             let snapshot = manifest.snapshot();
-            let mut snap_guard = snapshot.write().unwrap();
+            let mut snap_guard = snapshot.write();
             snap_guard.alloc_file_number()
         };
 
@@ -1736,7 +1736,7 @@ impl LsmEngine {
         let should_admit = {
             let manifest = self.manifest.read();
             let snapshot = manifest.snapshot();
-            let snapshot = snapshot.read().unwrap();
+            let snapshot = snapshot.read();
             l0_admitter.should_admit(snapshot.l0_file_count())
         };
 
@@ -1745,7 +1745,7 @@ impl LsmEngine {
             let current_l0_count = {
                 let manifest = self.manifest.read();
                 let snapshot = manifest.snapshot();
-                let snapshot_guard = snapshot.read().unwrap();
+                let snapshot_guard = snapshot.read();
                 snapshot_guard.l0_file_count()
             };
 
@@ -1985,7 +1985,7 @@ impl LsmEngine {
             MemoryPressure::Critical => {
                 let manifest = self.manifest.read();
                 let snapshot = manifest.snapshot();
-                let snapshot = snapshot.read().unwrap();
+                let snapshot = snapshot.read();
                 let l0_count = snapshot.l0_file_count();
                 let max_files = self.config.l0.max_files;
 
@@ -2161,7 +2161,7 @@ impl LsmEngine {
         // Get manifest snapshot to identify affected files
         let manifest = self.manifest.read();
         let snapshot_arc = manifest.snapshot();
-        let snapshot = snapshot_arc.read().expect("RwLock poisoned");
+        let snapshot = snapshot_arc.read();
 
         let mut affected_files = 0;
 
@@ -2219,7 +2219,7 @@ impl LsmEngine {
 
         // Get manifest snapshot
         let snapshot = self.manifest.read().snapshot();
-        let snapshot_guard = snapshot.read().unwrap();
+        let snapshot_guard = snapshot.read();
 
         // Compute per-level statistics
         let mut levels = Vec::new();
@@ -2659,7 +2659,7 @@ impl LsmEngine {
             let action = {
                 let manifest_guard = manifest.read();
                 let snapshot = manifest_guard.snapshot();
-                let snapshot_guard = snapshot.read().unwrap();
+                let snapshot_guard = snapshot.read();
                 scheduler.select_action(&snapshot_guard, &heat)
             };
 
@@ -2693,7 +2693,7 @@ impl LsmEngine {
                     let (old_guard_count, imbalance_ratio, total_files) = {
                         let manifest_guard = manifest.read();
                         let snapshot = manifest_guard.snapshot();
-                        let snapshot_guard = snapshot.read().unwrap();
+                        let snapshot_guard = snapshot.read();
 
                         // Find this level's metadata
                         if let Some(level_meta) = snapshot_guard.levels.iter().find(|lm| lm.level == *level) {
@@ -2825,7 +2825,7 @@ impl LsmEngine {
                                 let l0_count = {
                                     let manifest_guard = manifest.read();
                                     let snapshot = manifest_guard.snapshot();
-                                    let snapshot_guard = snapshot.read().unwrap();
+                                    let snapshot_guard = snapshot.read();
                                     snapshot_guard.l0_file_count()
                                 };
 
@@ -3611,7 +3611,7 @@ mod tests {
         // Check manifest for L0 files (flush should have occurred)
         let manifest = engine.manifest.read();
         let snapshot = manifest.snapshot();
-        let snap_guard = snapshot.read().unwrap();
+        let snap_guard = snapshot.read();
         let l0_count = snap_guard.l0_files().len();
 
         // We expect at least one flush to have occurred
@@ -3672,7 +3672,7 @@ mod tests {
         // Verify no L0 files created
         let manifest = engine.manifest.read();
         let snapshot = manifest.snapshot();
-        let snap_guard = snapshot.read().unwrap();
+        let snap_guard = snapshot.read();
         assert_eq!(snap_guard.l0_files().len(), 0);
     }
 
@@ -3705,7 +3705,7 @@ mod tests {
         // L0 count should be <= max_files because admission moved files to L1
         let manifest = engine.manifest.read();
         let snapshot = manifest.snapshot();
-        let snap_guard = snapshot.read().unwrap();
+        let snap_guard = snapshot.read();
 
         let l0_count = snap_guard.l0_file_count();
         println!("L0 file count after 3 flushes: {}", l0_count);
@@ -3828,7 +3828,7 @@ mod tests {
                 let l0_count = {
                     let manifest = engine.manifest.read();
                     let snapshot = manifest.snapshot();
-                    let snapshot_guard = snapshot.read().unwrap();
+                    let snapshot_guard = snapshot.read();
                     snapshot_guard.l0_file_count()
                 };
 
@@ -3889,7 +3889,7 @@ mod tests {
                 let l0_before = {
                     let manifest = engine.manifest.read();
                     let snapshot = manifest.snapshot();
-                    let snapshot_guard = snapshot.read().unwrap();
+                    let snapshot_guard = snapshot.read();
                     snapshot_guard.l0_file_count()
                 };
 
@@ -3970,7 +3970,7 @@ mod tests {
         let l0_count = {
             let manifest = engine.manifest.read();
             let snapshot = manifest.snapshot();
-            let snapshot_guard = snapshot.read().unwrap();
+            let snapshot_guard = snapshot.read();
             snapshot_guard.l0_file_count()
         };
 
@@ -4183,7 +4183,7 @@ mod tests {
         // Verify L0 admission happened
         let manifest = engine.manifest.read();
         let snapshot = manifest.snapshot();
-        let snap_guard = snapshot.read().unwrap();
+        let snap_guard = snapshot.read();
 
         let l0_count = snap_guard.l0_file_count();
         println!("L0 count after admission: {}", l0_count);
@@ -4249,7 +4249,7 @@ mod tests {
         // Verify L0 file was created (data was flushed successfully)
         let manifest = engine.manifest.read();
         let snapshot = manifest.snapshot();
-        let snap_guard = snapshot.read().unwrap();
+        let snap_guard = snapshot.read();
         let l0_count = snap_guard.l0_file_count();
         assert!(l0_count > 0, "Should have at least one L0 file after flush");
     }
@@ -4973,7 +4973,7 @@ mod tests {
         println!("\n=== Checking manifest ===");
         let manifest = engine.manifest.read();
         let snapshot = manifest.snapshot();
-        let snap_guard = snapshot.read().unwrap();
+        let snap_guard = snapshot.read();
         let l0_files = snap_guard.l0_files();
         println!("L0 files: {}", l0_files.len());
         for run in l0_files.iter() {
@@ -5042,7 +5042,7 @@ mod tests {
         // Check that L0 is bounded (admission should have occurred)
         let manifest = engine.manifest.read();
         let snapshot = manifest.snapshot();
-        let snap_guard = snapshot.read().unwrap();
+        let snap_guard = snapshot.read();
         let l0_count = snap_guard.l0_file_count();
 
         println!(
@@ -5197,7 +5197,7 @@ mod tests {
         let initial_file_count = {
             let manifest_guard = engine.manifest.read();
             let snapshot = manifest_guard.snapshot();
-            let snapshot_guard = snapshot.read().unwrap();
+            let snapshot_guard = snapshot.read();
             snapshot_guard.l0_file_count()
         };
 
@@ -5207,7 +5207,7 @@ mod tests {
         let final_file_count = {
             let manifest_guard = engine.manifest.read();
             let snapshot = manifest_guard.snapshot();
-            let snapshot_guard = snapshot.read().unwrap();
+            let snapshot_guard = snapshot.read();
             snapshot_guard.l0_file_count()
         };
 

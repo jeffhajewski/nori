@@ -1,6 +1,7 @@
 mod config;
 mod node;
 mod shard_manager;
+mod multi_shard_backend;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

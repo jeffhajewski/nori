@@ -114,13 +114,18 @@ impl ReplicatedLSM {
         initial_config: ConfigEntry,
         rpc_rx: Option<tokio::sync::mpsc::Receiver<crate::transport::RpcMessage>>,
     ) -> Result<Self> {
-        // Open LSM engine
+        // Open LSM engine on blocking thread pool (uses sync I/O internally)
         let lsm_engine = Arc::new(
-            LsmEngine::open(lsm_config)
-                .await
-                .map_err(|e| RaftError::Internal {
-                    reason: format!("Failed to open LSM engine: {}", e),
-                })?,
+            tokio::task::spawn_blocking(move || {
+                futures::executor::block_on(LsmEngine::open(lsm_config))
+            })
+            .await
+            .map_err(|e| RaftError::Internal {
+                reason: format!("Task join error: {}", e),
+            })?
+            .map_err(|e| RaftError::Internal {
+                reason: format!("Failed to open LSM engine: {}", e),
+            })?,
         );
 
         // Wrap LSM in state machine adapter

@@ -1014,7 +1014,7 @@ trait ManifestExt {
 impl ManifestExt for ManifestLog {
     fn level_state(&self, level: u8) -> Vec<LevelSlotState> {
         let snapshot = self.snapshot();
-        let snap_guard = snapshot.read().unwrap();
+        let snap_guard = snapshot.read();
 
         if level >= snap_guard.levels.len() as u8 {
             return vec![]; // Level doesn't exist yet
@@ -1194,7 +1194,7 @@ impl CompactionExecutor {
         let l0_count = {
             let manifest_guard = manifest.read();
             let snapshot = manifest_guard.snapshot();
-            let snapshot_guard = snapshot.read().unwrap();
+            let snapshot_guard = snapshot.read();
             snapshot_guard.l0_file_count()
         };
 
@@ -1360,7 +1360,7 @@ impl CompactionExecutor {
         let l0_count = {
             let manifest_guard = manifest.read();
             let snapshot = manifest_guard.snapshot();
-            let snapshot_guard = snapshot.read().unwrap();
+            let snapshot_guard = snapshot.read();
             snapshot_guard.l0_file_count()
         };
 
@@ -1653,7 +1653,7 @@ impl CompactionExecutor {
     ) -> u64 {
         let manifest_guard = manifest.read();
         let snapshot = manifest_guard.snapshot();
-        let mut snap_guard = snapshot.write().unwrap();
+        let mut snap_guard = snapshot.write();
         snap_guard.alloc_file_number()
     }
 }
@@ -1800,7 +1800,7 @@ impl CompactionCoordinator {
                 let (interval, l0_count) = {
                     let manifest_guard = self.manifest.read();
                     let snapshot = manifest_guard.snapshot();
-                    let snapshot_guard = snapshot.read().unwrap();
+                    let snapshot_guard = snapshot.read();
                     let l0_count = snapshot_guard.l0_files().len();
                     let interval = self.adaptive_interval(l0_count);
                     (interval, l0_count)
@@ -1840,7 +1840,7 @@ impl CompactionCoordinator {
                 let action = {
                     let manifest_guard = self.manifest.read();
                     let snapshot = manifest_guard.snapshot();
-                    let snapshot_guard = snapshot.read().unwrap();
+                    let snapshot_guard = snapshot.read();
                     let scheduler_guard = self.scheduler.lock();
                     scheduler_guard.select_action(&snapshot_guard, &self.heat_tracker)
                 };
@@ -1905,7 +1905,7 @@ impl CompactionCoordinator {
                                 let l0_count = {
                                     let manifest_guard = manifest_clone.read();
                                     let snapshot = manifest_guard.snapshot();
-                                    let snapshot_guard = snapshot.read().unwrap();
+                                    let snapshot_guard = snapshot.read();
                                     snapshot_guard.l0_file_count()
                                 };
 

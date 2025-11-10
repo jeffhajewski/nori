@@ -161,6 +161,7 @@ impl Node {
         tracing::info!("Starting node");
 
         // Create and start shard 0 (primary shard for initial operations)
+        // Note: Additional shards are created lazily on first access via MultiShardBackend
         tracing::info!("Creating shard 0 (primary shard)");
         let shard_0 = self.shard_manager
             .get_or_create_shard(0)
@@ -173,19 +174,23 @@ impl Node {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         if shard_0.is_leader() {
-            tracing::info!("Shard 0 is leader");
+            tracing::info!("Shard 0 is leader (other shards will be created on demand)");
         } else {
             tracing::warn!("Shard 0 is not leader yet");
         }
 
-        // Start gRPC server
-        // Note: Pass shard 0 for backwards compatibility
-        // Phase 1.4 will update KvService to route requests to correct shards
+        // Start gRPC server with multi-shard routing
         let addr: std::net::SocketAddr = self.config.rpc_addr
             .parse()
             .map_err(|e| NodeError::Startup(format!("Invalid rpc_addr: {}", e)))?;
 
-        let mut grpc_server = GrpcServer::new(addr, shard_0.clone());
+        // Create multi-shard backend for request routing
+        let backend = Arc::new(crate::multi_shard_backend::MultiShardBackend::new(
+            self.shard_manager.clone(),
+            self.config.cluster.total_shards,
+        ));
+
+        let mut grpc_server = norikv_transport_grpc::GrpcServer::with_backend(addr, backend);
 
         // Wire Raft RPC channel if multi-node
         // Note: For now, only shard 0's RPC channel is wired

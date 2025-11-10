@@ -3,8 +3,9 @@
 //! Wires together all components (Raft, LSM, transport) via dependency injection.
 
 use crate::config::ServerConfig;
+use crate::shard_manager::ShardManager;
 use nori_lsm::ATLLConfig;
-use nori_raft::{log::RaftLog, transport::RpcMessage, ConfigEntry, NodeId, RaftConfig, ReplicatedLSM};
+use nori_raft::{ConfigEntry, NodeId, RaftConfig};
 use nori_swim::{Membership, SwimMembership};
 use norikv_transport_grpc::{GrpcRaftTransport, GrpcServer};
 use std::collections::HashMap;
@@ -18,11 +19,8 @@ pub struct Node {
     /// Node configuration
     config: ServerConfig,
 
-    /// Replicated LSM (Raft + LSM integration)
-    replicated_lsm: Arc<ReplicatedLSM>,
-
-    /// Raft RPC receiver channel (if multi-node)
-    raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
+    /// Shard manager (manages 1024 Raft groups + LSM engines)
+    shard_manager: Arc<ShardManager>,
 
     /// SWIM membership (optional, for multi-node clusters)
     swim: Option<Arc<SwimMembership>>,
@@ -35,12 +33,9 @@ impl Node {
     /// Create a new node from configuration.
     ///
     /// This wires together all components:
-    /// 1. Opens Raft log
-    /// 2. Opens LSM engine
-    /// 3. Creates ReplicatedLSM
-    /// 4. Sets up transport
-    /// 5. Initializes membership (future)
-    /// 6. Sets up placement (future)
+    /// 1. Creates ShardManager (manages 1024 Raft groups + LSM engines)
+    /// 2. Sets up transport
+    /// 3. Initializes membership (if multi-node)
     pub async fn new(config: ServerConfig) -> Result<Self, NodeError> {
         tracing::info!("Initializing node: {}", config.node_id);
 
@@ -57,13 +52,6 @@ impl Node {
         tracing::info!("Raft directory: {}", raft_dir.display());
         tracing::info!("LSM directory: {}", lsm_dir.display());
 
-        // Open Raft log
-        let (raft_log, _) = RaftLog::open(&raft_dir)
-            .await
-            .map_err(|e| NodeError::Initialization(format!("Failed to open raft log: {}", e)))?;
-
-        tracing::info!("Raft log opened");
-
         // Configure Raft
         let mut raft_config = RaftConfig::default();
         raft_config.election_timeout_min = Duration::from_millis(150);
@@ -78,7 +66,7 @@ impl Node {
         // Determine cluster mode: single-node or multi-node
         let is_single_node = config.cluster.seed_nodes.is_empty();
 
-        let (transport, initial_config, raft_rpc_tx, raft_rpc_rx) = if is_single_node {
+        let (transport, initial_config) = if is_single_node {
             tracing::info!("Starting in single-node mode (no seed nodes configured)");
 
             // Single-node: Use in-memory transport
@@ -88,7 +76,7 @@ impl Node {
             ));
             let config = ConfigEntry::Single(vec![node_id.clone()]);
 
-            (transport as Arc<dyn nori_raft::transport::RaftTransport>, config, None, None)
+            (transport as Arc<dyn nori_raft::transport::RaftTransport>, config)
         } else {
             tracing::info!("Starting in multi-node mode with {} seed nodes", config.cluster.seed_nodes.len());
 
@@ -112,7 +100,6 @@ impl Node {
             let transport = Arc::new(GrpcRaftTransport::new(peer_addrs.clone()));
 
             // Build cluster configuration from seed nodes
-            // Use unique node IDs based on addresses to avoid duplicates
             let mut cluster_nodes = vec![node_id.clone()];
 
             // Add peer nodes (avoiding duplicates)
@@ -125,30 +112,21 @@ impl Node {
 
             let config = ConfigEntry::Single(cluster_nodes);
 
-            // Create RPC receiver channel (bounded, capacity 1000)
-            let (tx, rx) = tokio::sync::mpsc::channel(1000);
-
-            (transport as Arc<dyn nori_raft::transport::RaftTransport>, config, Some(tx), Some(rx))
+            (transport as Arc<dyn nori_raft::transport::RaftTransport>, config)
         };
 
-        tracing::info!("Creating ReplicatedLSM with initial config: {:?}", initial_config);
+        tracing::info!("Creating ShardManager with {} total shards", config.cluster.total_shards);
 
-        // Create ReplicatedLSM
-        let replicated_lsm = ReplicatedLSM::new(
-            node_id,
+        // Create ShardManager (lazy shard initialization - shards created on demand)
+        let shard_manager = ShardManager::new(
+            config.clone(),
             raft_config,
             lsm_config,
-            raft_log,
             transport,
             initial_config,
-            raft_rpc_rx,
-        )
-        .await
-        .map_err(|e| {
-            NodeError::Initialization(format!("Failed to create ReplicatedLSM: {:?}", e))
-        })?;
+        );
 
-        tracing::info!("ReplicatedLSM created successfully");
+        tracing::info!("ShardManager created successfully");
 
         // Create SWIM membership if multi-node
         let swim = if !is_single_node {
@@ -165,8 +143,7 @@ impl Node {
 
         Ok(Self {
             config,
-            replicated_lsm: Arc::new(replicated_lsm),
-            raft_rpc_tx,
+            shard_manager: Arc::new(shard_manager),
             swim,
             grpc_server: None,
         })
@@ -175,41 +152,46 @@ impl Node {
     /// Start the node.
     ///
     /// Starts all background tasks:
-    /// - Raft election timer
-    /// - Raft heartbeat loop
-    /// - LSM compaction
-    /// - gRPC server
-    /// - SWIM membership (future)
+    /// - Creates and starts shard 0 (primary shard)
+    /// - Starts gRPC server
+    /// - Starts SWIM membership (if multi-node)
+    ///
+    /// Note: Additional shards are created lazily on first access.
     pub async fn start(&mut self) -> Result<(), NodeError> {
         tracing::info!("Starting node");
 
-        // Start ReplicatedLSM (starts Raft background tasks)
-        self.replicated_lsm
-            .start()
+        // Create and start shard 0 (primary shard for initial operations)
+        tracing::info!("Creating shard 0 (primary shard)");
+        let shard_0 = self.shard_manager
+            .get_or_create_shard(0)
             .await
-            .map_err(|e| NodeError::Startup(format!("Failed to start ReplicatedLSM: {:?}", e)))?;
+            .map_err(|e| NodeError::Startup(format!("Failed to create shard 0: {:?}", e)))?;
 
-        tracing::info!("ReplicatedLSM started");
+        tracing::info!("Shard 0 created and started");
 
         // Wait for leader election (single-node should elect itself immediately)
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        if self.replicated_lsm.is_leader() {
-            tracing::info!("Node is leader");
+        if shard_0.is_leader() {
+            tracing::info!("Shard 0 is leader");
         } else {
-            tracing::warn!("Node is not leader");
+            tracing::warn!("Shard 0 is not leader yet");
         }
 
         // Start gRPC server
+        // Note: Pass shard 0 for backwards compatibility
+        // Phase 1.4 will update KvService to route requests to correct shards
         let addr: std::net::SocketAddr = self.config.rpc_addr
             .parse()
             .map_err(|e| NodeError::Startup(format!("Invalid rpc_addr: {}", e)))?;
 
-        let mut grpc_server = GrpcServer::new(addr, self.replicated_lsm.clone());
+        let mut grpc_server = GrpcServer::new(addr, shard_0.clone());
 
         // Wire Raft RPC channel if multi-node
-        if let Some(raft_rpc_tx) = self.raft_rpc_tx.clone() {
-            tracing::info!("Enabling Raft peer-to-peer RPC service");
+        // Note: For now, only shard 0's RPC channel is wired
+        // Phase 1.4 will implement per-shard RPC routing
+        if let Some(raft_rpc_tx) = self.shard_manager.get_rpc_sender(0).await {
+            tracing::info!("Enabling Raft peer-to-peer RPC service for shard 0");
             grpc_server = grpc_server.with_raft_rpc(raft_rpc_tx);
         }
 
@@ -251,9 +233,8 @@ impl Node {
     ///
     /// Stops all background tasks and flushes data:
     /// - gRPC server
-    /// - SWIM leave (future)
-    /// - Raft shutdown
-    /// - LSM shutdown (flush memtable, sync WAL)
+    /// - SWIM membership
+    /// - All shard Raft groups and LSM engines
     pub async fn shutdown(mut self) -> Result<(), NodeError> {
         tracing::info!("Shutting down node");
 
@@ -272,26 +253,39 @@ impl Node {
             tracing::info!("SWIM shutdown complete");
         }
 
-        // Shutdown ReplicatedLSM
-        self.replicated_lsm
+        // Shutdown all shards
+        self.shard_manager
             .shutdown()
             .await
-            .map_err(|e| NodeError::Shutdown(format!("Failed to shutdown ReplicatedLSM: {:?}", e)))?;
+            .map_err(|e| NodeError::Shutdown(format!("Failed to shutdown ShardManager: {:?}", e)))?;
 
         tracing::info!("Node shutdown complete");
 
         Ok(())
     }
 
-    /// Get reference to ReplicatedLSM (for testing/debugging).
-    pub fn replicated_lsm(&self) -> &Arc<ReplicatedLSM> {
-        &self.replicated_lsm
+    /// Get reference to ShardManager (for testing/debugging).
+    pub fn shard_manager(&self) -> &Arc<ShardManager> {
+        &self.shard_manager
     }
 
     /// Get health status of the node.
-    pub fn health(&self) -> norikv_transport_grpc::HealthStatus {
-        let health_service = norikv_transport_grpc::HealthService::new(self.replicated_lsm.clone());
-        health_service.check_health()
+    ///
+    /// Note: Currently checks shard 0 only. Phase 4 will implement comprehensive health checks.
+    pub async fn health(&self) -> norikv_transport_grpc::HealthStatus {
+        // Check if shard 0 exists and is healthy
+        if let Ok(shard) = self.shard_manager.get_shard(0).await {
+            let health_service = norikv_transport_grpc::HealthService::new(shard);
+            health_service.check_health()
+        } else {
+            // No shards created yet - node is starting up
+            norikv_transport_grpc::HealthStatus {
+                status: "starting".to_string(),
+                is_leader: false,
+                term: 0,
+                details: "Node is starting up".to_string(),
+            }
+        }
     }
 }
 

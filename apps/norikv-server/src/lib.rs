@@ -4,3 +4,4 @@
 
 pub mod config;
 pub mod node;
+pub mod shard_manager;

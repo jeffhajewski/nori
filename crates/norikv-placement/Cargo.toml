@@ -10,6 +10,7 @@ readme = "README.md"
 [dependencies]
 nori-observe = { path = "../nori-observe" }
 twox-hash = "1.6"  # xxhash implementation
+parking_lot = "0.12"  # RwLock for SimpleRouter
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }

@@ -7,3 +7,4 @@ pub mod node;
 pub mod shard_manager;
 pub mod multi_shard_backend;
 pub mod cluster_view;
+pub mod health;

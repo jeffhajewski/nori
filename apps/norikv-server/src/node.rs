@@ -4,6 +4,7 @@
 
 use crate::cluster_view::ClusterViewManager;
 use crate::config::ServerConfig;
+use crate::health::HealthChecker;
 use crate::shard_manager::ShardManager;
 use nori_lsm::ATLLConfig;
 use nori_raft::{ConfigEntry, NodeId, RaftConfig};
@@ -25,6 +26,9 @@ pub struct Node {
 
     /// Cluster view manager (tracks topology and streams updates)
     cluster_view: Arc<ClusterViewManager>,
+
+    /// Health checker (monitors shard health)
+    health_checker: Arc<HealthChecker>,
 
     /// SWIM membership (optional, for multi-node clusters)
     swim: Option<Arc<SwimMembership>>,
@@ -147,6 +151,15 @@ impl Node {
         ));
         tracing::info!("ClusterViewManager created");
 
+        // Create health checker
+        tracing::info!("Creating HealthChecker");
+        let health_checker = Arc::new(HealthChecker::new(
+            config.node_id.clone(),
+            config.cluster.total_shards,
+            shard_manager_arc.clone(),
+        ));
+        tracing::info!("HealthChecker created");
+
         // Create SWIM membership if multi-node
         let swim = if !is_single_node {
             tracing::info!("Creating SWIM membership for cluster");
@@ -164,6 +177,7 @@ impl Node {
             config,
             shard_manager: shard_manager_arc,
             cluster_view,
+            health_checker,
             swim,
             grpc_server: None,
             cluster_view_task: None,
@@ -315,23 +329,19 @@ impl Node {
         &self.cluster_view
     }
 
-    /// Get health status of the node.
-    ///
-    /// Note: Currently checks shard 0 only. Phase 4 will implement comprehensive health checks.
-    pub async fn health(&self) -> norikv_transport_grpc::HealthStatus {
-        // Check if shard 0 exists and is healthy
-        if let Ok(shard) = self.shard_manager.get_shard(0).await {
-            let health_service = norikv_transport_grpc::HealthService::new(shard);
-            health_service.check_health()
-        } else {
-            // No shards created yet - node is starting up
-            norikv_transport_grpc::HealthStatus {
-                status: "starting".to_string(),
-                is_leader: false,
-                term: 0,
-                details: "Node is starting up".to_string(),
-            }
-        }
+    /// Get reference to HealthChecker.
+    pub fn health_checker(&self) -> &Arc<HealthChecker> {
+        &self.health_checker
+    }
+
+    /// Get comprehensive health status of the node (all shards).
+    pub async fn health(&self) -> crate::health::ServerHealthStatus {
+        self.health_checker.check().await
+    }
+
+    /// Quick health check (for load balancers).
+    pub async fn health_quick(&self) -> bool {
+        self.health_checker.check_quick().await
     }
 }
 

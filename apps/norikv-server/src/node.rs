@@ -36,6 +36,9 @@ pub struct Node {
     /// gRPC server (optional, created on start)
     grpc_server: Option<GrpcServer>,
 
+    /// HTTP REST API server (optional, created on start)
+    http_server: Option<crate::http::HttpServer>,
+
     /// Cluster view refresh task handle
     cluster_view_task: Option<tokio::task::JoinHandle<()>>,
 }
@@ -180,6 +183,7 @@ impl Node {
             health_checker,
             swim,
             grpc_server: None,
+            http_server: None,
             cluster_view_task: None,
         })
     }
@@ -242,6 +246,18 @@ impl Node {
         tracing::info!("gRPC server started on {}", addr);
         self.grpc_server = Some(grpc_server);
 
+        // Start HTTP REST API server
+        let http_addr: std::net::SocketAddr = self.config.http_addr
+            .parse()
+            .map_err(|e| NodeError::Startup(format!("Invalid http_addr: {}", e)))?;
+
+        let mut http_server = crate::http::HttpServer::new(http_addr, self.health_checker.clone());
+        http_server.start().await
+            .map_err(|e| NodeError::Startup(format!("Failed to start HTTP server: {:?}", e)))?;
+
+        tracing::info!("HTTP server started on {}", http_addr);
+        self.http_server = Some(http_server);
+
         // Start cluster view refresh task (updates every 1 second)
         tracing::info!("Starting cluster view refresh task");
         let cluster_view_task = self.cluster_view.clone().start_refresh_task(Duration::from_secs(1));
@@ -280,6 +296,7 @@ impl Node {
     ///
     /// Stops all background tasks and flushes data:
     /// - Cluster view refresh task
+    /// - HTTP server
     /// - gRPC server
     /// - SWIM membership
     /// - All shard Raft groups and LSM engines
@@ -291,6 +308,13 @@ impl Node {
             tracing::info!("Stopping cluster view refresh task");
             task.abort();
             tracing::info!("Cluster view refresh task stopped");
+        }
+
+        // Stop HTTP server
+        if let Some(http_server) = self.http_server.take() {
+            http_server.shutdown().await
+                .map_err(|e| NodeError::Shutdown(format!("Failed to shutdown HTTP server: {:?}", e)))?;
+            tracing::info!("HTTP server shutdown complete");
         }
 
         // Stop gRPC server

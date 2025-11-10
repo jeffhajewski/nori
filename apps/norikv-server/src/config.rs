@@ -13,6 +13,7 @@ use std::path::PathBuf;
 /// ```yaml
 /// node_id: "node1"
 /// rpc_addr: "0.0.0.0:7447"
+/// http_addr: "0.0.0.0:8080"
 /// data_dir: "/var/lib/norikv"
 /// cluster:
 ///   seed_nodes: ["10.0.1.10:7447", "10.0.1.11:7447"]
@@ -28,9 +29,13 @@ pub struct ServerConfig {
     /// Unique node identifier
     pub node_id: String,
 
-    /// RPC listen address (gRPC + HTTP)
+    /// RPC listen address (gRPC)
     #[serde(default = "default_rpc_addr")]
     pub rpc_addr: String,
+
+    /// HTTP REST API listen address
+    #[serde(default = "default_http_addr")]
+    pub http_addr: String,
 
     /// Data directory for LSM and Raft persistence
     pub data_dir: PathBuf,
@@ -132,6 +137,10 @@ fn default_rpc_addr() -> String {
     "0.0.0.0:7447".to_string()
 }
 
+fn default_http_addr() -> String {
+    "0.0.0.0:8080".to_string()
+}
+
 fn default_total_shards() -> u32 {
     1024
 }
@@ -162,6 +171,7 @@ impl ServerConfig {
     /// Supported variables:
     /// - NORIKV_NODE_ID
     /// - NORIKV_RPC_ADDR
+    /// - NORIKV_HTTP_ADDR
     /// - NORIKV_DATA_DIR
     /// - NORIKV_SEED_NODES (comma-separated)
     pub fn load_from_env() -> Result<Self, ConfigError> {
@@ -169,6 +179,8 @@ impl ServerConfig {
             .map_err(|_| ConfigError::MissingField("NORIKV_NODE_ID".to_string()))?;
 
         let rpc_addr = std::env::var("NORIKV_RPC_ADDR").unwrap_or_else(|_| default_rpc_addr());
+
+        let http_addr = std::env::var("NORIKV_HTTP_ADDR").unwrap_or_else(|_| default_http_addr());
 
         let data_dir = std::env::var("NORIKV_DATA_DIR")
             .map_err(|_| ConfigError::MissingField("NORIKV_DATA_DIR".to_string()))?;
@@ -181,6 +193,7 @@ impl ServerConfig {
         let config = ServerConfig {
             node_id,
             rpc_addr,
+            http_addr,
             data_dir: PathBuf::from(data_dir),
             cluster: ClusterConfig {
                 seed_nodes,
@@ -207,6 +220,11 @@ impl ServerConfig {
         self.rpc_addr
             .parse::<SocketAddr>()
             .map_err(|e| ConfigError::InvalidField(format!("Invalid rpc_addr: {}", e)))?;
+
+        // Validate http_addr
+        self.http_addr
+            .parse::<SocketAddr>()
+            .map_err(|e| ConfigError::InvalidField(format!("Invalid http_addr: {}", e)))?;
 
         // Validate data_dir exists or can be created
         if !self.data_dir.exists() {
@@ -280,6 +298,7 @@ mod tests {
         let config = ServerConfig {
             node_id: "test_node".to_string(),
             rpc_addr: default_rpc_addr(),
+            http_addr: default_http_addr(),
             data_dir: PathBuf::from("/tmp/norikv-test"),
             cluster: ClusterConfig::default(),
             telemetry: TelemetryConfig::default(),
@@ -295,6 +314,7 @@ mod tests {
         let config = ServerConfig {
             node_id: "test_node".to_string(),
             rpc_addr: "invalid_addr".to_string(),
+            http_addr: default_http_addr(),
             data_dir: PathBuf::from("/tmp/norikv-test"),
             cluster: ClusterConfig::default(),
             telemetry: TelemetryConfig::default(),
@@ -308,6 +328,7 @@ mod tests {
         let config = ServerConfig {
             node_id: "".to_string(),
             rpc_addr: default_rpc_addr(),
+            http_addr: default_http_addr(),
             data_dir: PathBuf::from("/tmp/norikv-test"),
             cluster: ClusterConfig::default(),
             telemetry: TelemetryConfig::default(),

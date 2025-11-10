@@ -4,9 +4,10 @@
 
 use crate::kv_backend::KvBackend;
 use crate::proto::{self, kv_server::Kv};
+use nori_observe::Meter;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use parking_lot::RwLock;
 use tonic::{Request, Response, Status};
 
@@ -31,19 +32,28 @@ struct IdempotencyEntry {
 /// - CAS: Compare-and-swap using if_match version
 /// - Consistency: Supports "strong", "eventual", "bounded_staleness" reads
 /// - Validation: Enforces key/value size limits
+/// - Metrics: Tracks operation latency and request counts
 pub struct KvService {
     backend: Arc<dyn KvBackend>,
     /// Idempotency cache: idempotency_key -> (version, timestamp)
     /// TODO: Add TTL expiration and persistence for production
     idempotency_cache: Arc<RwLock<HashMap<String, IdempotencyEntry>>>,
+    /// Metrics meter for observability
+    meter: Arc<dyn Meter>,
 }
 
 impl KvService {
     /// Create a new KV service.
     pub fn new(backend: Arc<dyn KvBackend>) -> Self {
+        Self::with_meter(backend, Arc::new(nori_observe::NoopMeter))
+    }
+
+    /// Create a new KV service with metrics.
+    pub fn with_meter(backend: Arc<dyn KvBackend>, meter: Arc<dyn Meter>) -> Self {
         Self {
             backend,
             idempotency_cache: Arc::new(RwLock::new(HashMap::new())),
+            meter,
         }
     }
 
@@ -99,6 +109,7 @@ impl Kv for KvService {
         &self,
         request: Request<proto::PutRequest>,
     ) -> Result<Response<proto::PutResponse>, Status> {
+        let start_time = Instant::now();
         let req = request.into_inner();
 
         tracing::debug!(
@@ -107,6 +118,9 @@ impl Kv for KvService {
             req.idempotency_key,
             req.if_match
         );
+
+        // Record request count
+        self.meter.counter("kv_requests_total", &[("operation", "put")]).inc(1);
 
         // Phase 2.4: Validate request size
         self.validate_size(&req.key, Some(&req.value))?;
@@ -155,14 +169,25 @@ impl Kv for KvService {
                 // Phase 2.1: Store in idempotency cache
                 self.store_idempotency(&req.idempotency_key, version.clone());
 
+                // Record success metrics
+                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                self.meter.histo("kv_request_duration_ms", &[], &[("operation", "put"), ("status", "success")])
+                    .observe(latency_ms);
+
                 Ok(Response::new(proto::PutResponse {
                     version: Some(version),
                     meta: std::collections::HashMap::new(),
                 }))
             }
             Err(e) => {
+                // Record error metrics
+                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+
                 // Check if it's a NotLeader error
                 if format!("{:?}", e).contains("NotLeader") {
+                    self.meter.histo("kv_request_duration_ms", &[], &[("operation", "put"), ("status", "not_leader")])
+                        .observe(latency_ms);
+
                     // Get leader hint if available
                     let leader_hint = self.backend.leader()
                         .map(|id| id.to_string())
@@ -186,6 +211,9 @@ impl Kv for KvService {
                     return Err(Status::unavailable("NOT_LEADER"));
                 }
 
+                self.meter.histo("kv_request_duration_ms", &[], &[("operation", "put"), ("status", "error")])
+                    .observe(latency_ms);
+
                 Err(Status::internal(format!("Put failed: {:?}", e)))
             }
         }
@@ -195,6 +223,7 @@ impl Kv for KvService {
         &self,
         request: Request<proto::GetRequest>,
     ) -> Result<Response<proto::GetResponse>, Status> {
+        let start_time = Instant::now();
         let req = request.into_inner();
 
         tracing::debug!(
@@ -202,6 +231,9 @@ impl Kv for KvService {
             req.key.len(),
             req.consistency
         );
+
+        // Record request count
+        self.meter.counter("kv_requests_total", &[("operation", "get")]).inc(1);
 
         // Phase 2.4: Validate request size
         self.validate_size(&req.key, None)?;
@@ -259,6 +291,11 @@ impl Kv for KvService {
                 let term = self.backend.current_term();
                 let commit_index = self.backend.commit_index();
 
+                // Record success metrics
+                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                self.meter.histo("kv_request_duration_ms", &[], &[("operation", "get"), ("status", "success"), ("result", "found")])
+                    .observe(latency_ms);
+
                 Ok(Response::new(proto::GetResponse {
                     value: value.to_vec(),
                     version: Some(proto::Version {
@@ -270,6 +307,10 @@ impl Kv for KvService {
             }
             Ok(None) => {
                 // Return empty bytes for missing keys (not an error)
+                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                self.meter.histo("kv_request_duration_ms", &[], &[("operation", "get"), ("status", "success"), ("result", "not_found")])
+                    .observe(latency_ms);
+
                 Ok(Response::new(proto::GetResponse {
                     value: vec![],
                     version: None,
@@ -277,8 +318,14 @@ impl Kv for KvService {
                 }))
             }
             Err(e) => {
+                // Record error metrics
+                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+
                 // Check if it's a NotLeader error
                 if format!("{:?}", e).contains("NotLeader") {
+                    self.meter.histo("kv_request_duration_ms", &[], &[("operation", "get"), ("status", "not_leader")])
+                        .observe(latency_ms);
+
                     let leader_hint = self.backend.leader()
                         .map(|id| id.to_string())
                         .unwrap_or_default();
@@ -301,6 +348,9 @@ impl Kv for KvService {
                     return Err(Status::unavailable("NOT_LEADER"));
                 }
 
+                self.meter.histo("kv_request_duration_ms", &[], &[("operation", "get"), ("status", "error")])
+                    .observe(latency_ms);
+
                 Err(Status::internal(format!("Get failed: {:?}", e)))
             }
         }
@@ -310,6 +360,7 @@ impl Kv for KvService {
         &self,
         request: Request<proto::DeleteRequest>,
     ) -> Result<Response<proto::DeleteResponse>, Status> {
+        let start_time = Instant::now();
         let req = request.into_inner();
 
         tracing::debug!(
@@ -318,6 +369,9 @@ impl Kv for KvService {
             req.idempotency_key,
             req.if_match
         );
+
+        // Record request count
+        self.meter.counter("kv_requests_total", &[("operation", "delete")]).inc(1);
 
         // Phase 2.4: Validate request size
         self.validate_size(&req.key, None)?;
@@ -358,14 +412,25 @@ impl Kv for KvService {
                 // Phase 2.1: Store in idempotency cache
                 self.store_idempotency(&req.idempotency_key, version.clone());
 
+                // Record success metrics
+                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                self.meter.histo("kv_request_duration_ms", &[], &[("operation", "delete"), ("status", "success")])
+                    .observe(latency_ms);
+
                 Ok(Response::new(proto::DeleteResponse {
                     tombstoned: true,
                     version: Some(version),
                 }))
             }
             Err(e) => {
+                // Record error metrics
+                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+
                 // Check if it's a NotLeader error
                 if format!("{:?}", e).contains("NotLeader") {
+                    self.meter.histo("kv_request_duration_ms", &[], &[("operation", "delete"), ("status", "not_leader")])
+                        .observe(latency_ms);
+
                     let leader_hint = self.backend.leader()
                         .map(|id| id.to_string())
                         .unwrap_or_default();
@@ -386,6 +451,9 @@ impl Kv for KvService {
 
                     return Err(Status::unavailable("NOT_LEADER"));
                 }
+
+                self.meter.histo("kv_request_duration_ms", &[], &[("operation", "delete"), ("status", "error")])
+                    .observe(latency_ms);
 
                 Err(Status::internal(format!("Delete failed: {:?}", e)))
             }

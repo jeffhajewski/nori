@@ -1713,6 +1713,9 @@ impl LsmEngine {
             run_meta
         };
 
+        // Invalidate pressure cache since L0 count just increased (Phase 7)
+        self.cached_pressure.lock().invalidate();
+
         // Emit flush complete event
         self.meter
             .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
@@ -1784,6 +1787,9 @@ impl LsmEngine {
                     manifest.append(edit)?;
                 }
             }
+
+            // Invalidate pressure cache since L0 count changed (Phase 7)
+            self.cached_pressure.lock().invalidate();
 
             // Emit L0 admission complete event
             self.meter
@@ -1896,16 +1902,17 @@ impl LsmEngine {
     /// # Observability
     /// Emits VizEvent::L0Stall for hard stalls (dashboard visualization).
     /// Logs pressure state at debug/warn/error levels.
-    async fn check_system_pressure(&self) -> Result<()> {
+    /// Returns (Result, should_cache) - don't cache when throttling is active
+    async fn check_system_pressure(&self) -> (Result<()>, bool) {
         let pressure = self.pressure();
         let stats = self.stats();
         let base_delay_ms = self.config.l0.soft_throttle_base_delay_ms;
 
         match pressure.overall_pressure {
-            // Green Zone: No delay
-            MemoryPressure::None | MemoryPressure::Low => Ok(()),
+            // Green Zone: No delay - safe to cache
+            MemoryPressure::None | MemoryPressure::Low => (Ok(()), true),
 
-            // Yellow Zone: Light soft throttling
+            // Yellow Zone: Light soft throttling - don't cache
             MemoryPressure::Moderate => {
                 // Calculate L0 excess over soft_threshold
                 let soft_threshold = self.config.l0.soft_throttle_threshold;
@@ -1935,10 +1942,10 @@ impl LsmEngine {
                 );
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-                Ok(())
+                (Ok(()), false) // Don't cache - pressure may change quickly
             }
 
-            // Orange Zone: Heavy soft throttling
+            // Orange Zone: Heavy soft throttling - don't cache
             MemoryPressure::High => {
                 // Heavier delay for high pressure zone with adaptive burst multiplier
                 let soft_threshold = self.config.l0.soft_throttle_threshold;
@@ -1968,10 +1975,10 @@ impl LsmEngine {
                 );
 
                 tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-                Ok(())
+                (Ok(()), false) // Don't cache - pressure may change quickly
             }
 
-            // Red Zone: Hard stall
+            // Red Zone: Hard stall - cache the error to avoid repeated checks
             MemoryPressure::Critical => {
                 let manifest = self.manifest.read();
                 let snapshot = manifest.snapshot();
@@ -1994,7 +2001,7 @@ impl LsmEngine {
                         },
                     }));
 
-                Err(Error::SystemPressure(pressure.description()))
+                (Err(Error::SystemPressure(pressure.description())), true) // Cache errors to avoid spam
             }
         }
     }
@@ -2039,20 +2046,24 @@ impl LsmEngine {
 
         for attempt in 0..=max_retries {
             match self.check_system_pressure().await {
-                Ok(()) => {
-                    // Success - update cache and return
-                    self.cached_pressure.lock().update(Ok(()));
+                (Ok(()), should_cache) => {
+                    // Success - update cache only if pressure is stable (green zone)
+                    if should_cache {
+                        self.cached_pressure.lock().update(Ok(()));
+                    }
                     return Ok(());
                 }
-                Err(Error::SystemPressure(description)) => {
-                    // Last attempt - cache error and return
+                (Err(Error::SystemPressure(description)), should_cache) => {
+                    // Last attempt - cache error if requested and return
                     if attempt == max_retries {
                         tracing::warn!(
                             "System pressure stall: {} retries exhausted, pressure: {}",
                             max_retries,
                             description
                         );
-                        self.cached_pressure.lock().update(Err(Error::SystemPressure(description.clone())));
+                        if should_cache {
+                            self.cached_pressure.lock().update(Err(Error::SystemPressure(description.clone())));
+                        }
                         return Err(Error::SystemPressure(description));
                     }
 
@@ -2073,7 +2084,7 @@ impl LsmEngine {
                     // Exponential backoff delay
                     tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                 }
-                Err(e) => {
+                (Err(e), _) => {
                     // Other errors are not retryable
                     return Err(e);
                 }

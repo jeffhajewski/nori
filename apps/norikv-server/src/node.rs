@@ -30,6 +30,9 @@ pub struct Node {
     /// Health checker (monitors shard health)
     health_checker: Arc<HealthChecker>,
 
+    /// Prometheus metrics meter
+    meter: Arc<crate::metrics::PrometheusMeter>,
+
     /// SWIM membership (optional, for multi-node clusters)
     swim: Option<Arc<SwimMembership>>,
 
@@ -163,6 +166,11 @@ impl Node {
         ));
         tracing::info!("HealthChecker created");
 
+        // Create Prometheus metrics meter
+        tracing::info!("Creating PrometheusMeter");
+        let meter = Arc::new(crate::metrics::PrometheusMeter::new());
+        tracing::info!("PrometheusMeter created");
+
         // Create SWIM membership if multi-node
         let swim = if !is_single_node {
             tracing::info!("Creating SWIM membership for cluster");
@@ -181,6 +189,7 @@ impl Node {
             shard_manager: shard_manager_arc,
             cluster_view,
             health_checker,
+            meter,
             swim,
             grpc_server: None,
             http_server: None,
@@ -230,7 +239,8 @@ impl Node {
         ));
 
         let mut grpc_server = norikv_transport_grpc::GrpcServer::with_backend(addr, backend)
-            .with_cluster_view(self.cluster_view.clone() as Arc<dyn norikv_transport_grpc::ClusterViewProvider>);
+            .with_cluster_view(self.cluster_view.clone() as Arc<dyn norikv_transport_grpc::ClusterViewProvider>)
+            .with_meter(self.meter.clone() as Arc<dyn nori_observe::Meter>);
 
         // Wire Raft RPC channel if multi-node
         // Note: For now, only shard 0's RPC channel is wired
@@ -251,7 +261,11 @@ impl Node {
             .parse()
             .map_err(|e| NodeError::Startup(format!("Invalid http_addr: {}", e)))?;
 
-        let mut http_server = crate::http::HttpServer::new(http_addr, self.health_checker.clone());
+        let mut http_server = crate::http::HttpServer::new(
+            http_addr,
+            self.health_checker.clone(),
+            self.meter.clone(),
+        );
         http_server.start().await
             .map_err(|e| NodeError::Startup(format!("Failed to start HTTP server: {:?}", e)))?;
 

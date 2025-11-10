@@ -9,6 +9,7 @@ use crate::proto::{
     admin_server::AdminServer, kv_server::KvServer, meta_server::MetaServer,
     raft_server::RaftServer,
 };
+use nori_observe::Meter;
 use nori_raft::transport::RpcMessage;
 use nori_raft::ReplicatedLSM;
 use std::net::SocketAddr;
@@ -23,6 +24,7 @@ pub struct GrpcServer {
     addr: SocketAddr,
     backend: Arc<dyn KvBackend>,
     cluster_view: Option<Arc<dyn ClusterViewProvider>>,
+    meter: Option<Arc<dyn Meter>>,
     raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     server_handle: Option<JoinHandle<Result<(), tonic::transport::Error>>>,
@@ -41,6 +43,7 @@ impl GrpcServer {
             addr,
             backend,
             cluster_view: None,
+            meter: None,
             raft_rpc_tx: None,
             shutdown_tx: None,
             server_handle: None,
@@ -57,6 +60,7 @@ impl GrpcServer {
             addr,
             backend,
             cluster_view: None,
+            meter: None,
             raft_rpc_tx: None,
             shutdown_tx: None,
             server_handle: None,
@@ -71,6 +75,17 @@ impl GrpcServer {
     /// - `cluster_view`: ClusterViewProvider implementation
     pub fn with_cluster_view(mut self, cluster_view: Arc<dyn ClusterViewProvider>) -> Self {
         self.cluster_view = Some(cluster_view);
+        self
+    }
+
+    /// Set the metrics meter.
+    ///
+    /// If provided, KvService will track request counts and latencies.
+    ///
+    /// # Arguments
+    /// - `meter`: Meter implementation for metrics collection
+    pub fn with_meter(mut self, meter: Arc<dyn Meter>) -> Self {
+        self.meter = Some(meter);
         self
     }
 
@@ -93,7 +108,12 @@ impl GrpcServer {
         tracing::info!("Starting gRPC server on {}", self.addr);
 
         // Create services
-        let kv_service = KvService::new(self.backend.clone());
+        let kv_service = if let Some(meter) = &self.meter {
+            tracing::info!("Enabling KV metrics collection");
+            KvService::with_meter(self.backend.clone(), meter.clone())
+        } else {
+            KvService::new(self.backend.clone())
+        };
 
         // Create Meta service with cluster view if available
         let meta_service = if let Some(cluster_view) = &self.cluster_view {

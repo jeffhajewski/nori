@@ -9,3 +9,4 @@ pub mod multi_shard_backend;
 pub mod cluster_view;
 pub mod health;
 pub mod http;
+pub mod metrics;

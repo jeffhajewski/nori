@@ -3,6 +3,7 @@
 //! Exposes health checks and metrics via HTTP for monitoring tools.
 
 use crate::health::HealthChecker;
+use crate::metrics::PrometheusMeter;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -18,6 +19,7 @@ use tokio::task::JoinHandle;
 #[derive(Clone)]
 pub struct HttpServerState {
     health_checker: Arc<HealthChecker>,
+    meter: Arc<PrometheusMeter>,
 }
 
 /// HTTP server for REST API endpoints.
@@ -35,10 +37,17 @@ pub struct HttpServer {
 
 impl HttpServer {
     /// Create a new HTTP server.
-    pub fn new(addr: SocketAddr, health_checker: Arc<HealthChecker>) -> Self {
+    pub fn new(
+        addr: SocketAddr,
+        health_checker: Arc<HealthChecker>,
+        meter: Arc<PrometheusMeter>,
+    ) -> Self {
         Self {
             addr,
-            state: HttpServerState { health_checker },
+            state: HttpServerState {
+                health_checker,
+                meter,
+            },
             shutdown_tx: None,
             server_handle: None,
         }
@@ -129,17 +138,18 @@ async fn health_quick_handler(State(state): State<HttpServerState>) -> Response 
     }
 }
 
-/// Metrics endpoint handler (placeholder).
+/// Metrics endpoint handler.
 ///
 /// GET /metrics
 ///
 /// Returns Prometheus-formatted metrics.
-/// Full implementation in Phase 5.3.
-async fn metrics_handler() -> Response {
-    // TODO: Phase 5.3 - Implement Prometheus metrics export
+async fn metrics_handler(State(state): State<HttpServerState>) -> Response {
+    let metrics = state.meter.export();
+
     (
-        StatusCode::NOT_IMPLEMENTED,
-        "# Metrics endpoint not yet implemented\n",
+        StatusCode::OK,
+        [("content-type", "text/plain; version=0.0.4")],
+        metrics,
     )
         .into_response()
 }

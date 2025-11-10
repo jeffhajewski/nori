@@ -200,7 +200,8 @@ pub struct BanditScheduler {
     /// Per-(level, slot) arm state
     arms: HashMap<(u8, u32), BanditArm>,
 
-    /// Epsilon for epsilon-greedy (0.1 = 10% exploration)
+    /// Epsilon for epsilon-greedy (0.1 = 10% exploration) - reserved for future use
+    #[allow(dead_code)]
     epsilon: f64,
 
     /// Total selections across all arms

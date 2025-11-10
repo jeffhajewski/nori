@@ -442,7 +442,8 @@ pub struct LsmEngine {
     /// Group commit WAL writer channel for batched writes
     wal_writer: mpsc::Sender<WalWriteRequest>,
 
-    /// Join handle for WAL writer background task
+    /// Join handle for WAL writer background task (cleaned up via Drop)
+    #[allow(dead_code)]
     wal_writer_handle: Arc<parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
     /// WAL creation time for age-based flush trigger
@@ -1608,6 +1609,8 @@ impl LsmEngine {
         }
 
         // 5. Flush any remaining memtable data
+        // Note: WAL writer channel will be closed when engine is dropped,
+        // causing pending writes to be flushed and thread to exit cleanly
         if !self.memtable.read().is_empty() {
             tracing::info!("Flushing remaining memtable data");
             self.flush_memtable().await?;

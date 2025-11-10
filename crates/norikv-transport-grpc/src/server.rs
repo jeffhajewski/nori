@@ -3,7 +3,7 @@
 use crate::admin::AdminService;
 use crate::kv::KvService;
 use crate::kv_backend::{KvBackend, SingleShardBackend};
-use crate::meta::MetaService;
+use crate::meta::{ClusterViewProvider, MetaService};
 use crate::raft_service::RaftService;
 use crate::proto::{
     admin_server::AdminServer, kv_server::KvServer, meta_server::MetaServer,
@@ -22,6 +22,7 @@ use tonic::transport::Server;
 pub struct GrpcServer {
     addr: SocketAddr,
     backend: Arc<dyn KvBackend>,
+    cluster_view: Option<Arc<dyn ClusterViewProvider>>,
     raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     server_handle: Option<JoinHandle<Result<(), tonic::transport::Error>>>,
@@ -39,6 +40,7 @@ impl GrpcServer {
         Self {
             addr,
             backend,
+            cluster_view: None,
             raft_rpc_tx: None,
             shutdown_tx: None,
             server_handle: None,
@@ -54,10 +56,22 @@ impl GrpcServer {
         Self {
             addr,
             backend,
+            cluster_view: None,
             raft_rpc_tx: None,
             shutdown_tx: None,
             server_handle: None,
         }
+    }
+
+    /// Set the cluster view provider for Meta service.
+    ///
+    /// If provided, the Meta.WatchCluster service will stream cluster topology updates.
+    ///
+    /// # Arguments
+    /// - `cluster_view`: ClusterViewProvider implementation
+    pub fn with_cluster_view(mut self, cluster_view: Arc<dyn ClusterViewProvider>) -> Self {
+        self.cluster_view = Some(cluster_view);
+        self
     }
 
     /// Set the Raft RPC channel.
@@ -80,7 +94,16 @@ impl GrpcServer {
 
         // Create services
         let kv_service = KvService::new(self.backend.clone());
-        let meta_service = MetaService::new();
+
+        // Create Meta service with cluster view if available
+        let meta_service = if let Some(cluster_view) = &self.cluster_view {
+            tracing::info!("Enabling Meta.WatchCluster service with cluster view");
+            MetaService::with_cluster_view(cluster_view.clone())
+        } else {
+            tracing::warn!("Meta.WatchCluster service starting without cluster view");
+            MetaService::new()
+        };
+
         let admin_service = AdminService::new();
 
         // Create shutdown channel

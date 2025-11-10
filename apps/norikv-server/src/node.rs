@@ -2,6 +2,7 @@
 //!
 //! Wires together all components (Raft, LSM, transport) via dependency injection.
 
+use crate::cluster_view::ClusterViewManager;
 use crate::config::ServerConfig;
 use crate::shard_manager::ShardManager;
 use nori_lsm::ATLLConfig;
@@ -22,11 +23,17 @@ pub struct Node {
     /// Shard manager (manages 1024 Raft groups + LSM engines)
     shard_manager: Arc<ShardManager>,
 
+    /// Cluster view manager (tracks topology and streams updates)
+    cluster_view: Arc<ClusterViewManager>,
+
     /// SWIM membership (optional, for multi-node clusters)
     swim: Option<Arc<SwimMembership>>,
 
     /// gRPC server (optional, created on start)
     grpc_server: Option<GrpcServer>,
+
+    /// Cluster view refresh task handle
+    cluster_view_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Node {
@@ -128,6 +135,18 @@ impl Node {
 
         tracing::info!("ShardManager created successfully");
 
+        let shard_manager_arc = Arc::new(shard_manager);
+
+        // Create cluster view manager
+        tracing::info!("Creating ClusterViewManager");
+        let cluster_view = Arc::new(ClusterViewManager::new(
+            node_id.clone(),
+            config.rpc_addr.clone(),
+            config.cluster.total_shards,
+            shard_manager_arc.clone(),
+        ));
+        tracing::info!("ClusterViewManager created");
+
         // Create SWIM membership if multi-node
         let swim = if !is_single_node {
             tracing::info!("Creating SWIM membership for cluster");
@@ -143,9 +162,11 @@ impl Node {
 
         Ok(Self {
             config,
-            shard_manager: Arc::new(shard_manager),
+            shard_manager: shard_manager_arc,
+            cluster_view,
             swim,
             grpc_server: None,
+            cluster_view_task: None,
         })
     }
 
@@ -190,7 +211,8 @@ impl Node {
             self.config.cluster.total_shards,
         ));
 
-        let mut grpc_server = norikv_transport_grpc::GrpcServer::with_backend(addr, backend);
+        let mut grpc_server = norikv_transport_grpc::GrpcServer::with_backend(addr, backend)
+            .with_cluster_view(self.cluster_view.clone() as Arc<dyn norikv_transport_grpc::ClusterViewProvider>);
 
         // Wire Raft RPC channel if multi-node
         // Note: For now, only shard 0's RPC channel is wired
@@ -205,6 +227,12 @@ impl Node {
 
         tracing::info!("gRPC server started on {}", addr);
         self.grpc_server = Some(grpc_server);
+
+        // Start cluster view refresh task (updates every 1 second)
+        tracing::info!("Starting cluster view refresh task");
+        let cluster_view_task = self.cluster_view.clone().start_refresh_task(Duration::from_secs(1));
+        self.cluster_view_task = Some(cluster_view_task);
+        tracing::info!("Cluster view refresh task started");
 
         // Start SWIM membership and join cluster
         if let Some(swim) = &self.swim {
@@ -237,11 +265,19 @@ impl Node {
     /// Shutdown the node gracefully.
     ///
     /// Stops all background tasks and flushes data:
+    /// - Cluster view refresh task
     /// - gRPC server
     /// - SWIM membership
     /// - All shard Raft groups and LSM engines
     pub async fn shutdown(mut self) -> Result<(), NodeError> {
         tracing::info!("Shutting down node");
+
+        // Stop cluster view refresh task
+        if let Some(task) = self.cluster_view_task.take() {
+            tracing::info!("Stopping cluster view refresh task");
+            task.abort();
+            tracing::info!("Cluster view refresh task stopped");
+        }
 
         // Stop gRPC server
         if let Some(grpc_server) = self.grpc_server.take() {
@@ -272,6 +308,11 @@ impl Node {
     /// Get reference to ShardManager (for testing/debugging).
     pub fn shard_manager(&self) -> &Arc<ShardManager> {
         &self.shard_manager
+    }
+
+    /// Get reference to ClusterViewManager.
+    pub fn cluster_view(&self) -> &Arc<ClusterViewManager> {
+        &self.cluster_view
     }
 
     /// Get health status of the node.

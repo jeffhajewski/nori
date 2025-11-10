@@ -25,3 +25,4 @@ pub use health::{HealthService, HealthStatus};
 pub use raft::GrpcRaftTransport;
 pub use raft_service::RaftService;
 pub use kv_backend::{KvBackend, SingleShardBackend};
+pub use meta::{MetaService, ClusterViewProvider, ClusterView, ClusterNode, ShardInfo, ShardReplica};

@@ -9,9 +9,9 @@
 
 use crate::shard_manager::{ShardManager, ShardId};
 use nori_raft::NodeId;
+use nori_swim::Membership;
 use norikv_transport_grpc::ClusterViewProvider;
 use parking_lot::RwLock;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -195,6 +195,144 @@ impl ClusterViewManager {
                 }
             }
         })
+    }
+
+    /// Start topology watcher task.
+    ///
+    /// Subscribes to SWIM membership events and updates ClusterView accordingly.
+    /// Returns a task handle that can be aborted on shutdown.
+    pub fn start_topology_watcher(
+        self: Arc<Self>,
+        swim: Arc<nori_swim::SwimMembership>,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut events = swim.events();
+
+            tracing::info!("Topology watcher started, listening for SWIM events");
+
+            loop {
+                match events.recv().await {
+                    Ok(event) => {
+                        if let Err(e) = self.handle_membership_event(event).await {
+                            tracing::error!("Failed to handle membership event: {:?}", e);
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!("Topology watcher lagged, skipped {} events", skipped);
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::info!("SWIM event channel closed, topology watcher exiting");
+                        break;
+                    }
+                }
+            }
+        })
+    }
+
+    /// Handle a SWIM membership event.
+    async fn handle_membership_event(
+        &self,
+        event: nori_swim::MembershipEvent,
+    ) -> Result<(), ClusterViewError> {
+        use nori_swim::MembershipEvent;
+
+        match event {
+            MembershipEvent::MemberJoined { id, addr } => {
+                tracing::info!("Member joined: {} at {}", id, addr);
+                self.add_node(id, addr.to_string()).await?;
+            }
+            MembershipEvent::MemberSuspect { id, incarnation } => {
+                tracing::warn!("Member suspected: {} (incarnation {})", id, incarnation);
+                self.update_node_role(&id, "suspect").await?;
+            }
+            MembershipEvent::MemberFailed { id } => {
+                tracing::warn!("Member failed: {}", id);
+                self.update_node_role(&id, "failed").await?;
+            }
+            MembershipEvent::MemberLeft { id } => {
+                tracing::info!("Member left: {}", id);
+                self.remove_node(&id).await?;
+            }
+            MembershipEvent::MemberAlive { id, incarnation } => {
+                tracing::info!("Member alive: {} (incarnation {})", id, incarnation);
+                self.update_node_role(&id, "follower").await?;
+            }
+        }
+
+        // Trigger a refresh to update shard assignments
+        self.refresh().await?;
+
+        Ok(())
+    }
+
+    /// Add a new node to the cluster view.
+    async fn add_node(
+        &self,
+        node_id: String,
+        address: String,
+    ) -> Result<(), ClusterViewError> {
+        let mut view = self.view.write();
+
+        // Check if node already exists
+        if view.nodes.iter().any(|n| n.id == node_id) {
+            tracing::debug!("Node {} already exists in cluster view", node_id);
+            return Ok(());
+        }
+
+        view.epoch += 1;
+        view.nodes.push(ClusterNode {
+            id: node_id,
+            addr: address,
+            role: "follower".to_string(),
+        });
+
+        tracing::info!("Added node to cluster view (epoch {})", view.epoch);
+
+        Ok(())
+    }
+
+    /// Update a node's role in the cluster view.
+    async fn update_node_role(
+        &self,
+        node_id: &str,
+        role: &str,
+    ) -> Result<(), ClusterViewError> {
+        let mut view = self.view.write();
+
+        // Find the node and check if update is needed
+        let needs_update = view.nodes.iter()
+            .find(|n| n.id == node_id)
+            .map(|n| n.role != role)
+            .unwrap_or(false);
+
+        if needs_update {
+            // Increment epoch first
+            view.epoch += 1;
+            let new_epoch = view.epoch;
+
+            // Then update the role
+            if let Some(node) = view.nodes.iter_mut().find(|n| n.id == node_id) {
+                node.role = role.to_string();
+                tracing::info!("Updated node {} role to {} (epoch {})", node_id, role, new_epoch);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Remove a node from the cluster view.
+    async fn remove_node(&self, node_id: &str) -> Result<(), ClusterViewError> {
+        let mut view = self.view.write();
+
+        let initial_len = view.nodes.len();
+        view.nodes.retain(|n| n.id != node_id);
+
+        if view.nodes.len() < initial_len {
+            view.epoch += 1;
+            tracing::info!("Removed node {} from cluster view (epoch {})", node_id, view.epoch);
+        }
+
+        Ok(())
     }
 }
 

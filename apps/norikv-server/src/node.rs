@@ -44,6 +44,9 @@ pub struct Node {
 
     /// Cluster view refresh task handle
     cluster_view_task: Option<tokio::task::JoinHandle<()>>,
+
+    /// Topology watcher task handle (SWIM event listener)
+    topology_watcher_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Node {
@@ -194,6 +197,7 @@ impl Node {
             grpc_server: None,
             http_server: None,
             cluster_view_task: None,
+            topology_watcher_task: None,
         })
     }
 
@@ -278,6 +282,15 @@ impl Node {
         self.cluster_view_task = Some(cluster_view_task);
         tracing::info!("Cluster view refresh task started");
 
+        // Start topology watcher if SWIM is enabled
+        if let Some(swim) = &self.swim {
+            tracing::info!("Starting topology watcher to listen for SWIM events");
+            let topology_watcher_task = self.cluster_view.clone()
+                .start_topology_watcher(swim.clone());
+            self.topology_watcher_task = Some(topology_watcher_task);
+            tracing::info!("Topology watcher started");
+        }
+
         // Start SWIM membership and join cluster
         if let Some(swim) = &self.swim {
             tracing::info!("Starting SWIM membership");
@@ -309,6 +322,7 @@ impl Node {
     /// Shutdown the node gracefully.
     ///
     /// Stops all background tasks and flushes data:
+    /// - Topology watcher task
     /// - Cluster view refresh task
     /// - HTTP server
     /// - gRPC server
@@ -316,6 +330,13 @@ impl Node {
     /// - All shard Raft groups and LSM engines
     pub async fn shutdown(mut self) -> Result<(), NodeError> {
         tracing::info!("Shutting down node");
+
+        // Stop topology watcher task
+        if let Some(task) = self.topology_watcher_task.take() {
+            tracing::info!("Stopping topology watcher task");
+            task.abort();
+            tracing::info!("Topology watcher task stopped");
+        }
 
         // Stop cluster view refresh task
         if let Some(task) = self.cluster_view_task.take() {

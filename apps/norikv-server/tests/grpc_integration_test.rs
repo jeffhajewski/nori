@@ -63,7 +63,7 @@ async fn test_grpc_put_get_delete() {
 
     tracing::info!("gRPC client connected");
 
-    // Test 1: PUT a key
+    // Test 1: PUT a key (with retry for lazy shard creation)
     let put_req = PutRequest {
         key: b"test_key".to_vec(),
         value: b"test_value".to_vec(),
@@ -72,32 +72,46 @@ async fn test_grpc_put_get_delete() {
         if_match: None,
     };
 
-    let put_resp = client
-        .put(put_req)
-        .await
-        .expect("PUT request failed")
-        .into_inner();
+    let mut retries = 0;
+    let put_resp = loop {
+        match client.put(put_req.clone()).await {
+            Ok(resp) => break resp.into_inner(),
+            Err(e) if e.message().contains("NOT_LEADER") && retries < 8 => {
+                retries += 1;
+                tracing::debug!("PUT retry {} due to NOT_LEADER (lazy shard creation)", retries);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(e) => panic!("PUT request failed after {} retries: {}", retries, e),
+        }
+    };
 
     assert!(
         put_resp.version.is_some(),
         "PUT response should include version"
     );
-    tracing::info!("PUT succeeded: {:?}", put_resp.version);
+    tracing::info!("PUT succeeded after {} retries: {:?}", retries, put_resp.version);
 
-    // Wait for apply
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Wait for apply and stabilization
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Test 2: GET the key back
+    // Test 2: GET the key back (with retry for lazy shard creation)
     let get_req = GetRequest {
         key: b"test_key".to_vec(),
         consistency: String::new(), // Default consistency
     };
 
-    let get_resp = client
-        .get(get_req)
-        .await
-        .expect("GET request failed")
-        .into_inner();
+    let mut get_retries = 0;
+    let get_resp = loop {
+        match client.get(get_req.clone()).await {
+            Ok(resp) => break resp.into_inner(),
+            Err(e) if e.message().contains("NOT_LEADER") && get_retries < 8 => {
+                get_retries += 1;
+                tracing::debug!("GET retry {} due to NOT_LEADER", get_retries);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(e) => panic!("GET request failed after {} retries: {}", get_retries, e),
+        }
+    };
 
     assert!(!get_resp.value.is_empty(), "Key should exist");
     assert_eq!(
@@ -107,18 +121,25 @@ async fn test_grpc_put_get_delete() {
     );
     tracing::info!("GET succeeded: value matches");
 
-    // Test 3: DELETE the key
+    // Test 3: DELETE the key (with retry for lazy shard creation)
     let delete_req = DeleteRequest {
         key: b"test_key".to_vec(),
         idempotency_key: String::new(),
         if_match: None,
     };
 
-    let delete_resp = client
-        .delete(delete_req)
-        .await
-        .expect("DELETE request failed")
-        .into_inner();
+    let mut delete_retries = 0;
+    let delete_resp = loop {
+        match client.delete(delete_req.clone()).await {
+            Ok(resp) => break resp.into_inner(),
+            Err(e) if e.message().contains("NOT_LEADER") && delete_retries < 8 => {
+                delete_retries += 1;
+                tracing::debug!("DELETE retry {} due to NOT_LEADER", delete_retries);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(e) => panic!("DELETE request failed after {} retries: {}", delete_retries, e),
+        }
+    };
 
     assert!(
         delete_resp.tombstoned,
@@ -156,11 +177,18 @@ async fn test_grpc_put_get_delete() {
         if_match: None,
     };
 
-    let put_ttl_resp = client
-        .put(put_ttl_req)
-        .await
-        .expect("PUT with TTL failed")
-        .into_inner();
+    let mut ttl_retries = 0;
+    let put_ttl_resp = loop {
+        match client.put(put_ttl_req.clone()).await {
+            Ok(resp) => break resp.into_inner(),
+            Err(e) if e.message().contains("NOT_LEADER") && ttl_retries < 8 => {
+                ttl_retries += 1;
+                tracing::debug!("PUT TTL retry {} due to NOT_LEADER", ttl_retries);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(e) => panic!("PUT with TTL failed after {} retries: {}", ttl_retries, e),
+        }
+    };
 
     assert!(
         put_ttl_resp.version.is_some(),
@@ -212,17 +240,24 @@ async fn test_grpc_get_missing_key() {
         .await
         .expect("Failed to connect to gRPC server");
 
-    // GET a key that doesn't exist
+    // GET a key that doesn't exist (with retry for lazy shard creation)
     let get_req = GetRequest {
         key: b"nonexistent_key".to_vec(),
         consistency: String::new(),
     };
 
-    let get_resp = client
-        .get(get_req)
-        .await
-        .expect("GET request failed")
-        .into_inner();
+    let mut retries = 0;
+    let get_resp = loop {
+        match client.get(get_req.clone()).await {
+            Ok(resp) => break resp.into_inner(),
+            Err(e) if e.message().contains("NOT_LEADER") && retries < 8 => {
+                retries += 1;
+                tracing::debug!("GET retry {} due to NOT_LEADER (lazy shard creation)", retries);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(e) => panic!("GET request failed after {} retries: {}", retries, e),
+        }
+    };
 
     assert!(
         get_resp.value.is_empty(),

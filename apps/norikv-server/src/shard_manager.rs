@@ -157,6 +157,31 @@ impl ShardManager {
             None
         };
 
+        // Create per-shard initial config with suffixed node IDs
+        // This ensures each shard's Raft group has the correct member IDs
+        let shard_initial_config = match &self.initial_config {
+            ConfigEntry::Single(nodes) => {
+                // Map each base node ID to its shard-specific ID
+                let shard_nodes: Vec<NodeId> = nodes
+                    .iter()
+                    .map(|base_id| NodeId::new(&format!("{}-shard{}", base_id.as_str(), shard_id)))
+                    .collect();
+                ConfigEntry::Single(shard_nodes)
+            }
+            ConfigEntry::Joint { old, new } => {
+                // Handle joint consensus (for membership changes)
+                let old_shard: Vec<NodeId> = old
+                    .iter()
+                    .map(|base_id| NodeId::new(&format!("{}-shard{}", base_id.as_str(), shard_id)))
+                    .collect();
+                let new_shard: Vec<NodeId> = new
+                    .iter()
+                    .map(|base_id| NodeId::new(&format!("{}-shard{}", base_id.as_str(), shard_id)))
+                    .collect();
+                ConfigEntry::Joint { old: old_shard, new: new_shard }
+            }
+        };
+
         // Create ReplicatedLSM for this shard
         let replicated_lsm = ReplicatedLSM::new(
             node_id,
@@ -164,7 +189,7 @@ impl ShardManager {
             shard_lsm_config,
             raft_log,
             self.transport.clone(),
-            self.initial_config.clone(),
+            shard_initial_config,
             raft_rpc_rx,
         )
         .await

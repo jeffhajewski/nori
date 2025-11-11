@@ -61,7 +61,7 @@ async fn test_single_node_lifecycle() {
 
     tracing::info!("gRPC client connected");
 
-    // Perform a basic PUT operation
+    // Perform a basic PUT operation (with retry for lazy shard creation)
     let put_req = PutRequest {
         key: b"smoke_test_key".to_vec(),
         value: b"smoke_test_value".to_vec(),
@@ -70,30 +70,44 @@ async fn test_single_node_lifecycle() {
         if_match: None,
     };
 
-    let put_resp = client
-        .put(put_req)
-        .await
-        .expect("Failed to put key")
-        .into_inner();
+    let mut retries = 0;
+    let put_resp = loop {
+        match client.put(put_req.clone()).await {
+            Ok(resp) => break resp.into_inner(),
+            Err(e) if e.message().contains("NOT_LEADER") && retries < 8 => {
+                retries += 1;
+                tracing::debug!("PUT retry {} due to NOT_LEADER (lazy shard creation)", retries);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(e) => panic!("Failed to put key after {} retries: {}", retries, e),
+        }
+    };
 
     assert!(put_resp.version.is_some(), "PUT should return version");
 
-    tracing::info!("Successfully wrote key");
+    tracing::info!("Successfully wrote key after {} retries", retries);
 
-    // Wait for apply
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Wait for apply and stabilization
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Read it back via GET
+    // Read it back via GET (with retry for lazy shard creation)
     let get_req = GetRequest {
         key: b"smoke_test_key".to_vec(),
         consistency: String::new(),
     };
 
-    let get_resp = client
-        .get(get_req)
-        .await
-        .expect("Failed to get key")
-        .into_inner();
+    let mut get_retries = 0;
+    let get_resp = loop {
+        match client.get(get_req.clone()).await {
+            Ok(resp) => break resp.into_inner(),
+            Err(e) if e.message().contains("NOT_LEADER") && get_retries < 8 => {
+                get_retries += 1;
+                tracing::debug!("GET retry {} due to NOT_LEADER", get_retries);
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(e) => panic!("Failed to get key after {} retries: {}", get_retries, e),
+        }
+    };
 
     assert!(!get_resp.value.is_empty(), "Key should exist");
     assert_eq!(

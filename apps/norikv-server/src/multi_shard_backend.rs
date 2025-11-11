@@ -205,8 +205,7 @@ mod tests {
         assert!(shard1 < 8);
     }
 
-    #[ignore = "Node ID mismatch: ShardManager appends -shard{id} suffix but test Raft config only includes base node ID"]
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_multi_shard_put_get() {
         let temp_dir = tempfile::tempdir().unwrap();
 

@@ -135,19 +135,19 @@ impl ClusterViewManager {
             let current = self.view.read();
             ClusterView {
                 epoch: current.epoch + 1,
-                nodes: current.nodes.clone(), // TODO: Update from SWIM membership
+                // Nodes are updated by topology watcher (handle_membership_event)
+                // Not updated here to avoid race conditions
+                nodes: current.nodes.clone(),
                 shards: vec![],
             }
         };
 
-        // Query shard manager for all active shards
-        // Note: This is a simplified implementation. In production, we'd:
-        // 1. Track all shards (not just active ones)
-        // 2. Get leadership info from Raft
-        // 3. Track replica placement across cluster
+        // Query shard manager for all active shards on this node
+        // Note: In a multi-node cluster, each node tracks its own active shards.
+        // The full cluster view would aggregate shard info from all nodes.
+        let active_shards = self.shard_manager.active_shards().await;
 
-        // For now, we'll query a subset of shards as a placeholder
-        for shard_id in 0..self.total_shards.min(10) {
+        for shard_id in active_shards {
             if let Ok(shard) = self.shard_manager.get_shard(shard_id).await {
                 let is_leader = shard.is_leader();
 

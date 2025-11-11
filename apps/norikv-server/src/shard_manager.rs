@@ -287,6 +287,13 @@ impl ShardManager {
         self.shards.read().await.len()
     }
 
+    /// Returns a list of all active shard IDs.
+    ///
+    /// Active shards are those that have been created (lazily or explicitly).
+    pub async fn active_shards(&self) -> Vec<ShardId> {
+        self.shards.read().await.keys().copied().collect()
+    }
+
     /// Shuts down all shards gracefully.
     pub async fn shutdown(&self) -> Result<(), ShardError> {
         tracing::info!("Shutting down all shards...");

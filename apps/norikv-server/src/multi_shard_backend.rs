@@ -100,37 +100,54 @@ impl KvBackend for MultiShardBackend {
     }
 
     fn is_leader(&self) -> bool {
-        // In multi-shard mode, we can't answer this globally
-        // Return true to allow requests (per-shard leadership checked during operation)
-        // TODO: Phase 3 will implement proper cluster view tracking
+        // Note: In multi-shard mode, leadership is per-shard, not global.
+        // This method is effectively meaningless for a multi-shard backend.
+        //
+        // We return `true` to allow requests through - the actual leadership
+        // check happens during the operation when we route to the target shard.
+        // If the target shard is not leader, the operation will fail with
+        // RaftError::NotLeader and the client will retry.
+        //
+        // For accurate cluster health, use HealthChecker which queries each
+        // shard individually (see apps/norikv-server/src/health.rs).
         true
     }
 
     fn leader(&self) -> Option<NodeId> {
-        // In multi-shard mode, leadership is per-shard
-        // Return None to indicate "unknown" (client should retry)
-        // TODO: Phase 3 will implement proper leader tracking per shard
+        // Note: In multi-shard mode, leadership is per-shard, not global.
+        // Each of the 1024 shards may have a different leader.
+        //
+        // We return None to indicate "unknown global leader" - callers should
+        // not rely on this method in multi-shard mode.
+        //
+        // For accurate leadership tracking per shard, use:
+        // - shard_manager.shard_info(shard_id) to get leader for specific shard
+        // - ClusterView to get aggregated cluster topology
         None
     }
 
     fn current_term(&self) -> Term {
-        // Return term from shard 0 as a proxy
-        // TODO: Phase 3 will implement proper per-shard term tracking
-        if let Ok(shard) = futures::executor::block_on(self.shard_manager.get_shard(0)) {
-            shard.raft().current_term()
-        } else {
-            Term(0)
-        }
+        // Note: In multi-shard mode, each shard has its own independent term.
+        // There is no meaningful "global term" across all 1024 shards.
+        //
+        // We return Term(0) as a placeholder. Callers should not rely on
+        // this method in multi-shard mode.
+        //
+        // For per-shard term tracking, query individual shards via:
+        //   shard_manager.get_shard(shard_id).raft().current_term()
+        Term(0)
     }
 
     fn commit_index(&self) -> LogIndex {
-        // Return commit index from shard 0 as a proxy
-        // TODO: Phase 3 will implement proper per-shard index tracking
-        if let Ok(shard) = futures::executor::block_on(self.shard_manager.get_shard(0)) {
-            shard.raft().commit_index()
-        } else {
-            LogIndex(0)
-        }
+        // Note: In multi-shard mode, each shard has its own independent commit index.
+        // There is no meaningful "global commit index" across all 1024 shards.
+        //
+        // We return LogIndex(0) as a placeholder. Callers should not rely on
+        // this method in multi-shard mode.
+        //
+        // For per-shard commit index tracking, query individual shards via:
+        //   shard_manager.get_shard(shard_id).raft().commit_index()
+        LogIndex(0)
     }
 }
 

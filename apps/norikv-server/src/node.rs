@@ -108,8 +108,18 @@ impl Node {
             let own_addr = config.rpc_addr.clone();
             peer_addrs.insert(config.node_id.clone(), own_addr.clone());
 
-            // Add seed nodes (using hostname as node_id for now)
-            // TODO: Use proper node discovery to map node_id -> address
+            // Add seed nodes (using sequential node_id naming convention)
+            //
+            // Note: This assumes seed nodes use node_id "node0", "node1", "node2", etc.
+            // For production, consider using a discovery service (etcd, Consul) or
+            // extending the config to explicitly map node_id -> address.
+            //
+            // Example config.toml:
+            //   [cluster.peers]
+            //   node0 = "10.0.1.10:7447"
+            //   node1 = "10.0.1.11:7447"
+            //
+            // SWIM provides failure detection but doesn't handle initial discovery.
             for (i, seed) in config.cluster.seed_nodes.iter().enumerate() {
                 let node_name = format!("node{}", i);
                 peer_addrs.insert(node_name.clone(), seed.clone());

@@ -36,7 +36,15 @@ struct IdempotencyEntry {
 pub struct KvService {
     backend: Arc<dyn KvBackend>,
     /// Idempotency cache: idempotency_key -> (version, timestamp)
-    /// TODO: Add TTL expiration and persistence for production
+    ///
+    /// Future Enhancement: For production, consider:
+    /// - TTL-based eviction (expire entries after N minutes)
+    /// - Persistence to disk (survive restarts)
+    /// - Size-based eviction (LRU when cache full)
+    /// - Per-key expiration based on timestamp field
+    ///
+    /// Current implementation: Unbounded in-memory HashMap.
+    /// Acceptable for development and low-volume production.
     idempotency_cache: Arc<RwLock<HashMap<String, IdempotencyEntry>>>,
     /// Metrics meter for observability
     meter: Arc<dyn Meter>,
@@ -134,15 +142,25 @@ impl Kv for KvService {
             }));
         }
 
-        // Phase 2.2: CAS - check if_match version
+        // Phase 2.2: CAS (Compare-And-Swap) - check if_match version
+        //
+        // Future Feature: When if_match is provided, verify the current value's
+        // version matches before applying the write. This enables optimistic
+        // concurrency control.
+        //
+        // Implementation requires:
+        // 1. Add get_with_version() method to KvBackend
+        // 2. Read current (term, index) from LSM before write
+        // 3. Compare with expected_version
+        // 4. Return FAILED_PRECONDITION if mismatch
+        //
+        // For now, we log the request but don't enforce the check.
         if let Some(expected_version) = req.if_match {
-            // TODO: Implement actual version checking in KvBackend
-            // For now, we log it as a placeholder
-            tracing::debug!("CAS if_match: term={}, index={}", expected_version.term, expected_version.index);
-            // In production, this should:
-            // 1. Read current version from LSM
-            // 2. Compare with expected_version
-            // 3. Return FAILED_PRECONDITION if mismatch
+            tracing::warn!(
+                "CAS if_match provided (term={}, index={}) but version checking not yet implemented",
+                expected_version.term,
+                expected_version.index
+            );
         }
 
         // Convert TTL from milliseconds
@@ -385,14 +403,25 @@ impl Kv for KvService {
             }));
         }
 
-        // Phase 2.2: CAS - check if_match version
+        // Phase 2.2: CAS (Compare-And-Swap) - check if_match version
+        //
+        // Future Feature: When if_match is provided, verify the current value's
+        // version matches before applying the delete. This enables optimistic
+        // concurrency control.
+        //
+        // Implementation requires:
+        // 1. Add get_with_version() method to KvBackend
+        // 2. Read current (term, index) from LSM before delete
+        // 3. Compare with expected_version
+        // 4. Return FAILED_PRECONDITION if mismatch
+        //
+        // For now, we log the request but don't enforce the check.
         if let Some(expected_version) = req.if_match {
-            // TODO: Implement actual version checking in KvBackend
-            tracing::debug!("CAS if_match: term={}, index={}", expected_version.term, expected_version.index);
-            // In production, this should:
-            // 1. Read current version from LSM
-            // 2. Compare with expected_version
-            // 3. Return FAILED_PRECONDITION if mismatch
+            tracing::warn!(
+                "CAS if_match provided (term={}, index={}) but version checking not yet implemented",
+                expected_version.term,
+                expected_version.index
+            );
         }
 
         // Attempt the delete operation

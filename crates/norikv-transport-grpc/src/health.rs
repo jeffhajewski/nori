@@ -32,14 +32,16 @@ impl HealthService {
     /// Check health status
     pub fn check_health(&self) -> HealthStatus {
         let is_leader = self.replicated_lsm.is_leader();
+        let term = self.replicated_lsm.raft().current_term().as_u64();
 
         HealthStatus {
             status: "healthy".to_string(),
             is_leader,
-            term: 0, // TODO: Get actual term when available
+            term,
             details: format!(
-                "Node is {}",
-                if is_leader { "leader" } else { "follower" }
+                "Node is {} (term {})",
+                if is_leader { "leader" } else { "follower" },
+                term
             ),
         }
     }

@@ -30,17 +30,20 @@ Get started with NoriKV in your preferred language:
 
 ### Architecture & Internals
 Understand how NoriKV works:
-- **Storage Engine** - LSM-tree with WAL, SSTables, and compaction
-- **Consensus** - Raft protocol with read-index and leases
-- **Membership** - SWIM-based failure detection
-- **Sharding** - Jump consistent hashing with 1024 virtual shards
+- **[Storage Engine](./architecture/)** - LSM-tree with WAL, SSTables, and compaction
+- **[Consensus](./architecture/)** - Raft protocol with read-index and leases
+- **[Membership](./architecture/)** - SWIM-based failure detection
+- **[Sharding](./architecture/multi-shard-server)** - Jump consistent hashing with 1024 virtual shards
+- **[Multi-Shard Server](./architecture/multi-shard-server)** - How 1024 virtual shards are managed
+- **[SWIM Topology Tracking](./architecture/swim-topology)** - Real-time cluster membership
 
 ### Operations
 Deploy and manage NoriKV:
-- **Installation** - Getting started guides
-- **Configuration** - Tuning parameters
-- **Monitoring** - Metrics and observability
-- **Troubleshooting** - Common issues and solutions
+- **[REST API](./operations/rest-api)** - HTTP endpoints for health and metrics
+- **[Metrics](./operations/metrics)** - Prometheus metrics reference and monitoring
+- **[Configuration](./operations/)** - Tuning parameters
+- **[Deployment](./operations/)** - Production deployment patterns
+- **[Troubleshooting](./operations/)** - Common issues and solutions
 
 ## Features
 

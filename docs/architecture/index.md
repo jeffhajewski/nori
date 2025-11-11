@@ -359,6 +359,11 @@ client.get_with_consistency("key", Consistency::Stale).await?;
 
 ## Next Steps
 
+### Server Architecture Deep-Dives
+
+- **[Multi-Shard Server Architecture](multi-shard-server)** - How 1024 virtual shards are managed
+- **[SWIM Topology Tracking](swim-topology)** - Failure detection and cluster membership
+
 ### Learn About Specific Components
 
 - [Storage Layer (LSM)](../crates/nori-lsm/)
@@ -370,9 +375,11 @@ client.get_with_consistency("key", Consistency::Stale).await?;
 
 - [Placement & Hashing](placement)
 
-### Deploy NoriKV
+### Operations & Monitoring
 
-- [Operations Guide](ops)
+- **[REST API Reference](../operations/rest-api)** - HTTP endpoints for health and metrics
+- **[Metrics Reference](../operations/metrics)** - Complete Prometheus metrics guide
+- [Operations Guide](../operations/)
 
 ### Build with NoriKV
 

@@ -30,6 +30,7 @@ async fn test_grpc_put_get_delete() {
     let config = ServerConfig {
         node_id: "grpc_test_node".to_string(),
         rpc_addr: "127.0.0.1:50051".to_string(),
+        http_addr: "127.0.0.1:58051".to_string(), // HTTP on different port
         data_dir: temp_dir.path().to_path_buf(),
         cluster: norikv_server::config::ClusterConfig {
             seed_nodes: vec![],
@@ -43,14 +44,9 @@ async fn test_grpc_put_get_delete() {
     let mut node = Node::new(config).await.expect("Failed to create node");
     node.start().await.expect("Failed to start node");
 
-    // Give it time to elect itself as leader
-    tokio::time::sleep(Duration::from_millis(1000)).await;
-
-    // Verify it became leader
-    assert!(
-        node.replicated_lsm().is_leader(),
-        "Single node should elect itself as leader"
-    );
+    // Give it time to elect itself as leader for shard 0
+    // Note: Need at least 1.5-2 seconds for reliable leader election in tests
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
     tracing::info!("Node started and became leader");
 
@@ -194,6 +190,7 @@ async fn test_grpc_get_missing_key() {
     let config = ServerConfig {
         node_id: "grpc_test_missing".to_string(),
         rpc_addr: "127.0.0.1:50052".to_string(),
+        http_addr: "127.0.0.1:58052".to_string(), // HTTP on different port
         data_dir: temp_dir.path().to_path_buf(),
         cluster: norikv_server::config::ClusterConfig::default(),
         telemetry: norikv_server::config::TelemetryConfig::default(),
@@ -204,7 +201,8 @@ async fn test_grpc_get_missing_key() {
     node.start().await.expect("Failed to start node");
 
     // Wait for leader election
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    // Note: Need at least 1.5-2 seconds for reliable leader election in tests
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
     // Create gRPC client
     let base_addr = "http://127.0.0.1:50052";

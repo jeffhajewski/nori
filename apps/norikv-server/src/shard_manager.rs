@@ -371,6 +371,7 @@ mod tests {
         let config = ServerConfig {
             node_id: "test-node".to_string(),
             rpc_addr: "127.0.0.1:7447".to_string(),
+            http_addr: "127.0.0.1:8447".to_string(),
             data_dir: temp_dir.path().to_path_buf(),
             cluster: crate::config::ClusterConfig {
                 seed_nodes: vec![],

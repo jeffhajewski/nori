@@ -27,7 +27,9 @@ pub struct HttpServerState {
 /// Provides:
 /// - GET /health - Comprehensive health status (all shards)
 /// - GET /health/quick - Fast health check (shard 0 only)
-/// - GET /metrics - Prometheus metrics (Phase 5.3)
+/// - GET /healthz - Kubernetes liveness probe (alias for /health/quick)
+/// - GET /readyz - Kubernetes readiness probe (alias for /health)
+/// - GET /metrics - Prometheus metrics
 pub struct HttpServer {
     addr: SocketAddr,
     state: HttpServerState,
@@ -61,7 +63,10 @@ impl HttpServer {
         let app = Router::new()
             .route("/health", get(health_handler))
             .route("/health/quick", get(health_quick_handler))
-            // Metrics endpoint placeholder (Phase 5.3)
+            // Kubernetes-standard health probe endpoints
+            .route("/healthz", get(health_quick_handler)) // Liveness probe
+            .route("/readyz", get(health_handler))         // Readiness probe
+            // Metrics endpoint
             .route("/metrics", get(metrics_handler))
             .with_state(self.state.clone());
 

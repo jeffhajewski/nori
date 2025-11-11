@@ -328,6 +328,37 @@ impl ShardManager {
     }
 }
 
+/// Implementation of ShardManagerOps trait for admin operations.
+#[async_trait::async_trait]
+impl norikv_transport_grpc::ShardManagerOps for ShardManager {
+    async fn get_shard(&self, shard_id: u32) -> Result<Arc<ReplicatedLSM>, String> {
+        self.get_shard(shard_id)
+            .await
+            .map_err(|e| format!("{:?}", e))
+    }
+
+    async fn shard_info(&self, shard_id: u32) -> Result<norikv_transport_grpc::ShardMetadata, String> {
+        let info = self.shard_info(shard_id)
+            .await
+            .map_err(|e| format!("{:?}", e))?;
+
+        let shard = self.get_shard(shard_id)
+            .await
+            .map_err(|e| format!("{:?}", e))?;
+
+        let term = shard.raft().current_term();
+        let commit_index = shard.raft().commit_index();
+
+        Ok(norikv_transport_grpc::ShardMetadata {
+            shard_id: info.shard_id,
+            is_leader: info.is_leader,
+            leader: info.leader,
+            term: term.as_u64(),
+            commit_index: commit_index.as_u64(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

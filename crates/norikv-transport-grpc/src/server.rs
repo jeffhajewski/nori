@@ -1,6 +1,6 @@
 //! gRPC server that hosts all services.
 
-use crate::admin::AdminService;
+use crate::admin::{AdminService, ShardManagerOps};
 use crate::kv::KvService;
 use crate::kv_backend::{KvBackend, SingleShardBackend};
 use crate::meta::{ClusterViewProvider, MetaService};
@@ -24,6 +24,7 @@ pub struct GrpcServer {
     addr: SocketAddr,
     backend: Arc<dyn KvBackend>,
     cluster_view: Option<Arc<dyn ClusterViewProvider>>,
+    shard_manager: Option<Arc<dyn ShardManagerOps>>,
     meter: Option<Arc<dyn Meter>>,
     raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
@@ -43,6 +44,7 @@ impl GrpcServer {
             addr,
             backend,
             cluster_view: None,
+            shard_manager: None,
             meter: None,
             raft_rpc_tx: None,
             shutdown_tx: None,
@@ -60,6 +62,7 @@ impl GrpcServer {
             addr,
             backend,
             cluster_view: None,
+            shard_manager: None,
             meter: None,
             raft_rpc_tx: None,
             shutdown_tx: None,
@@ -75,6 +78,17 @@ impl GrpcServer {
     /// - `cluster_view`: ClusterViewProvider implementation
     pub fn with_cluster_view(mut self, cluster_view: Arc<dyn ClusterViewProvider>) -> Self {
         self.cluster_view = Some(cluster_view);
+        self
+    }
+
+    /// Set the shard manager for Admin service.
+    ///
+    /// If provided, Admin service operations (SnapshotShard, etc.) will be enabled.
+    ///
+    /// # Arguments
+    /// - `shard_manager`: ShardManagerOps implementation
+    pub fn with_shard_manager(mut self, shard_manager: Arc<dyn ShardManagerOps>) -> Self {
+        self.shard_manager = Some(shard_manager);
         self
     }
 
@@ -124,7 +138,30 @@ impl GrpcServer {
             MetaService::new()
         };
 
-        let admin_service = AdminService::new();
+        // Create Admin service with shard manager if available
+        let admin_service = if let Some(shard_manager) = &self.shard_manager {
+            tracing::info!("Enabling Admin service with shard management operations");
+            AdminService::new(shard_manager.clone())
+        } else {
+            tracing::warn!("Admin service starting without shard manager - SnapshotShard will be unavailable");
+            // Create a dummy shard manager that returns errors
+            use crate::admin::ShardMetadata;
+
+            struct DummyShardManager;
+
+            #[async_trait::async_trait]
+            impl ShardManagerOps for DummyShardManager {
+                async fn get_shard(&self, shard_id: u32) -> Result<Arc<nori_raft::ReplicatedLSM>, String> {
+                    Err(format!("Shard manager not configured (shard {})", shard_id))
+                }
+
+                async fn shard_info(&self, shard_id: u32) -> Result<ShardMetadata, String> {
+                    Err(format!("Shard manager not configured (shard {})", shard_id))
+                }
+            }
+
+            AdminService::new(Arc::new(DummyShardManager))
+        };
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();

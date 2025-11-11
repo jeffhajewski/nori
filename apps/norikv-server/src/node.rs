@@ -254,6 +254,7 @@ impl Node {
 
         let mut grpc_server = norikv_transport_grpc::GrpcServer::with_backend(addr, backend)
             .with_cluster_view(self.cluster_view.clone() as Arc<dyn norikv_transport_grpc::ClusterViewProvider>)
+            .with_shard_manager(self.shard_manager.clone() as Arc<dyn norikv_transport_grpc::ShardManagerOps>)
             .with_meter(self.meter.clone() as Arc<dyn nori_observe::Meter>);
 
         // Wire Raft RPC channel if multi-node

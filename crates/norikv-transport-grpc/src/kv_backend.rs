@@ -85,3 +85,50 @@ impl KvBackend for SingleShardBackend {
         self.lsm.raft().commit_index()
     }
 }
+
+#[cfg(test)]
+pub struct MockKvBackend;
+
+#[cfg(test)]
+impl MockKvBackend {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl KvBackend for MockKvBackend {
+    async fn put(
+        &self,
+        _key: Bytes,
+        _value: Bytes,
+        _ttl: Option<Duration>,
+    ) -> Result<LogIndex, RaftError> {
+        Ok(LogIndex(1))
+    }
+
+    async fn get(&self, _key: &[u8]) -> Result<Option<Bytes>, RaftError> {
+        Ok(Some(Bytes::from("mock_value")))
+    }
+
+    async fn delete(&self, _key: Bytes) -> Result<LogIndex, RaftError> {
+        Ok(LogIndex(1))
+    }
+
+    fn is_leader(&self) -> bool {
+        true
+    }
+
+    fn leader(&self) -> Option<NodeId> {
+        Some(NodeId::new("mock-leader"))
+    }
+
+    fn current_term(&self) -> Term {
+        Term(1)
+    }
+
+    fn commit_index(&self) -> LogIndex {
+        LogIndex(1)
+    }
+}

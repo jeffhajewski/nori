@@ -12,8 +12,8 @@ use parking_lot::RwLock;
 use tonic::{Request, Response, Status};
 
 /// Request size limits (from 10_product.yaml)
-const MAX_KEY_SIZE: usize = 64 * 1024;      // 64 KB
-const MAX_VALUE_SIZE: usize = 4 * 1024 * 1024; // 4 MB
+const MAX_KEY_SIZE: usize = 1024;           // 1 KB
+const MAX_VALUE_SIZE: usize = 1024 * 1024;  // 1 MB hard limit
 
 /// Idempotency cache entry
 #[derive(Clone, Debug)]
@@ -144,23 +144,69 @@ impl Kv for KvService {
 
         // Phase 2.2: CAS (Compare-And-Swap) - check if_match version
         //
-        // Future Feature: When if_match is provided, verify the current value's
-        // version matches before applying the write. This enables optimistic
-        // concurrency control.
+        // Implements optimistic concurrency control by checking that the current
+        // version matches the expected version before applying the write.
         //
-        // Implementation requires:
-        // 1. Add get_with_version() method to KvBackend
-        // 2. Read current (term, index) from LSM before write
-        // 3. Compare with expected_version
-        // 4. Return FAILED_PRECONDITION if mismatch
-        //
-        // For now, we log the request but don't enforce the check.
-        if let Some(expected_version) = req.if_match {
-            tracing::warn!(
-                "CAS if_match provided (term={}, index={}) but version checking not yet implemented",
+        // Note: This uses commit_index as a version proxy. For production use,
+        // consider storing per-key version metadata in the LSM layer.
+        if let Some(expected_version) = &req.if_match {
+            tracing::debug!(
+                "CAS if_match provided: term={}, index={}",
                 expected_version.term,
                 expected_version.index
             );
+
+            // Read current value to check if key exists
+            match self.backend.get(&req.key).await {
+                Ok(Some(_)) => {
+                    // Key exists - verify version matches
+                    let current_term = self.backend.current_term();
+                    let current_index = self.backend.commit_index();
+
+                    if current_term.as_u64() != expected_version.term
+                        || current_index.0 != expected_version.index
+                    {
+                        tracing::warn!(
+                            "CAS version mismatch: expected (term={}, index={}), got (term={}, index={})",
+                            expected_version.term,
+                            expected_version.index,
+                            current_term.as_u64(),
+                            current_index.0
+                        );
+
+                        self.meter
+                            .counter("kv_requests_total", &[("operation", "put"), ("status", "cas_failed")])
+                            .inc(1);
+
+                        return Err(Status::failed_precondition(format!(
+                            "Version mismatch: expected term={} index={}, got term={} index={}",
+                            expected_version.term,
+                            expected_version.index,
+                            current_term.as_u64(),
+                            current_index.0
+                        )));
+                    }
+                }
+                Ok(None) => {
+                    // Key doesn't exist - CAS with if_match should fail
+                    tracing::warn!("CAS attempted on non-existent key");
+
+                    self.meter
+                        .counter("kv_requests_total", &[("operation", "put"), ("status", "cas_not_found")])
+                        .inc(1);
+
+                    return Err(Status::failed_precondition(
+                        "CAS failed: key does not exist",
+                    ));
+                }
+                Err(e) => {
+                    tracing::error!("CAS version check failed: {:?}", e);
+                    return Err(Status::internal(format!(
+                        "Failed to check current version: {:?}",
+                        e
+                    )));
+                }
+            }
         }
 
         // Convert TTL from milliseconds
@@ -487,5 +533,303 @@ impl Kv for KvService {
                 Err(Status::internal(format!("Delete failed: {:?}", e)))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+    use nori_raft::{LogIndex, Term};
+
+    #[test]
+    fn test_validate_size_key_too_large() {
+        let backend = Arc::new(crate::kv_backend::MockKvBackend::new());
+        let service = KvService::new(backend);
+
+        // Create key larger than 1KB limit
+        let large_key = vec![0u8; MAX_KEY_SIZE + 1];
+        let value = vec![1u8; 100];
+
+        let result = service.validate_size(&large_key, Some(&value));
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("Key size"));
+        assert!(err.message().contains("exceeds limit"));
+    }
+
+    #[test]
+    fn test_validate_size_value_too_large() {
+        let backend = Arc::new(crate::kv_backend::MockKvBackend::new());
+        let service = KvService::new(backend);
+
+        let key = vec![0u8; 100];
+        // Create value larger than 1MB limit
+        let large_value = vec![1u8; MAX_VALUE_SIZE + 1];
+
+        let result = service.validate_size(&key, Some(&large_value));
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("Value size"));
+        assert!(err.message().contains("exceeds limit"));
+    }
+
+    #[test]
+    fn test_validate_size_at_limits() {
+        let backend = Arc::new(crate::kv_backend::MockKvBackend::new());
+        let service = KvService::new(backend);
+
+        // Exactly at limits should succeed
+        let max_key = vec![0u8; MAX_KEY_SIZE];
+        let max_value = vec![1u8; MAX_VALUE_SIZE];
+
+        let result = service.validate_size(&max_key, Some(&max_value));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_size_under_limits() {
+        let backend = Arc::new(crate::kv_backend::MockKvBackend::new());
+        let service = KvService::new(backend);
+
+        let key = vec![0u8; 100];
+        let value = vec![1u8; 1000];
+
+        let result = service.validate_size(&key, Some(&value));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_size_no_value() {
+        let backend = Arc::new(crate::kv_backend::MockKvBackend::new());
+        let service = KvService::new(backend);
+
+        let key = vec![0u8; 100];
+
+        // For DELETE operations (no value)
+        let result = service.validate_size(&key, None);
+        assert!(result.is_ok());
+    }
+
+    // Stateful mock backend for CAS testing
+    struct StatefulMockBackend {
+        term: std::sync::RwLock<Term>,
+        commit_index: std::sync::RwLock<LogIndex>,
+        store: std::sync::RwLock<std::collections::HashMap<Vec<u8>, Bytes>>,
+    }
+
+    impl StatefulMockBackend {
+        fn new() -> Self {
+            Self {
+                term: std::sync::RwLock::new(Term(1)),
+                commit_index: std::sync::RwLock::new(LogIndex(1)),
+                store: std::sync::RwLock::new(std::collections::HashMap::new()),
+            }
+        }
+
+        fn set_version(&self, term: u64, index: u64) {
+            *self.term.write().unwrap() = Term(term);
+            *self.commit_index.write().unwrap() = LogIndex(index);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::kv_backend::KvBackend for StatefulMockBackend {
+        async fn put(
+            &self,
+            key: Bytes,
+            value: Bytes,
+            _ttl: Option<Duration>,
+        ) -> Result<LogIndex, nori_raft::RaftError> {
+            self.store.write().unwrap().insert(key.to_vec(), value);
+            // Increment commit index on write
+            let mut index = self.commit_index.write().unwrap();
+            *index = LogIndex(index.0 + 1);
+            Ok(*index)
+        }
+
+        async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, nori_raft::RaftError> {
+            Ok(self.store.read().unwrap().get(key).cloned())
+        }
+
+        async fn delete(&self, key: Bytes) -> Result<LogIndex, nori_raft::RaftError> {
+            self.store.write().unwrap().remove(&key.to_vec());
+            let mut index = self.commit_index.write().unwrap();
+            *index = LogIndex(index.0 + 1);
+            Ok(*index)
+        }
+
+        fn is_leader(&self) -> bool {
+            true
+        }
+
+        fn leader(&self) -> Option<nori_raft::NodeId> {
+            Some(nori_raft::NodeId::new("test-leader"))
+        }
+
+        fn current_term(&self) -> Term {
+            *self.term.read().unwrap()
+        }
+
+        fn commit_index(&self) -> LogIndex {
+            *self.commit_index.read().unwrap()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cas_success_when_version_matches() {
+        let backend = Arc::new(StatefulMockBackend::new());
+        let service = KvService::new(backend.clone());
+
+        // First, put a key-value pair
+        let key = b"test-key".to_vec();
+        let value1 = b"value1".to_vec();
+
+        let put_req = proto::PutRequest {
+            key: key.clone(),
+            value: value1,
+            ttl_ms: 0,
+            idempotency_key: String::new(),
+            if_match: None,
+        };
+
+        let response = service.put(Request::new(put_req)).await.unwrap();
+        let version = response.into_inner().version.unwrap();
+
+        // Now do a CAS with matching version
+        let value2 = b"value2".to_vec();
+        let cas_req = proto::PutRequest {
+            key: key.clone(),
+            value: value2.clone(),
+            ttl_ms: 0,
+            idempotency_key: String::new(),
+            if_match: Some(proto::Version {
+                term: version.term,
+                index: version.index,
+            }),
+        };
+
+        let result = service.put(Request::new(cas_req)).await;
+        assert!(result.is_ok(), "CAS should succeed when version matches");
+
+        // Verify the value was updated
+        let stored_value = backend.get(&key).await.unwrap().unwrap();
+        assert_eq!(stored_value, Bytes::from(value2));
+    }
+
+    #[tokio::test]
+    async fn test_cas_fail_when_version_mismatches() {
+        let backend = Arc::new(StatefulMockBackend::new());
+        let service = KvService::new(backend.clone());
+
+        // First, put a key-value pair
+        let key = b"test-key".to_vec();
+        let value1 = b"value1".to_vec();
+
+        let put_req = proto::PutRequest {
+            key: key.clone(),
+            value: value1.clone(),
+            ttl_ms: 0,
+            idempotency_key: String::new(),
+            if_match: None,
+        };
+
+        service.put(Request::new(put_req)).await.unwrap();
+
+        // Simulate version change (another write happened)
+        backend.set_version(1, 100);
+
+        // Now try CAS with old version
+        let value2 = b"value2".to_vec();
+        let cas_req = proto::PutRequest {
+            key: key.clone(),
+            value: value2.clone(),
+            ttl_ms: 0,
+            idempotency_key: String::new(),
+            if_match: Some(proto::Version {
+                term: 1,
+                index: 2, // Old version, current is 100
+            }),
+        };
+
+        let result = service.put(Request::new(cas_req)).await;
+        assert!(result.is_err(), "CAS should fail when version doesn't match");
+
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+        assert!(err.message().contains("Version mismatch"));
+
+        // Verify the value was NOT updated
+        let stored_value = backend.get(&key).await.unwrap().unwrap();
+        assert_eq!(stored_value, Bytes::from(value1));
+    }
+
+    #[tokio::test]
+    async fn test_cas_fail_when_key_not_exists() {
+        let backend = Arc::new(StatefulMockBackend::new());
+        let service = KvService::new(backend);
+
+        // Try CAS on non-existent key
+        let key = b"nonexistent-key".to_vec();
+        let value = b"value".to_vec();
+
+        let cas_req = proto::PutRequest {
+            key,
+            value,
+            ttl_ms: 0,
+            idempotency_key: String::new(),
+            if_match: Some(proto::Version {
+                term: 1,
+                index: 1,
+            }),
+        };
+
+        let result = service.put(Request::new(cas_req)).await;
+        assert!(result.is_err(), "CAS should fail when key doesn't exist");
+
+        let err = result.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+        assert!(err.message().contains("key does not exist"));
+    }
+
+    #[tokio::test]
+    async fn test_put_without_cas_on_existing_key() {
+        let backend = Arc::new(StatefulMockBackend::new());
+        let service = KvService::new(backend.clone());
+
+        // First, put a key-value pair
+        let key = b"test-key".to_vec();
+        let value1 = b"value1".to_vec();
+
+        let put_req = proto::PutRequest {
+            key: key.clone(),
+            value: value1,
+            ttl_ms: 0,
+            idempotency_key: String::new(),
+            if_match: None,
+        };
+
+        service.put(Request::new(put_req)).await.unwrap();
+
+        // Update without CAS (if_match=None) should succeed
+        let value2 = b"value2".to_vec();
+        let update_req = proto::PutRequest {
+            key: key.clone(),
+            value: value2.clone(),
+            ttl_ms: 0,
+            idempotency_key: String::new(),
+            if_match: None,
+        };
+
+        let result = service.put(Request::new(update_req)).await;
+        assert!(result.is_ok(), "PUT without CAS should succeed on existing key");
+
+        // Verify the value was updated
+        let stored_value = backend.get(&key).await.unwrap().unwrap();
+        assert_eq!(stored_value, Bytes::from(value2));
     }
 }

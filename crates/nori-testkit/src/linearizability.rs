@@ -140,6 +140,7 @@ impl History {
         let n = self.operations.len();
         let mut must_precede: Vec<Vec<usize>> = vec![Vec::new(); n];
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             for j in 0..n {
                 if i != j && self.operations[i].happens_before(&self.operations[j]) {

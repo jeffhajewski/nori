@@ -126,6 +126,7 @@ pub struct SwimMembership {
     local_id: String,
 
     /// Local address
+    #[allow(dead_code)]
     local_addr: SocketAddr,
 
     /// Current cluster view

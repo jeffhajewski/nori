@@ -251,6 +251,7 @@ impl Node {
             self.shard_manager.clone(),
             self.config.cluster.total_shards,
         ));
+        let backend_for_http = backend.clone();
 
         let mut grpc_server = norikv_transport_grpc::GrpcServer::with_backend(addr, backend)
             .with_cluster_view(self.cluster_view.clone() as Arc<dyn norikv_transport_grpc::ClusterViewProvider>)
@@ -280,6 +281,7 @@ impl Node {
             http_addr,
             self.health_checker.clone(),
             self.meter.clone(),
+            backend_for_http,
         );
         http_server.start().await
             .map_err(|e| NodeError::Startup(format!("Failed to start HTTP server: {:?}", e)))?;

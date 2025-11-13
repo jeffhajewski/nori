@@ -3259,12 +3259,12 @@ fn key_distance(start: &Bytes, end: &Bytes) -> f64 {
     let mut start_val = 0u64;
     let mut end_val = 0u64;
 
-    for i in 0..8.min(start_bytes.len()) {
-        start_val = (start_val << 8) | (start_bytes[i] as u64);
+    for &byte in start_bytes.iter().take(8) {
+        start_val = (start_val << 8) | (byte as u64);
     }
 
-    for i in 0..8.min(end_bytes.len()) {
-        end_val = (end_val << 8) | (end_bytes[i] as u64);
+    for &byte in end_bytes.iter().take(8) {
+        end_val = (end_val << 8) | (byte as u64);
     }
 
     if end_val >= start_val {

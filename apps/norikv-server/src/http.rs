@@ -1,16 +1,19 @@
 //! HTTP REST API server.
 //!
-//! Exposes health checks and metrics via HTTP for monitoring tools.
+//! Exposes health checks, metrics, and KV operations via HTTP REST API.
 
 use crate::health::HealthChecker;
 use crate::metrics::PrometheusMeter;
 use axum::{
-    extract::State,
+    body::Bytes,
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{delete, get, put},
     Json, Router,
 };
+use norikv_transport_grpc::KvBackend;
+use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -20,6 +23,7 @@ use tokio::task::JoinHandle;
 pub struct HttpServerState {
     health_checker: Arc<HealthChecker>,
     meter: Arc<PrometheusMeter>,
+    kv_backend: Arc<dyn KvBackend>,
 }
 
 /// HTTP server for REST API endpoints.
@@ -30,6 +34,9 @@ pub struct HttpServerState {
 /// - GET /healthz - Kubernetes liveness probe (alias for /health/quick)
 /// - GET /readyz - Kubernetes readiness probe (alias for /health)
 /// - GET /metrics - Prometheus metrics
+/// - PUT /kv/{key} - Store a key-value pair
+/// - GET /kv/{key} - Retrieve a value by key
+/// - DELETE /kv/{key} - Delete a key
 pub struct HttpServer {
     addr: SocketAddr,
     state: HttpServerState,
@@ -43,12 +50,14 @@ impl HttpServer {
         addr: SocketAddr,
         health_checker: Arc<HealthChecker>,
         meter: Arc<PrometheusMeter>,
+        kv_backend: Arc<dyn KvBackend>,
     ) -> Self {
         Self {
             addr,
             state: HttpServerState {
                 health_checker,
                 meter,
+                kv_backend,
             },
             shutdown_tx: None,
             server_handle: None,
@@ -59,8 +68,9 @@ impl HttpServer {
     pub async fn start(&mut self) -> Result<(), HttpServerError> {
         tracing::info!("Starting HTTP server on {}", self.addr);
 
-        // Build router with health endpoints
+        // Build router with all endpoints
         let app = Router::new()
+            // Health endpoints
             .route("/health", get(health_handler))
             .route("/health/quick", get(health_quick_handler))
             // Kubernetes-standard health probe endpoints
@@ -68,6 +78,10 @@ impl HttpServer {
             .route("/readyz", get(health_handler))         // Readiness probe
             // Metrics endpoint
             .route("/metrics", get(metrics_handler))
+            // KV REST API endpoints
+            .route("/kv/:key", put(kv_put_handler))
+            .route("/kv/:key", get(kv_get_handler))
+            .route("/kv/:key", delete(kv_delete_handler))
             .with_state(self.state.clone());
 
         // Create shutdown signal
@@ -157,6 +171,145 @@ async fn metrics_handler(State(state): State<HttpServerState>) -> Response {
         metrics,
     )
         .into_response()
+}
+
+/// Query parameters for GET /kv/{key}
+#[derive(Debug, Deserialize)]
+struct GetQueryParams {
+    /// Read consistency level: lease (default), linearizable, or stale_ok
+    #[serde(default)]
+    consistency: Option<String>,
+}
+
+/// KV PUT endpoint handler.
+///
+/// PUT /kv/{key}
+///
+/// Request body: raw bytes (the value)
+/// Query params: ?ttl_ms=<milliseconds> (optional)
+///
+/// Returns 200 OK with version information on success.
+async fn kv_put_handler(
+    State(state): State<HttpServerState>,
+    Path(key): Path<String>,
+    body: Bytes,
+) -> Result<Response, AppError> {
+    let key_bytes = bytes::Bytes::from(key.into_bytes());
+    let value_bytes = bytes::Bytes::from(body.to_vec());
+
+    tracing::debug!("HTTP PUT /kv/<key> key_len={} value_len={}", key_bytes.len(), value_bytes.len());
+
+    // Call backend (no TTL support in this basic version)
+    match state.kv_backend.put(key_bytes, value_bytes, None).await {
+        Ok(index) => {
+            // Get version information
+            let term = state.kv_backend.current_term();
+            let response = serde_json::json!({
+                "version": {
+                    "term": term.as_u64(),
+                    "index": index.0,
+                }
+            });
+
+            Ok((StatusCode::OK, Json(response)).into_response())
+        }
+        Err(nori_raft::RaftError::NotLeader { leader }) => {
+            // Return 503 with leader hint
+            let leader_hint = leader.map(|l| l.to_string()).unwrap_or_default();
+            Ok((
+                StatusCode::SERVICE_UNAVAILABLE,
+                [("X-Leader-Hint", leader_hint.as_str())],
+                "NOT_LEADER",
+            )
+                .into_response())
+        }
+        Err(e) => {
+            tracing::error!("PUT failed: {:?}", e);
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, format!("PUT failed: {:?}", e)).into_response())
+        }
+    }
+}
+
+/// KV GET endpoint handler.
+///
+/// GET /kv/{key}?consistency=lease|linearizable|stale_ok
+///
+/// Returns 200 OK with value if found, 404 if not found.
+async fn kv_get_handler(
+    State(state): State<HttpServerState>,
+    Path(key): Path<String>,
+    Query(_params): Query<GetQueryParams>,
+) -> Result<Response, AppError> {
+    let key_bytes = key.as_bytes();
+
+    tracing::debug!("HTTP GET /kv/<key> key_len={}", key_bytes.len());
+
+    // Note: consistency parameter is parsed but not yet used
+    // Full implementation would call different backend methods based on consistency level
+
+    match state.kv_backend.get(key_bytes).await {
+        Ok(Some(value)) => {
+            // Return value as raw bytes
+            Ok((StatusCode::OK, value.to_vec()).into_response())
+        }
+        Ok(None) => {
+            // Key not found
+            Ok((StatusCode::NOT_FOUND, "Key not found").into_response())
+        }
+        Err(nori_raft::RaftError::NotLeader { leader }) => {
+            // Return 503 with leader hint
+            let leader_hint = leader.map(|l| l.to_string()).unwrap_or_default();
+            Ok((
+                StatusCode::SERVICE_UNAVAILABLE,
+                [("X-Leader-Hint", leader_hint.as_str())],
+                "NOT_LEADER",
+            )
+                .into_response())
+        }
+        Err(e) => {
+            tracing::error!("GET failed: {:?}", e);
+            Ok((StatusCode::INTERNAL_SERVER_ERROR, format!("GET failed: {:?}", e)).into_response())
+        }
+    }
+}
+
+/// KV DELETE endpoint handler.
+///
+/// DELETE /kv/{key}
+///
+/// Returns 200 OK on success (whether key existed or not).
+async fn kv_delete_handler(
+    State(state): State<HttpServerState>,
+    Path(key): Path<String>,
+) -> Result<Response, AppError> {
+    let key_bytes = bytes::Bytes::from(key.into_bytes());
+
+    tracing::debug!("HTTP DELETE /kv/<key> key_len={}", key_bytes.len());
+
+    match state.kv_backend.delete(key_bytes).await {
+        Ok(_index) => {
+            // Success
+            Ok((StatusCode::OK, "Deleted").into_response())
+        }
+        Err(nori_raft::RaftError::NotLeader { leader }) => {
+            // Return 503 with leader hint
+            let leader_hint = leader.map(|l| l.to_string()).unwrap_or_default();
+            Ok((
+                StatusCode::SERVICE_UNAVAILABLE,
+                [("X-Leader-Hint", leader_hint.as_str())],
+                "NOT_LEADER",
+            )
+                .into_response())
+        }
+        Err(e) => {
+            tracing::error!("DELETE failed: {:?}", e);
+            Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DELETE failed: {:?}", e),
+            )
+                .into_response())
+        }
+    }
 }
 
 /// HTTP server errors.

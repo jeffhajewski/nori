@@ -191,7 +191,7 @@ impl ChaosScheduler {
 
     /// Schedule an event at a specific logical time
     pub fn schedule(&mut self, time: u64, event_id: String) {
-        self.events.entry(time).or_insert_with(Vec::new).push(event_id);
+        self.events.entry(time).or_default().push(event_id);
     }
 
     /// Advance time and return events that should fire

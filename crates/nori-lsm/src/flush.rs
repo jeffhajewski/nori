@@ -288,17 +288,18 @@ impl L0Admitter {
 
         // If file only overlaps one slot, no splitting needed - use fast path
         if overlapping_slots.len() == 1 {
-            let mut edits = Vec::new();
-            edits.push(ManifestEdit::AddFile {
-                level: 1,
-                slot_id: Some(overlapping_slots[0]),
-                run: l0_run.clone(),
-            });
-            edits.push(ManifestEdit::DeleteFile {
-                level: 0,
-                slot_id: None,
-                file_number: l0_run.file_number,
-            });
+            let edits = vec![
+                ManifestEdit::AddFile {
+                    level: 1,
+                    slot_id: Some(overlapping_slots[0]),
+                    run: l0_run.clone(),
+                },
+                ManifestEdit::DeleteFile {
+                    level: 0,
+                    slot_id: None,
+                    file_number: l0_run.file_number,
+                },
+            ];
             return Ok(edits);
         }
 

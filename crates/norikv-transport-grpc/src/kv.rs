@@ -350,10 +350,9 @@ impl Kv for KvService {
 
         // Attempt the get operation
         match self.backend.get(&req.key).await {
-            Ok(Some(value)) => {
-                // Get current term and commit index for version tracking
-                let term = self.backend.current_term();
-                let commit_index = self.backend.commit_index();
+            Ok(Some((value, term, log_index))) => {
+                // Use per-key version from LSM layer (not global backend state)
+                // This fixes the multi-shard CAS bug where all keys returned Term(0), LogIndex(0)
 
                 // Record success metrics
                 let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -364,7 +363,7 @@ impl Kv for KvService {
                     value: value.to_vec(),
                     version: Some(proto::Version {
                         term: term.as_u64(),
-                        index: commit_index.as_u64(),
+                        index: log_index.as_u64(),
                     }),
                     meta: std::collections::HashMap::new(),
                 }))
@@ -652,8 +651,11 @@ mod tests {
             Ok(*index)
         }
 
-        async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, nori_raft::RaftError> {
-            Ok(self.store.read().unwrap().get(key).cloned())
+        async fn get(&self, key: &[u8]) -> Result<Option<(Bytes, Term, LogIndex)>, nori_raft::RaftError> {
+            Ok(self.store.read().unwrap().get(key).cloned().map(|value| {
+                // Return current term and commit index as version for mock
+                (value, *self.term.read().unwrap(), *self.commit_index.read().unwrap())
+            }))
         }
 
         async fn delete(&self, key: Bytes) -> Result<LogIndex, nori_raft::RaftError> {

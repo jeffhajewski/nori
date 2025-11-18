@@ -241,17 +241,28 @@ impl ReplicatedLSM {
     /// # Errors
     /// - `NotLeader`: If this node is not the current leader
     /// - `Internal`: If LSM read fails
-    pub async fn replicated_get(&self, key: &[u8]) -> Result<Option<Bytes>> {
+    /// Gets a value by key with linearizable read semantics.
+    ///
+    /// # Returns
+    /// - `Ok(Some((value, term, index)))` if key exists
+    /// - `Ok(None)` if key does not exist or is deleted
+    /// - `Err` on errors
+    pub async fn replicated_get(&self, key: &[u8]) -> Result<Option<(Bytes, Term, LogIndex)>> {
         // Ensure linearizability via read-index
         self.raft.read_index().await?;
 
         // Read from local LSM
-        self.lsm_engine
+        let result = self.lsm_engine
             .get(key)
             .await
             .map_err(|e| RaftError::Internal {
                 reason: format!("LSM get failed: {}", e),
-            })
+            })?;
+
+        // Convert Version to (Term, LogIndex)
+        Ok(result.map(|(value, version)| {
+            (value, Term(version.term), LogIndex(version.index))
+        }))
     }
 
     /// Check if this node is the leader.

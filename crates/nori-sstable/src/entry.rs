@@ -1,10 +1,11 @@
 //! Key-value entry representation for SSTable.
 //!
-//! Entry format (with sequence number for MVCC):
+//! Entry format (with Raft-derived version for MVCC):
 //! - klen: varint
 //! - vlen: varint
 //! - flags: u8 (bits: 0=tombstone, 1-7=reserved)
-//! - seqno: varint (u64, monotonically increasing sequence number)
+//! - term: varint (u64, Raft term)
+//! - index: varint (u64, Raft log index)
 //! - key: bytes[klen]
 //! - value: bytes[vlen]
 //! - crc32c: u32 (little-endian)
@@ -20,37 +21,43 @@ bitflags::bitflags! {
 
 /// A key-value entry in an SSTable.
 ///
-/// # Sequence Numbers
-/// The `seqno` field enables MVCC (Multi-Version Concurrency Control):
-/// - Higher sequence numbers represent newer versions
-/// - During compaction, entries with higher seqno shadow older versions
-/// - Enables snapshot isolation for reads at specific seqno
+/// # Versioning
+/// The `term` and `index` fields form a Raft-derived version for MVCC:
+/// - (term, index) represents the Raft log position where this write was committed
+/// - Versions are ordered lexicographically: first by term, then by index
+/// - During compaction, entries with higher versions shadow older versions
+/// - Enables snapshot isolation and CAS (Compare-And-Set) operations
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
     pub key: Bytes,
     pub value: Bytes,
     pub tombstone: bool,
-    pub seqno: u64,
+    /// Raft term when this entry was written
+    pub term: u64,
+    /// Raft log index when this entry was written
+    pub index: u64,
 }
 
 impl Entry {
-    /// Creates a new PUT entry with a sequence number.
+    /// Creates a new PUT entry with a version.
     pub fn put(key: impl Into<Bytes>, value: impl Into<Bytes>) -> Self {
         Self {
             key: key.into(),
             value: value.into(),
             tombstone: false,
-            seqno: 0, // Default to 0; caller should set appropriate seqno
+            term: 0,
+            index: 0,
         }
     }
 
-    /// Creates a new PUT entry with an explicit sequence number.
-    pub fn put_with_seqno(key: impl Into<Bytes>, value: impl Into<Bytes>, seqno: u64) -> Self {
+    /// Creates a new PUT entry with an explicit version (term, index).
+    pub fn put_with_version(key: impl Into<Bytes>, value: impl Into<Bytes>, term: u64, index: u64) -> Self {
         Self {
             key: key.into(),
             value: value.into(),
             tombstone: false,
-            seqno,
+            term,
+            index,
         }
     }
 
@@ -60,17 +67,19 @@ impl Entry {
             key: key.into(),
             value: Bytes::new(),
             tombstone: true,
-            seqno: 0, // Default to 0; caller should set appropriate seqno
+            term: 0,
+            index: 0,
         }
     }
 
-    /// Creates a new DELETE entry with an explicit sequence number.
-    pub fn delete_with_seqno(key: impl Into<Bytes>, seqno: u64) -> Self {
+    /// Creates a new DELETE entry with an explicit version (term, index).
+    pub fn delete_with_version(key: impl Into<Bytes>, term: u64, index: u64) -> Self {
         Self {
             key: key.into(),
             value: Bytes::new(),
             tombstone: true,
-            seqno,
+            term,
+            index,
         }
     }
 
@@ -89,8 +98,9 @@ impl Entry {
         }
         buf.put_u8(flags.bits());
 
-        // Encode sequence number (for MVCC)
-        encode_varint(&mut buf, self.seqno);
+        // Encode version (term, index) for MVCC
+        encode_varint(&mut buf, self.term);
+        encode_varint(&mut buf, self.index);
 
         // Encode key and value
         buf.put_slice(&self.key);
@@ -134,8 +144,9 @@ impl Entry {
         cursor = &cursor[1..];
         let tombstone = flags.contains(Flags::TOMBSTONE);
 
-        // Decode sequence number
-        let seqno = decode_varint(&mut cursor)?;
+        // Decode version (term, index)
+        let term = decode_varint(&mut cursor)?;
+        let index = decode_varint(&mut cursor)?;
 
         // Decode key and value
         if cursor.len() < klen + vlen + 4 {
@@ -164,7 +175,8 @@ impl Entry {
             key,
             value,
             tombstone,
-            seqno,
+            term,
+            index,
         })
     }
 
@@ -173,7 +185,8 @@ impl Entry {
         varint_size(self.key.len() as u64)
             + varint_size(self.value.len() as u64)
             + 1 // flags
-            + varint_size(self.seqno) // sequence number
+            + varint_size(self.term) // version term
+            + varint_size(self.index) // version index
             + self.key.len()
             + self.value.len()
             + 4 // crc32c

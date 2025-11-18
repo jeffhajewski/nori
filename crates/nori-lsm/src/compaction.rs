@@ -885,8 +885,8 @@ impl MultiWayMerger {
 
         let mut min_key: Option<Bytes> = None;
         let mut max_key: Option<Bytes> = None;
-        let min_seqno = u64::MAX;
-        let max_seqno = 0u64;
+        let min_version = crate::Version::new(u64::MAX, u64::MAX);
+        let max_version = crate::Version::new(0, 0);
         let mut tombstone_count = 0u32;
         let mut last_key: Option<Bytes> = None;
 
@@ -986,8 +986,8 @@ impl MultiWayMerger {
             size: metadata.file_size,
             min_key: min_key.ok_or_else(|| Error::Internal("No min key".to_string()))?,
             max_key: max_key.ok_or_else(|| Error::Internal("No max key".to_string()))?,
-            min_seqno,
-            max_seqno,
+            min_version,
+            max_version,
             tombstone_count,
             filter_fp: 0.001,
             heat_hint: 0.0,
@@ -1537,8 +1537,8 @@ impl CompactionExecutor {
                 let mut max_key: Option<Bytes> = None;
                 let mut tombstone_count = 0u32;
                 let mut entry_count = 0usize;
-                let mut min_seqno = u64::MAX;
-                let mut max_seqno = 0u64;
+                let mut min_version = crate::Version::new(u64::MAX, u64::MAX);
+                let mut max_version = crate::Version::new(0, 0);
 
                 while let Some(entry) = iter
                     .try_next()
@@ -1574,8 +1574,9 @@ impl CompactionExecutor {
                         tombstone_count += 1;
                     }
 
-                    min_seqno = min_seqno.min(entry.seqno);
-                    max_seqno = max_seqno.max(entry.seqno);
+                    let entry_version = crate::Version::new(entry.term, entry.index);
+                    min_version = min_version.min(entry_version);
+                    max_version = max_version.max(entry_version);
                     entry_count += 1;
                 }
 
@@ -1604,8 +1605,8 @@ impl CompactionExecutor {
                     size: metadata.file_size,
                     min_key: min_key.ok_or_else(|| Error::Internal("No min key".to_string()))?,
                     max_key: max_key.ok_or_else(|| Error::Internal("No max key".to_string()))?,
-                    min_seqno,
-                    max_seqno,
+                    min_version,
+                    max_version,
                     tombstone_count,
                     filter_fp: 0.001,
                     heat_hint: 0.0,

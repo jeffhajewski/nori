@@ -36,7 +36,7 @@ pub mod recovery;
 pub mod segment;
 pub mod wal;
 
-pub use record::{Compression, Record, RecordError};
+pub use record::{Compression, Record, RecordError, Version};
 pub use recovery::RecoveryInfo;
 pub use segment::{
     FsyncPolicy, Position, SegmentConfig, SegmentError, SegmentManager, SegmentReader,

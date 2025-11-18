@@ -85,12 +85,12 @@ impl Flusher {
         let mut entry_count = 0;
         for (key, entry) in memtable.iter() {
             let sst_entry = match entry {
-                MemtableEntry::Put { value, seqno, .. } => {
-                    Entry::put_with_seqno(key.clone(), value.clone(), seqno)
+                MemtableEntry::Put { value, version, .. } => {
+                    Entry::put_with_version(key.clone(), value.clone(), version.term, version.index)
                 }
-                MemtableEntry::Delete { seqno } => {
+                MemtableEntry::Delete { version } => {
                     tombstone_count += 1;
-                    Entry::delete_with_seqno(key.clone(), seqno)
+                    Entry::delete_with_version(key.clone(), version.term, version.index)
                 }
             };
 
@@ -134,8 +134,8 @@ impl Flusher {
             size: metadata.file_size,
             min_key: min_key.ok_or_else(|| Error::Internal("No min key".to_string()))?,
             max_key: max_key.ok_or_else(|| Error::Internal("No max key".to_string()))?,
-            min_seqno: memtable.min_seqno(),
-            max_seqno: memtable.max_seqno(),
+            min_version: memtable.min_version(),
+            max_version: memtable.max_version(),
             tombstone_count,
             filter_fp: 0.001, // Default, actual FP rate from SSTable metadata
             heat_hint: 0.0,   // Will be updated by heat tracker
@@ -333,8 +333,8 @@ impl L0Admitter {
             let mut max_key: Option<Bytes> = None;
             let mut tombstone_count = 0u32;
             let mut entry_count = 0usize;
-            let mut min_seqno = u64::MAX;
-            let mut max_seqno = 0u64;
+            let mut min_version = crate::Version::new(u64::MAX, u64::MAX);
+            let mut max_version = crate::Version::new(0, 0);
 
             // Iterate through all entries and write those within slot bounds
             // Note: This requires re-reading the file for each slot (inefficient)
@@ -377,8 +377,9 @@ impl L0Admitter {
                     tombstone_count += 1;
                 }
 
-                min_seqno = min_seqno.min(entry.seqno);
-                max_seqno = max_seqno.max(entry.seqno);
+                let entry_version = crate::Version::new(entry.term, entry.index);
+                min_version = min_version.min(entry_version);
+                max_version = max_version.max(entry_version);
                 entry_count += 1;
             }
 
@@ -404,8 +405,8 @@ impl L0Admitter {
                 size: metadata.file_size,
                 min_key: min_key.ok_or_else(|| Error::Internal("No min key".to_string()))?,
                 max_key: max_key.ok_or_else(|| Error::Internal("No max key".to_string()))?,
-                min_seqno,
-                max_seqno,
+                min_version,
+                max_version,
                 tombstone_count,
                 filter_fp: 0.001,
                 heat_hint: 0.0,
@@ -549,8 +550,8 @@ impl Compactor {
         let mut max_key: Option<Bytes> = None;
         let mut tombstone_count = 0u32;
         let mut entry_count = 0usize;
-        let mut min_seqno = u64::MAX;
-        let mut max_seqno = 0u64;
+        let mut min_version = crate::Version::new(u64::MAX, u64::MAX);
+        let mut max_version = crate::Version::new(0, 0);
 
         // Use K-way merge with deduplication
         use std::collections::BinaryHeap;
@@ -581,9 +582,11 @@ impl Compactor {
                 // Min-heap: reverse key comparison for ascending order
                 match other.entry.key.cmp(&self.entry.key) {
                     Ordering::Equal => {
-                        // Same key: prioritize higher seqno (newer wins)
-                        // For compaction within same level, higher seqno = newer
-                        other.entry.seqno.cmp(&self.entry.seqno)
+                        // Same key: prioritize higher version (newer wins)
+                        // Compare (term, index) tuples lexicographically
+                        let self_version = crate::Version::new(self.entry.term, self.entry.index);
+                        let other_version = crate::Version::new(other.entry.term, other.entry.index);
+                        other_version.cmp(&self_version)
                     }
                     ord => ord,
                 }
@@ -643,8 +646,9 @@ impl Compactor {
                 tombstone_count += 1;
             }
 
-            min_seqno = min_seqno.min(entry.seqno);
-            max_seqno = max_seqno.max(entry.seqno);
+            let entry_version = crate::Version::new(entry.term, entry.index);
+            min_version = min_version.min(entry_version);
+            max_version = max_version.max(entry_version);
             entry_count += 1;
 
             last_key = Some(entry.key);
@@ -669,8 +673,8 @@ impl Compactor {
             size: metadata.file_size,
             min_key: min_key.ok_or_else(|| Error::Internal("No min key".to_string()))?,
             max_key: max_key.ok_or_else(|| Error::Internal("No max key".to_string()))?,
-            min_seqno,
-            max_seqno,
+            min_version,
+            max_version,
             tombstone_count,
             filter_fp: 0.001,
             heat_hint: 0.0,

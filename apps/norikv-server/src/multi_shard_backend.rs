@@ -65,7 +65,7 @@ impl KvBackend for MultiShardBackend {
         shard.replicated_put(key, value, ttl).await
     }
 
-    async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, RaftError> {
+    async fn get(&self, key: &[u8]) -> Result<Option<(Bytes, Term, LogIndex)>, RaftError> {
         // Determine target shard
         let shard_id = self.get_shard_for_key(key);
 
@@ -78,7 +78,7 @@ impl KvBackend for MultiShardBackend {
             .await
             .map_err(|_e| RaftError::NotLeader { leader: None })?;
 
-        // Forward to shard
+        // Forward to shard - now returns (value, term, index)
         shard.replicated_get(key).await
     }
 

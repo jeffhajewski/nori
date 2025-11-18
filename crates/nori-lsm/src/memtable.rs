@@ -1,28 +1,29 @@
 use crate::error::Result;
+use crate::Version;
 use bytes::Bytes;
 use crossbeam_skiplist::SkipMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 /// Entry in the memtable representing a single key-value operation.
-/// Each entry is tagged with a sequence number for MVCC ordering.
+/// Each entry is tagged with a Version (Raft term, index) for MVCC ordering.
 #[derive(Debug, Clone)]
 pub enum MemtableEntry {
     /// A put operation: key → value
     Put {
         value: Bytes,
-        seqno: u64,
+        version: Version,
         /// Optional expiration time (absolute timestamp)
         /// If present, this entry expires after this time
         expires_at: Option<SystemTime>,
     },
     /// A delete operation (tombstone)
-    Delete { seqno: u64 },
+    Delete { version: Version },
 }
 
 /// In-memory write buffer backed by a concurrent skiplist.
 ///
-/// The memtable stores all recent writes with sequence numbers for ordering.
+/// The memtable stores all recent writes with Raft-derived versions for ordering.
 /// When the memtable reaches the size threshold, it's frozen and flushed to L0.
 ///
 /// # Concurrency
@@ -32,9 +33,9 @@ pub enum MemtableEntry {
 /// # Memory Layout
 /// ```text
 /// SkipMap<Bytes, MemtableEntry>
-///   key1 → Put { value: v1, seqno: 100 }
-///   key2 → Delete { seqno: 101 }
-///   key3 → Put { value: v3, seqno: 102 }
+///   key1 → Put { value: v1, version: (1, 100) }
+///   key2 → Delete { version: (1, 101) }
+///   key3 → Put { value: v3, version: (1, 102) }
 /// ```
 pub struct Memtable {
     /// Concurrent skiplist storing entries
@@ -44,35 +45,36 @@ pub struct Memtable {
     /// Updated on each write; not exact due to lock-free design
     approx_size: Arc<std::sync::atomic::AtomicUsize>,
 
-    /// Minimum sequence number in this memtable
-    min_seqno: u64,
+    /// Minimum version in this memtable
+    min_version: Version,
 
-    /// Maximum sequence number in this memtable
-    max_seqno: Arc<std::sync::atomic::AtomicU64>,
+    /// Maximum version in this memtable
+    /// Note: We store this as separate atomics for (term, index) since Version is a struct
+    max_version: Arc<parking_lot::RwLock<Version>>,
 }
 
 impl Memtable {
-    /// Creates a new empty memtable starting at the given sequence number.
-    pub fn new(min_seqno: u64) -> Self {
+    /// Creates a new empty memtable starting at the given version.
+    pub fn new(min_version: Version) -> Self {
         Self {
             data: Arc::new(SkipMap::new()),
             approx_size: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            min_seqno,
-            max_seqno: Arc::new(std::sync::atomic::AtomicU64::new(min_seqno)),
+            min_version,
+            max_version: Arc::new(parking_lot::RwLock::new(min_version)),
         }
     }
 
-    /// Inserts a key-value pair with the given sequence number.
+    /// Inserts a key-value pair with the given version.
     ///
     /// # Arguments
     /// * `key` - The key to insert
     /// * `value` - The value to associate with the key
-    /// * `seqno` - Sequence number for this operation (must be monotonically increasing)
+    /// * `version` - Version (Raft term, index) for this operation
     /// * `ttl` - Optional time-to-live duration; entry expires after this duration
     ///
     /// # Returns
     /// The approximate size of the memtable after insertion
-    pub fn put(&self, key: Bytes, value: Bytes, seqno: u64, ttl: Option<Duration>) -> Result<usize> {
+    pub fn put(&self, key: Bytes, value: Bytes, version: Version, ttl: Option<Duration>) -> Result<usize> {
         let entry_size = key.len() + value.len() + std::mem::size_of::<MemtableEntry>();
 
         // Calculate expiration time if TTL is provided
@@ -80,15 +82,17 @@ impl Memtable {
 
         let entry = MemtableEntry::Put {
             value: value.clone(),
-            seqno,
+            version,
             expires_at,
         };
 
         self.data.insert(key, entry);
 
-        // Update sequence number
-        self.max_seqno
-            .fetch_max(seqno, std::sync::atomic::Ordering::Release);
+        // Update max version
+        let mut max = self.max_version.write();
+        if version > *max {
+            *max = version;
+        }
 
         // Update approximate size
         let new_size = self
@@ -103,20 +107,22 @@ impl Memtable {
     ///
     /// # Arguments
     /// * `key` - The key to delete
-    /// * `seqno` - Sequence number for this operation
+    /// * `version` - Version (Raft term, index) for this operation
     ///
     /// # Returns
     /// The approximate size of the memtable after deletion
-    pub fn delete(&self, key: Bytes, seqno: u64) -> Result<usize> {
+    pub fn delete(&self, key: Bytes, version: Version) -> Result<usize> {
         let entry_size = key.len() + std::mem::size_of::<MemtableEntry>();
 
-        let entry = MemtableEntry::Delete { seqno };
+        let entry = MemtableEntry::Delete { version };
 
         self.data.insert(key, entry);
 
-        // Update sequence number
-        self.max_seqno
-            .fetch_max(seqno, std::sync::atomic::Ordering::Release);
+        // Update max version
+        let mut max = self.max_version.write();
+        if version > *max {
+            *max = version;
+        }
 
         // Update approximate size
         let new_size = self
@@ -159,14 +165,14 @@ impl Memtable {
         self.approx_size.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Returns the minimum sequence number in this memtable.
-    pub fn min_seqno(&self) -> u64 {
-        self.min_seqno
+    /// Returns the minimum version in this memtable.
+    pub fn min_version(&self) -> Version {
+        self.min_version
     }
 
-    /// Returns the maximum sequence number in this memtable.
-    pub fn max_seqno(&self) -> u64 {
-        self.max_seqno.load(std::sync::atomic::Ordering::Acquire)
+    /// Returns the maximum version in this memtable.
+    pub fn max_version(&self) -> Version {
+        *self.max_version.read()
     }
 
     /// Returns an iterator over all entries in sorted key order.
@@ -227,17 +233,17 @@ mod tests {
 
     #[test]
     fn test_memtable_put_get() {
-        let mt = Memtable::new(0);
+        let mt = Memtable::new(Version::new(0, 0));
 
         let key = Bytes::from("key1");
         let value = Bytes::from("value1");
 
-        mt.put(key.clone(), value.clone(), 1, None).unwrap();
+        mt.put(key.clone(), value.clone(), Version::new(1, 1), None).unwrap();
 
         match mt.get(&key) {
-            Some(MemtableEntry::Put { value: v, seqno, expires_at }) => {
+            Some(MemtableEntry::Put { value: v, version, expires_at }) => {
                 assert_eq!(v, value);
-                assert_eq!(seqno, 1);
+                assert_eq!(version, Version::new(1, 1));
                 assert_eq!(expires_at, None);
             }
             _ => panic!("Expected Put entry"),
@@ -246,14 +252,14 @@ mod tests {
 
     #[test]
     fn test_memtable_delete() {
-        let mt = Memtable::new(0);
+        let mt = Memtable::new(Version::new(0, 0));
 
         let key = Bytes::from("key1");
-        mt.delete(key.clone(), 1).unwrap();
+        mt.delete(key.clone(), Version::new(1, 1)).unwrap();
 
         match mt.get(&key) {
-            Some(MemtableEntry::Delete { seqno }) => {
-                assert_eq!(seqno, 1);
+            Some(MemtableEntry::Delete { version }) => {
+                assert_eq!(version, Version::new(1, 1));
             }
             _ => panic!("Expected Delete entry"),
         }
@@ -261,17 +267,17 @@ mod tests {
 
     #[test]
     fn test_memtable_overwrite() {
-        let mt = Memtable::new(0);
+        let mt = Memtable::new(Version::new(0, 0));
 
         let key = Bytes::from("key1");
-        mt.put(key.clone(), Bytes::from("value1"), 1, None).unwrap();
-        mt.put(key.clone(), Bytes::from("value2"), 2, None).unwrap();
+        mt.put(key.clone(), Bytes::from("value1"), Version::new(1, 1), None).unwrap();
+        mt.put(key.clone(), Bytes::from("value2"), Version::new(1, 2), None).unwrap();
 
-        // Should get the most recent write (seqno 2)
+        // Should get the most recent write (version 1,2)
         match mt.get(&key) {
-            Some(MemtableEntry::Put { value: v, seqno, .. }) => {
+            Some(MemtableEntry::Put { value: v, version, .. }) => {
                 assert_eq!(v, Bytes::from("value2"));
-                assert_eq!(seqno, 2);
+                assert_eq!(version, Version::new(1, 2));
             }
             _ => panic!("Expected Put entry"),
         }
@@ -279,7 +285,7 @@ mod tests {
 
     #[test]
     fn test_memtable_size() {
-        let mt = Memtable::new(0);
+        let mt = Memtable::new(Version::new(0, 0));
 
         let initial_size = mt.size();
         assert_eq!(initial_size, 0);
@@ -287,36 +293,36 @@ mod tests {
         let key = Bytes::from("key1");
         let value = Bytes::from("value1");
 
-        let size_after_put = mt.put(key.clone(), value.clone(), 1, None).unwrap();
+        let size_after_put = mt.put(key.clone(), value.clone(), Version::new(1, 1), None).unwrap();
         assert!(size_after_put > 0);
         assert_eq!(mt.size(), size_after_put);
     }
 
     #[test]
-    fn test_memtable_seqno_tracking() {
-        let mt = Memtable::new(100);
+    fn test_memtable_version_tracking() {
+        let mt = Memtable::new(Version::new(1, 100));
 
-        assert_eq!(mt.min_seqno(), 100);
-        assert_eq!(mt.max_seqno(), 100);
+        assert_eq!(mt.min_version(), Version::new(1, 100));
+        assert_eq!(mt.max_version(), Version::new(1, 100));
 
-        mt.put(Bytes::from("key1"), Bytes::from("value1"), 101, None)
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), Version::new(1, 101), None)
             .unwrap();
-        assert_eq!(mt.max_seqno(), 101);
+        assert_eq!(mt.max_version(), Version::new(1, 101));
 
-        mt.put(Bytes::from("key2"), Bytes::from("value2"), 105, None)
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), Version::new(1, 105), None)
             .unwrap();
-        assert_eq!(mt.max_seqno(), 105);
+        assert_eq!(mt.max_version(), Version::new(1, 105));
 
-        assert_eq!(mt.min_seqno(), 100);
+        assert_eq!(mt.min_version(), Version::new(1, 100));
     }
 
     #[test]
     fn test_memtable_iterator() {
-        let mt = Memtable::new(0);
+        let mt = Memtable::new(Version::new(0, 0));
 
-        mt.put(Bytes::from("c"), Bytes::from("value_c"), 3, None).unwrap();
-        mt.put(Bytes::from("a"), Bytes::from("value_a"), 1, None).unwrap();
-        mt.put(Bytes::from("b"), Bytes::from("value_b"), 2, None).unwrap();
+        mt.put(Bytes::from("c"), Bytes::from("value_c"), Version::new(1, 3), None).unwrap();
+        mt.put(Bytes::from("a"), Bytes::from("value_a"), Version::new(1, 1), None).unwrap();
+        mt.put(Bytes::from("b"), Bytes::from("value_b"), Version::new(1, 2), None).unwrap();
 
         let entries: Vec<_> = mt.iter().collect();
 
@@ -329,11 +335,11 @@ mod tests {
 
     #[test]
     fn test_memtable_empty() {
-        let mt = Memtable::new(0);
+        let mt = Memtable::new(Version::new(0, 0));
         assert!(mt.is_empty());
         assert_eq!(mt.len(), 0);
 
-        mt.put(Bytes::from("key"), Bytes::from("value"), 1, None).unwrap();
+        mt.put(Bytes::from("key"), Bytes::from("value"), Version::new(1, 1), None).unwrap();
         assert!(!mt.is_empty());
         assert_eq!(mt.len(), 1);
     }

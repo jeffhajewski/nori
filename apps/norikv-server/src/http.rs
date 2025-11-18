@@ -248,8 +248,8 @@ async fn kv_get_handler(
     // Full implementation would call different backend methods based on consistency level
 
     match state.kv_backend.get(key_bytes).await {
-        Ok(Some(value)) => {
-            // Return value as raw bytes
+        Ok(Some((value, _term, _log_index))) => {
+            // Return value as raw bytes (HTTP API doesn't expose version yet)
             Ok((StatusCode::OK, value.to_vec()).into_response())
         }
         Ok(None) => {

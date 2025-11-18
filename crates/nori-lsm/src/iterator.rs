@@ -135,17 +135,19 @@ impl IteratorSource {
                     *pos += 1;
 
                     match entry {
-                        MemtableEntry::Put { value, seqno, .. } => Ok(Some(Entry {
+                        MemtableEntry::Put { value, version, .. } => Ok(Some(Entry {
                             key: key.clone(),
                             value: value.clone(),
                             tombstone: false,
-                            seqno: *seqno,
+                            term: version.term,
+                            index: version.index,
                         })),
-                        MemtableEntry::Delete { seqno } => Ok(Some(Entry {
+                        MemtableEntry::Delete { version } => Ok(Some(Entry {
                             key: key.clone(),
                             value: Bytes::new(),
                             tombstone: true,
-                            seqno: *seqno,
+                            term: version.term,
+                            index: version.index,
                         })),
                     }
                 }

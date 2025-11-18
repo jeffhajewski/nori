@@ -135,13 +135,11 @@ pub struct RunMeta {
     /// Maximum key in this run
     pub max_key: Bytes,
 
-    /// Minimum sequence number
-    /// Spec name: `seqno_min`
-    pub min_seqno: u64,
+    /// Minimum version in this run
+    pub min_version: crate::Version,
 
-    /// Maximum sequence number
-    /// Spec name: `seqno_max`
-    pub max_seqno: u64,
+    /// Maximum version in this run
+    pub max_version: crate::Version,
 
     /// Number of tombstones in this run
     pub tombstone_count: u32,

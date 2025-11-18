@@ -19,8 +19,13 @@ pub trait KvBackend: Send + Sync {
         ttl: Option<Duration>,
     ) -> Result<LogIndex, RaftError>;
 
-    /// Get a value by key.
-    async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, RaftError>;
+    /// Get a value by key, returning (value, term, log_index) if found.
+    ///
+    /// # Returns
+    /// - `Ok(Some((value, term, index)))` if key exists and is not deleted
+    /// - `Ok(None)` if key does not exist or is deleted
+    /// - `Err` on errors
+    async fn get(&self, key: &[u8]) -> Result<Option<(Bytes, Term, LogIndex)>, RaftError>;
 
     /// Delete a key.
     async fn delete(&self, key: Bytes) -> Result<LogIndex, RaftError>;
@@ -61,7 +66,7 @@ impl KvBackend for SingleShardBackend {
         self.lsm.replicated_put(key, value, ttl).await
     }
 
-    async fn get(&self, key: &[u8]) -> Result<Option<Bytes>, RaftError> {
+    async fn get(&self, key: &[u8]) -> Result<Option<(Bytes, Term, LogIndex)>, RaftError> {
         self.lsm.replicated_get(key).await
     }
 
@@ -108,8 +113,8 @@ impl KvBackend for MockKvBackend {
         Ok(LogIndex(1))
     }
 
-    async fn get(&self, _key: &[u8]) -> Result<Option<Bytes>, RaftError> {
-        Ok(Some(Bytes::from("mock_value")))
+    async fn get(&self, _key: &[u8]) -> Result<Option<(Bytes, Term, LogIndex)>, RaftError> {
+        Ok(Some((Bytes::from("mock_value"), Term(1), LogIndex(1))))
     }
 
     async fn delete(&self, _key: Bytes) -> Result<LogIndex, RaftError> {

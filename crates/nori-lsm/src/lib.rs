@@ -147,7 +147,7 @@ pub use error::{Error, Result};
 pub use bytes::Bytes;
 pub use nori_observe::{Meter, NoopMeter};
 pub use nori_sstable::Entry;
-pub use nori_wal::Record;
+pub use nori_wal::{Record, Version};
 
 /// Represents a single operation in a batch write.
 ///
@@ -552,13 +552,13 @@ impl LsmEngine {
         let manifest_dir = sst_dir.join("manifest");
         let manifest = ManifestLog::open(&manifest_dir, config.max_levels)?;
 
-        // Initialize sequence number from manifest's max seqno
+        // Initialize sequence number from manifest's max version
         let snapshot = manifest.snapshot();
         let snapshot_guard = snapshot.read();
         let max_seqno = snapshot_guard
             .all_files()
             .iter()
-            .map(|run| run.max_seqno)
+            .map(|run| run.max_version.index)
             .max()
             .unwrap_or(0);
         drop(snapshot_guard);
@@ -579,7 +579,8 @@ impl LsmEngine {
             .map_err(|e| Error::Internal(format!("Failed to open WAL: {}", e)))?;
 
         // Create memtable and replay WAL if needed
-        let memtable = Memtable::new(next_seqno);
+        let min_version = Version::new(0, next_seqno);
+        let memtable = Memtable::new(min_version);
 
         if recovery_info.valid_records > 0 {
             // Replay all recovered records from the beginning
@@ -592,16 +593,22 @@ impl LsmEngine {
                 .await
                 .map_err(|e| Error::Internal(format!("Failed to read WAL: {}", e)))?;
 
+            let mut replay_seqno = next_seqno;
+
             loop {
                 match reader.next_record().await {
                     Ok(Some((record, _pos))) => {
-                        let seqno = next_seqno;
-                        next_seqno += 1;
+                        // Use version from record if present, otherwise create synthetic version
+                        let version = record.version.unwrap_or_else(|| {
+                            let v = Version::new(0, replay_seqno);
+                            replay_seqno += 1;
+                            v
+                        });
 
                         if record.tombstone {
-                            memtable.delete(record.key, seqno)?;
+                            memtable.delete(record.key, version)?;
                         } else {
-                            memtable.put(record.key, record.value, seqno, None)?;
+                            memtable.put(record.key, record.value, version, None)?;
                         }
                     }
                     Ok(None) => break,
@@ -610,6 +617,9 @@ impl LsmEngine {
                     }
                 }
             }
+
+            // Update next_seqno to be after all replayed records
+            next_seqno = replay_seqno;
         }
 
         // Initialize guard manager with default guards for L1
@@ -737,7 +747,13 @@ impl LsmEngine {
     ///
     /// # TODO
     /// - Heat tracking integration (currently commented out)
-    pub async fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
+    /// Gets a value by key, returning the value and its version.
+    ///
+    /// # Returns
+    /// - `Ok(Some((value, version)))` if key exists and is not deleted
+    /// - `Ok(None)` if key does not exist or is deleted (tombstone)
+    /// - `Err` on I/O errors
+    pub async fn get(&self, key: &[u8]) -> Result<Option<(Bytes, Version)>> {
         use crate::memtable::MemtableEntry;
 
         // Track operation count
@@ -750,7 +766,7 @@ impl LsmEngine {
             let memtable = self.memtable.read();
             if let Some(entry) = memtable.get(key) {
                 let result = match entry {
-                    MemtableEntry::Put { value, .. } => Ok(Some(value)),
+                    MemtableEntry::Put { value, version, .. } => Ok(Some((value, version))),
                     MemtableEntry::Delete { .. } => Ok(None), // Tombstone
                 };
 
@@ -819,7 +835,8 @@ impl LsmEngine {
                     return if entry.tombstone {
                         Ok(None)
                     } else {
-                        Ok(Some(entry.value))
+                        let version = Version::new(entry.term, entry.index);
+                        Ok(Some((entry.value, version)))
                     };
                 }
                 Ok(None) => {
@@ -890,7 +907,8 @@ impl LsmEngine {
                         return if entry.tombstone {
                             Ok(None)
                         } else {
-                            Ok(Some(entry.value))
+                            let version = Version::new(entry.term, entry.index);
+                            Ok(Some((entry.value, version)))
                         };
                     }
                     Ok(None) => continue, // Key not in this SSTable
@@ -981,13 +999,16 @@ impl LsmEngine {
         // Track write pressure for adaptive throttling
         self.write_pressure.record_write(wal_bytes as usize);
 
-        // 3. Get next sequence number
+        // 3. Get next sequence number and create synthetic version
+        // Note: For standalone LSM (without Raft), we use term=0 and index=seqno
+        // When integrated with Raft, the version will be provided by the Raft log
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
+        let version = Version::new(0, seqno);
 
         // 4. Insert into memtable
         {
             let memtable = self.memtable.read();
-            memtable.put(key, value, seqno, ttl)?;
+            memtable.put(key, value, version, ttl)?;
 
             // Update atomic size counter for fast flush trigger checks (Phase 7)
             let new_size = memtable.size() as u64;
@@ -1057,13 +1078,14 @@ impl LsmEngine {
         self.wal_bytes_written
             .fetch_add(wal_bytes, Ordering::Relaxed);
 
-        // 3. Get next sequence number
+        // 3. Get next sequence number and create synthetic version
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
+        let version = Version::new(0, seqno);
 
         // 4. Write tombstone to memtable
         {
             let memtable = self.memtable.read();
-            memtable.delete(key_bytes, seqno)?;
+            memtable.delete(key_bytes, version)?;
 
             // Update atomic size counter for fast flush trigger checks (Phase 7)
             let new_size = memtable.size() as u64;
@@ -1191,13 +1213,14 @@ impl LsmEngine {
             for (i, op) in ops.iter().enumerate() {
                 let seqno = start_seqno + i as u64;
                 final_seqno = seqno;
+                let version = Version::new(0, seqno);
 
                 match op {
                     BatchOp::Put { key, value, ttl } => {
-                        memtable.put(key.clone(), value.clone(), seqno, *ttl)?;
+                        memtable.put(key.clone(), value.clone(), version, *ttl)?;
                     }
                     BatchOp::Delete { key } => {
-                        memtable.delete(key.clone(), seqno)?;
+                        memtable.delete(key.clone(), version)?;
                     }
                 }
             }
@@ -1660,7 +1683,7 @@ impl LsmEngine {
         let frozen_memtable = {
             let mut memtable_guard = self.memtable.write();
             let old_seqno = self.seqno.load(std::sync::atomic::Ordering::SeqCst);
-            let new_memtable = Memtable::new(old_seqno);
+            let new_memtable = Memtable::new(Version::new(0, old_seqno));
             let frozen = std::mem::replace(&mut *memtable_guard, new_memtable);
 
             // Reset atomic size counter since we have a new empty memtable (Phase 7)
@@ -1682,8 +1705,8 @@ impl LsmEngine {
             .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
                 node: 0,
                 kind: nori_observe::LsmKind::FlushStart {
-                    seqno_min: frozen_memtable.min_seqno(),
-                    seqno_max: frozen_memtable.max_seqno(),
+                    seqno_min: frozen_memtable.min_version().index,
+                    seqno_max: frozen_memtable.max_version().index,
                 },
             }));
 

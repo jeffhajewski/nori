@@ -3,8 +3,10 @@
 //! Record format:
 //! - klen: varint
 //! - vlen: varint
-//! - flags: u8 (bits: 0=tombstone, 1=ttl_present, 2-3=compression, 4-7=reserved)
+//! - flags: u8 (bits: 0=tombstone, 1=ttl_present, 2-3=compression, 4=version_present, 5-7=reserved)
 //! - ttl_ms?: varint (if ttl_present bit set)
+//! - version_term?: varint (if version_present bit set)
+//! - version_index?: varint (if version_present bit set)
 //! - key: bytes[klen]
 //! - value: bytes[vlen]
 //! - crc32c: u32 (little-endian)
@@ -13,6 +15,24 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::io::{self, ErrorKind};
 use std::time::Duration;
 use thiserror::Error;
+
+/// Version represents a logical timestamp derived from Raft consensus.
+///
+/// This is the WAL crate's version of the type - nori-lsm re-exports this to avoid circular dependencies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub struct Version {
+    /// Raft term when this version was created
+    pub term: u64,
+    /// Raft log index when this version was created
+    pub index: u64,
+}
+
+impl Version {
+    /// Creates a new version from a Raft (term, index) pair.
+    pub fn new(term: u64, index: u64) -> Self {
+        Self { term, index }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum RecordError {
@@ -58,6 +78,7 @@ bitflags::bitflags! {
         const TOMBSTONE = 0b0000_0001;
         const TTL_PRESENT = 0b0000_0010;
         const COMPRESSION_MASK = 0b0000_1100;
+        const VERSION_PRESENT = 0b0001_0000;  // Bit 4: version metadata present
     }
 }
 
@@ -69,6 +90,9 @@ pub struct Record {
     pub tombstone: bool,
     pub ttl: Option<Duration>,
     pub compression: Compression,
+    /// Raft-derived version (term, index) for MVCC ordering.
+    /// None for records written before version tracking was implemented.
+    pub version: Option<Version>,
 }
 
 impl Record {
@@ -80,6 +104,7 @@ impl Record {
             tombstone: false,
             ttl: None,
             compression: Compression::None,
+            version: None,
         }
     }
 
@@ -91,6 +116,7 @@ impl Record {
             tombstone: false,
             ttl: Some(ttl),
             compression: Compression::None,
+            version: None,
         }
     }
 
@@ -102,12 +128,19 @@ impl Record {
             tombstone: true,
             ttl: None,
             compression: Compression::None,
+            version: None,
         }
     }
 
     /// Sets the compression type for this record.
     pub fn with_compression(mut self, compression: Compression) -> Self {
         self.compression = compression;
+        self
+    }
+
+    /// Sets the version for this record.
+    pub fn with_version(mut self, version: Version) -> Self {
+        self.version = Some(version);
         self
     }
 
@@ -144,12 +177,21 @@ impl Record {
         if self.ttl.is_some() {
             flags |= Flags::TTL_PRESENT;
         }
+        if self.version.is_some() {
+            flags |= Flags::VERSION_PRESENT;
+        }
         let compression_bits = (self.compression.to_bits() & 0b11) << 2;
         buf.put_u8(flags.bits() | compression_bits);
 
         // Encode TTL if present
         if let Some(ttl) = self.ttl {
             encode_varint(&mut buf, ttl.as_millis() as u64);
+        }
+
+        // Encode version if present
+        if let Some(version) = self.version {
+            encode_varint(&mut buf, version.term);
+            encode_varint(&mut buf, version.index);
         }
 
         // Encode key and value (value is already compressed if needed)
@@ -171,10 +213,10 @@ impl Record {
 
         let mut cursor = data;
 
-        // Parse header: lengths, flags, and optional TTL
+        // Parse header: lengths, flags, optional TTL, and optional version
         let klen = decode_varint(&mut cursor)?;
         let vlen = decode_varint(&mut cursor)?;
-        let (tombstone, ttl, compression) = Self::decode_flags_and_ttl(&mut cursor)?;
+        let (tombstone, ttl, compression, version) = Self::decode_flags_ttl_version(&mut cursor)?;
 
         // Extract key and compressed value
         let key = Self::extract_bytes(&mut cursor, klen)?;
@@ -194,14 +236,15 @@ impl Record {
                 tombstone,
                 ttl,
                 compression,
+                version,
             },
             bytes_consumed,
         ))
     }
 
-    fn decode_flags_and_ttl(
+    fn decode_flags_ttl_version(
         cursor: &mut &[u8],
-    ) -> Result<(bool, Option<Duration>, Compression), RecordError> {
+    ) -> Result<(bool, Option<Duration>, Compression, Option<Version>), RecordError> {
         if cursor.is_empty() {
             return Err(RecordError::Incomplete);
         }
@@ -221,7 +264,15 @@ impl Record {
             None
         };
 
-        Ok((tombstone, ttl, compression))
+        let version = if flags.contains(Flags::VERSION_PRESENT) {
+            let term = decode_varint(cursor)?;
+            let index = decode_varint(cursor)?;
+            Some(Version::new(term, index))
+        } else {
+            None
+        };
+
+        Ok((tombstone, ttl, compression, version))
     }
 
     fn extract_bytes(cursor: &mut &[u8], len: u64) -> Result<Bytes, RecordError> {
@@ -501,6 +552,7 @@ mod proptests {
                 tombstone,
                 ttl: ttl_ms.map(Duration::from_millis),
                 compression: Compression::None,
+                version: None,
             };
 
             let encoded = record.encode();

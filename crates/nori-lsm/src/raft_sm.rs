@@ -147,7 +147,13 @@ impl LsmStateMachine {
 mod tests {
     use super::*;
     use crate::ATLLConfig;
+    use crate::Version;
     use tempfile::TempDir;
+
+    /// Helper to extract just the value from get() result, ignoring version
+    fn get_value(result: Option<(Bytes, Version)>) -> Option<Bytes> {
+        result.map(|(v, _)| v)
+    }
 
     async fn create_test_engine() -> (Arc<LsmEngine>, TempDir) {
         let temp_dir = TempDir::new().unwrap();
@@ -195,7 +201,7 @@ mod tests {
 
         // Verify the value was written
         let result = engine.get(b"key1").await.unwrap();
-        assert_eq!(result, Some(Bytes::from("value1")));
+        assert_eq!(get_value(result), Some(Bytes::from("value1")));
     }
 
     #[tokio::test]

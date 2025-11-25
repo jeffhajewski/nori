@@ -2010,6 +2010,7 @@ mod tests {
     use super::*;
     use crate::flush::Flusher;
     use crate::memtable::Memtable;
+    use crate::Version;
 
     #[test]
     fn test_bandit_arm_creation() {
@@ -2309,12 +2310,12 @@ mod tests {
         let flusher = Flusher::new(&sst_dir, config.clone()).unwrap();
 
         // Create a memtable with entries
-        let mt = Memtable::new(1);
-        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1, None)
+        let mt = Memtable::new(Version::new(0, 1));
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), Version::new(0, 1), None)
             .unwrap();
-        mt.put(Bytes::from("key2"), Bytes::from("value2"), 2, None)
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), Version::new(0, 2), None)
             .unwrap();
-        mt.put(Bytes::from("key3"), Bytes::from("value3"), 3, None)
+        mt.put(Bytes::from("key3"), Bytes::from("value3"), Version::new(0, 3), None)
             .unwrap();
 
         // Flush to SSTable
@@ -2345,23 +2346,23 @@ mod tests {
         let flusher = Flusher::new(&sst_dir, config.clone()).unwrap();
 
         // Create first memtable (keys 1, 3, 5)
-        let mt1 = Memtable::new(1);
-        mt1.put(Bytes::from("key1"), Bytes::from("value1"), 1, None)
+        let mt1 = Memtable::new(Version::new(0, 1));
+        mt1.put(Bytes::from("key1"), Bytes::from("value1"), Version::new(0, 1), None)
             .unwrap();
-        mt1.put(Bytes::from("key3"), Bytes::from("value3"), 3, None)
+        mt1.put(Bytes::from("key3"), Bytes::from("value3"), Version::new(0, 3), None)
             .unwrap();
-        mt1.put(Bytes::from("key5"), Bytes::from("value5"), 5, None)
+        mt1.put(Bytes::from("key5"), Bytes::from("value5"), Version::new(0, 5), None)
             .unwrap();
 
         flusher.flush_to_l0(&mt1, 1).await.unwrap();
 
         // Create second memtable (keys 2, 4, 6)
-        let mt2 = Memtable::new(10);
-        mt2.put(Bytes::from("key2"), Bytes::from("value2"), 10, None)
+        let mt2 = Memtable::new(Version::new(0, 10));
+        mt2.put(Bytes::from("key2"), Bytes::from("value2"), Version::new(0, 10), None)
             .unwrap();
-        mt2.put(Bytes::from("key4"), Bytes::from("value4"), 11, None)
+        mt2.put(Bytes::from("key4"), Bytes::from("value4"), Version::new(0, 11), None)
             .unwrap();
-        mt2.put(Bytes::from("key6"), Bytes::from("value6"), 12, None)
+        mt2.put(Bytes::from("key6"), Bytes::from("value6"), Version::new(0, 12), None)
             .unwrap();
 
         flusher.flush_to_l0(&mt2, 2).await.unwrap();
@@ -2408,11 +2409,11 @@ mod tests {
         let flusher = Flusher::new(&sst_dir, config.clone()).unwrap();
 
         // Create memtable with tombstones
-        let mt = Memtable::new(1);
-        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1, None)
+        let mt = Memtable::new(Version::new(0, 1));
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), Version::new(0, 1), None)
             .unwrap();
-        mt.delete(Bytes::from("key2"), 2).unwrap();
-        mt.put(Bytes::from("key3"), Bytes::from("value3"), 3, None)
+        mt.delete(Bytes::from("key2"), Version::new(0, 2)).unwrap();
+        mt.put(Bytes::from("key3"), Bytes::from("value3"), Version::new(0, 3), None)
             .unwrap();
 
         flusher.flush_to_l0(&mt, 1).await.unwrap();
@@ -2473,14 +2474,14 @@ mod tests {
         let flusher = Flusher::new(&sst_dir, config.clone()).unwrap();
 
         // Create two memtables with overlapping keys (newer one should win)
-        let mt1 = Memtable::new(1);
-        mt1.put(Bytes::from("key1"), Bytes::from("old_value"), 1, None)
+        let mt1 = Memtable::new(Version::new(0, 1));
+        mt1.put(Bytes::from("key1"), Bytes::from("old_value"), Version::new(0, 1), None)
             .unwrap();
 
         flusher.flush_to_l0(&mt1, 1).await.unwrap();
 
-        let mt2 = Memtable::new(10);
-        mt2.put(Bytes::from("key1"), Bytes::from("new_value"), 10, None)
+        let mt2 = Memtable::new(Version::new(0, 10));
+        mt2.put(Bytes::from("key1"), Bytes::from("new_value"), Version::new(0, 10), None)
             .unwrap();
 
         flusher.flush_to_l0(&mt2, 2).await.unwrap();

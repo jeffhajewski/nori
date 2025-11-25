@@ -3301,6 +3301,11 @@ fn key_distance(start: &Bytes, end: &Bytes) -> f64 {
 mod tests {
     use super::*;
 
+    /// Helper to extract just the value from get() result, ignoring version
+    fn get_value(result: Option<(Bytes, Version)>) -> Option<Bytes> {
+        result.map(|(v, _)| v)
+    }
+
     #[test]
     fn test_placeholder() {
         assert_eq!(
@@ -3338,11 +3343,11 @@ mod tests {
 
         // Read it back
         let result = engine.get(b"test_key").await.unwrap();
-        assert_eq!(result, Some(value));
+        assert_eq!(get_value(result), Some(value));
 
         // Non-existent key
         let result = engine.get(b"nonexistent").await.unwrap();
-        assert_eq!(result, None);
+        assert_eq!(get_value(result), None);
     }
 
     /// Integration test: DELETE and tombstone handling
@@ -3360,13 +3365,13 @@ mod tests {
         engine.put(key.clone(), value.clone(), None).await.unwrap();
 
         // Verify it exists
-        assert_eq!(engine.get(b"delete_key").await.unwrap(), Some(value));
+        assert_eq!(get_value(engine.get(b"delete_key").await.unwrap()), Some(value));
 
         // Delete it
         engine.delete(b"delete_key").await.unwrap();
 
         // Verify tombstone masks the value
-        assert_eq!(engine.get(b"delete_key").await.unwrap(), None);
+        assert_eq!(get_value(engine.get(b"delete_key").await.unwrap()), None);
     }
 
     /// Integration test: Overwrite semantics
@@ -3394,7 +3399,7 @@ mod tests {
 
         // Should get the latest value
         let result = engine.get(b"key").await.unwrap();
-        assert_eq!(result, Some(Bytes::from("value3")));
+        assert_eq!(get_value(result), Some(Bytes::from("value3")));
     }
 
     /// Integration test: Range scan (memtable only)
@@ -3539,7 +3544,7 @@ mod tests {
             let engine = LsmEngine::open(config.clone()).await.unwrap();
             // With WAL recovery, data should be recovered
             let result = engine.get(b"persistent_key").await.unwrap();
-            assert_eq!(result, Some(Bytes::from("persistent_value")));
+            assert_eq!(get_value(result), Some(Bytes::from("persistent_value")));
         }
     }
 
@@ -3567,7 +3572,7 @@ mod tests {
                 let key = format!("key{:03}", i);
                 let expected = Bytes::from(format!("value{:03}", i));
                 let result = engine.get(key.as_bytes()).await.unwrap();
-                assert_eq!(result, Some(expected), "Key {} not recovered", key);
+                assert_eq!(get_value(result), Some(expected), "Key {} not recovered", key);
             }
         }
     }
@@ -3600,13 +3605,13 @@ mod tests {
         // Reopen and verify tombstones work
         {
             let engine = LsmEngine::open(config.clone()).await.unwrap();
-            assert_eq!(engine.get(b"key1").await.unwrap(), None); // Deleted
+            assert_eq!(get_value(engine.get(b"key1").await.unwrap()), None); // Deleted
             assert_eq!(
-                engine.get(b"key2").await.unwrap(),
+                get_value(engine.get(b"key2").await.unwrap()),
                 Some(Bytes::from("value2"))
             );
             assert_eq!(
-                engine.get(b"key3").await.unwrap(),
+                get_value(engine.get(b"key3").await.unwrap()),
                 Some(Bytes::from("value3"))
             );
         }
@@ -3676,7 +3681,7 @@ mod tests {
         {
             let engine = LsmEngine::open(config.clone()).await.unwrap();
             let result = engine.get(b"key").await.unwrap();
-            assert_eq!(result, Some(Bytes::from("v4")));
+            assert_eq!(get_value(result), Some(Bytes::from("v4")));
         }
     }
 
@@ -4369,8 +4374,9 @@ mod tests {
                     "Key {} should exist after crash recovery",
                     key
                 );
+                let (value, _version) = result.unwrap();
                 assert_eq!(
-                    result.unwrap(),
+                    value,
                     Bytes::from(expected_value),
                     "Value mismatch for key {} after recovery",
                     key
@@ -4388,7 +4394,7 @@ mod tests {
                 .unwrap();
 
             let result = engine.get(b"post_recovery_key").await.unwrap();
-            assert_eq!(result.unwrap(), Bytes::from("post_recovery_value"));
+            assert_eq!(get_value(result), Some(Bytes::from("post_recovery_value")));
 
             engine.shutdown().await.unwrap();
         }
@@ -4447,8 +4453,9 @@ mod tests {
                     "Key {} should exist after concurrent GC",
                     key
                 );
+                let (value, _version) = result.unwrap();
                 assert_eq!(
-                    result.unwrap(),
+                    value,
                     Bytes::from(expected_value),
                     "Value mismatch for key {} after concurrent GC",
                     key
@@ -4566,7 +4573,8 @@ mod tests {
                         prev_cycle,
                         cycle
                     );
-                    assert_eq!(result.unwrap(), Bytes::from(expected));
+                    let (value, _version) = result.unwrap();
+                    assert_eq!(value, Bytes::from(expected));
                 }
             }
 
@@ -4589,7 +4597,8 @@ mod tests {
                     key,
                     cycle
                 );
-                assert_eq!(result.unwrap(), Bytes::from(expected));
+                let (value, _version) = result.unwrap();
+                assert_eq!(value, Bytes::from(expected));
             }
         }
 
@@ -4687,8 +4696,9 @@ mod tests {
                                         key,
                                         expected
                                     );
+                                    let (value, _version) = actual_value.as_ref().unwrap();
                                     prop_assert_eq!(
-                                        actual_value.as_ref().unwrap().as_ref(),
+                                        value.as_ref(),
                                         expected.as_bytes(),
                                         "Value mismatch for key {} after recovery",
                                         key
@@ -4776,7 +4786,7 @@ mod tests {
                                         "Key {} should exist after recovery with flushes",
                                         key
                                     );
-                                    let actual = actual_value.unwrap();
+                                    let (actual, _version) = actual_value.unwrap();
                                     prop_assert_eq!(
                                         actual.as_ref(),
                                         expected.as_bytes()
@@ -4838,7 +4848,7 @@ mod tests {
                 let expected_value = format!("value{}", i);
                 let result = engine.get(key.as_bytes()).await.unwrap();
                 assert_eq!(
-                    result,
+                    get_value(result),
                     Some(Bytes::from(expected_value)),
                     "Key {} should have correct value",
                     key
@@ -5054,7 +5064,7 @@ mod tests {
                     println!("MISSING: {}", key);
                 }
                 assert_eq!(
-                    result,
+                    get_value(result),
                     Some(Bytes::from(expected)),
                     "Key {} should be readable",
                     key
@@ -5107,7 +5117,7 @@ mod tests {
         for i in 0..67 {
             let key = format!("round0_key{:04}", i);
             let value = format!("value_{}", i);
-            let entry = Entry::put_with_seqno(key.clone(), value.clone(), i as u64);
+            let entry = Entry::put_with_version(key.clone(), value.clone(), 0, i as u64);
             builder.add(&entry).await.unwrap();
             if i < 3 || i >= 64 {
                 println!("Wrote: {} -> {} (seqno: {})", key, value, i);
@@ -5275,7 +5285,7 @@ mod tests {
         // Should get the latest version
         let result = engine.get(b"test_key").await.unwrap();
         assert_eq!(
-            result,
+            get_value(result),
             Some(Bytes::from("value_v4")),
             "Compaction should preserve the latest value"
         );
@@ -5440,8 +5450,9 @@ mod tests {
             let key = format!("key{:03}", i);
             let value = engine2.get(key.as_bytes()).await.unwrap();
             assert!(value.is_some(), "Key {} should exist after shutdown", key);
+            let (val, _version) = value.unwrap();
             assert_eq!(
-                value.unwrap(),
+                val,
                 Bytes::from(format!("value{:03}", i)),
                 "Value mismatch for key {}",
                 key
@@ -5576,7 +5587,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let mut config = ATLLConfig::default();
         config.data_dir = temp_dir.path().to_path_buf();
-        config.memtable.flush_trigger_bytes = 1024; // Small memtable
+        // Use a larger flush trigger to prevent auto-flush during the test
+        // Each write is ~50 bytes (key + value), so 20 writes = ~1000 bytes
+        config.memtable.flush_trigger_bytes = 10 * 1024; // 10KB - won't trigger flush
 
         let engine = LsmEngine::open(config).await.unwrap();
 
@@ -5587,7 +5600,7 @@ mod tests {
             "Initial memory usage should be < 50%"
         );
 
-        // Fill memtable close to flush trigger
+        // Fill memtable (won't trigger flush with 10KB threshold)
         for i in 0..20 {
             engine
                 .put(
@@ -6447,7 +6460,7 @@ mod tests {
 
         // Should be able to read it immediately
         let result = engine.get(b"ttl_key").await.unwrap();
-        assert_eq!(result, Some(value.clone()));
+        assert_eq!(get_value(result), Some(value.clone()));
     }
 
     #[tokio::test]
@@ -6466,7 +6479,7 @@ mod tests {
 
         // Should be readable immediately
         let result = engine.get(b"expiring_key").await.unwrap();
-        assert_eq!(result, Some(value));
+        assert_eq!(get_value(result), Some(value));
 
         // Wait for expiration
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -6494,7 +6507,7 @@ mod tests {
 
         // Should still be readable (no TTL)
         let result = engine.get(b"persistent_key").await.unwrap();
-        assert_eq!(result, Some(value));
+        assert_eq!(get_value(result), Some(value));
     }
 
     #[tokio::test]
@@ -6529,15 +6542,15 @@ mod tests {
 
         // Verify all keys are readable
         assert_eq!(
-            engine.get(b"batch_key1").await.unwrap(),
+            get_value(engine.get(b"batch_key1").await.unwrap()),
             Some(Bytes::from("batch_value1"))
         );
         assert_eq!(
-            engine.get(b"batch_key2").await.unwrap(),
+            get_value(engine.get(b"batch_key2").await.unwrap()),
             Some(Bytes::from("batch_value2"))
         );
         assert_eq!(
-            engine.get(b"batch_key3").await.unwrap(),
+            get_value(engine.get(b"batch_key3").await.unwrap()),
             Some(Bytes::from("batch_value3"))
         );
     }
@@ -6580,7 +6593,7 @@ mod tests {
 
         // Verify results
         assert_eq!(
-            engine.get(b"key1").await.unwrap(),
+            get_value(engine.get(b"key1").await.unwrap()),
             Some(Bytes::from("new_value")),
             "key1 should be updated"
         );
@@ -6590,7 +6603,7 @@ mod tests {
             "key2 should be deleted"
         );
         assert_eq!(
-            engine.get(b"key3").await.unwrap(),
+            get_value(engine.get(b"key3").await.unwrap()),
             Some(Bytes::from("batch_value")),
             "key3 should be inserted"
         );
@@ -6621,11 +6634,11 @@ mod tests {
 
         // Verify both keys are readable immediately
         assert_eq!(
-            engine.get(b"expiring_key1").await.unwrap(),
+            get_value(engine.get(b"expiring_key1").await.unwrap()),
             Some(Bytes::from("expiring_value1"))
         );
         assert_eq!(
-            engine.get(b"persistent_key").await.unwrap(),
+            get_value(engine.get(b"persistent_key").await.unwrap()),
             Some(Bytes::from("persistent_value"))
         );
 
@@ -6639,7 +6652,7 @@ mod tests {
             "Expired key should return None"
         );
         assert_eq!(
-            engine.get(b"persistent_key").await.unwrap(),
+            get_value(engine.get(b"persistent_key").await.unwrap()),
             Some(Bytes::from("persistent_value")),
             "Persistent key should remain"
         );
@@ -6783,7 +6796,7 @@ mod tests {
 
         // Verify we can read the new data
         let value = engine.get(&Bytes::from("key2")).await.unwrap();
-        assert_eq!(value, Some(Bytes::from("value2")));
+        assert_eq!(get_value(value), Some(Bytes::from("value2")));
     }
 
     #[tokio::test]

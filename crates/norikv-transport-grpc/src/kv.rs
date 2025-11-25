@@ -156,13 +156,11 @@ impl Kv for KvService {
                 expected_version.index
             );
 
-            // Read current value to check if key exists
+            // Read current value to check if key exists and get its per-key version
             match self.backend.get(&req.key).await {
-                Ok(Some(_)) => {
-                    // Key exists - verify version matches
-                    let current_term = self.backend.current_term();
-                    let current_index = self.backend.commit_index();
-
+                Ok(Some((_value, current_term, current_index))) => {
+                    // Key exists - verify per-key version matches
+                    // This is the critical fix for multi-shard CAS!
                     if current_term.as_u64() != expected_version.term
                         || current_index.0 != expected_version.index
                     {
@@ -198,6 +196,20 @@ impl Kv for KvService {
                     return Err(Status::failed_precondition(
                         "CAS failed: key does not exist",
                     ));
+                }
+                Err(nori_raft::RaftError::NotLeader { leader }) => {
+                    // If we're not leader, we can't perform CAS - propagate NOT_LEADER error
+                    let leader_hint = leader.map(|id| id.to_string()).unwrap_or_default();
+
+                    let mut response = tonic::Response::new(());
+                    if !leader_hint.is_empty() {
+                        response.metadata_mut().insert(
+                            "leader-hint",
+                            leader_hint.parse().unwrap_or_else(|_| "".parse().unwrap()),
+                        );
+                    }
+
+                    return Err(Status::unavailable("NOT_LEADER: CAS requires leader"));
                 }
                 Err(e) => {
                     tracing::error!("CAS version check failed: {:?}", e);

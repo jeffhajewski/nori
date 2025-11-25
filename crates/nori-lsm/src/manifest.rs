@@ -713,6 +713,7 @@ impl ManifestLog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Version;
 
     #[test]
     fn test_manifest_snapshot_creation() {
@@ -748,8 +749,8 @@ mod tests {
             size: 1024,
             min_key: Bytes::from("a"),
             max_key: Bytes::from("z"),
-            min_seqno: 1,
-            max_seqno: 100,
+            min_version: Version::new(0, 1),
+            max_version: Version::new(0, 100),
             tombstone_count: 0,
             filter_fp: 0.001,
             heat_hint: 0.5,
@@ -777,8 +778,8 @@ mod tests {
             size: 1024,
             min_key: Bytes::from("a"),
             max_key: Bytes::from("z"),
-            min_seqno: 1,
-            max_seqno: 100,
+            min_version: Version::new(0, 1),
+            max_version: Version::new(0, 100),
             tombstone_count: 0,
             filter_fp: 0.001,
             heat_hint: 0.5,
@@ -859,8 +860,8 @@ mod tests {
             size: 1024,
             min_key: Bytes::from("a"),
             max_key: Bytes::from("k"),
-            min_seqno: 1,
-            max_seqno: 100,
+            min_version: Version::new(0, 1),
+            max_version: Version::new(0, 100),
             tombstone_count: 0,
             filter_fp: 0.001,
             heat_hint: 0.5,
@@ -928,8 +929,8 @@ mod tests {
                 size: 1024,
                 min_key: Bytes::from("a"),
                 max_key: Bytes::from("z"),
-                min_seqno: 1,
-                max_seqno: 100,
+                min_version: Version::new(0, 1),
+                max_version: Version::new(0, 100),
                 tombstone_count: 0,
                 filter_fp: 0.001,
                 heat_hint: 0.5,

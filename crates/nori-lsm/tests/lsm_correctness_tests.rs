@@ -63,7 +63,7 @@ async fn test_compaction_correctness_preserves_data() {
     // Phase 5: Verify all expected data still exists
     for (key, expected_value) in &expected_state {
         match engine.get(key).await.unwrap() {
-            Some(actual_value) => {
+            Some((actual_value, _version)) => {
                 assert_eq!(actual_value, *expected_value, "Value mismatch for key {:?}", key);
             }
             None => {
@@ -113,7 +113,7 @@ async fn test_crash_recovery_wal_replay() {
     // Phase 3: Verify all data was recovered
     for (key, expected_value) in &expected_state {
         match engine.get(key).await.unwrap() {
-            Some(actual_value) => {
+            Some((actual_value, _version)) => {
                 assert_eq!(actual_value, *expected_value, "Value mismatch after recovery for key {:?}", key);
             }
             None => {
@@ -158,7 +158,8 @@ async fn test_crash_recovery_with_deletes() {
     for (key, expected_value) in &expected_state {
         let actual_value = engine.get(key).await.unwrap();
         assert!(actual_value.is_some(), "Key {:?} should exist after recovery", key);
-        assert_eq!(actual_value.unwrap(), *expected_value, "Value mismatch for key {:?}", key);
+        let (value, _version) = actual_value.unwrap();
+        assert_eq!(value, *expected_value, "Value mismatch for key {:?}", key);
     }
 
     // Verify deleted keys are gone

@@ -719,6 +719,7 @@ impl Compactor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Version;
     use crate::memtable::Memtable;
 
     #[test]
@@ -741,12 +742,12 @@ mod tests {
         let flusher = Flusher::new(&sst_dir, config).unwrap();
 
         // Create memtable with some entries
-        let mt = Memtable::new(1);
-        mt.put(Bytes::from("key1"), Bytes::from("value1"), 1, None)
+        let mt = Memtable::new(Version::new(0, 1));
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), Version::new(0, 1), None)
             .unwrap();
-        mt.put(Bytes::from("key2"), Bytes::from("value2"), 2, None)
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), Version::new(0, 2), None)
             .unwrap();
-        mt.delete(Bytes::from("key3"), 3).unwrap();
+        mt.delete(Bytes::from("key3"), Version::new(0, 3)).unwrap();
 
         // Flush to L0
         let run = flusher.flush_to_l0(&mt, 1).await.unwrap();
@@ -754,8 +755,8 @@ mod tests {
         assert_eq!(run.file_number, 1);
         assert_eq!(run.min_key, Bytes::from("key1"));
         assert_eq!(run.max_key, Bytes::from("key3"));
-        assert_eq!(run.min_seqno, 1);
-        assert_eq!(run.max_seqno, 3);
+        assert_eq!(run.min_version, Version::new(0, 1));
+        assert_eq!(run.max_version, Version::new(0, 3));
         assert_eq!(run.tombstone_count, 1);
 
         // Verify file exists
@@ -795,8 +796,8 @@ mod tests {
             size: 1024,
             min_key: Bytes::from("a"),
             max_key: Bytes::from("k"),
-            min_seqno: 1,
-            max_seqno: 100,
+            min_version: Version::new(0, 1),
+            max_version: Version::new(0, 100),
             tombstone_count: 0,
             filter_fp: 0.001,
             heat_hint: 0.0,

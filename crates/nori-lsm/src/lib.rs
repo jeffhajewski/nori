@@ -135,6 +135,7 @@ pub mod iterator;
 pub mod manifest;
 pub mod memtable;
 pub mod raft_sm;
+pub mod vector;
 
 // Core modules (to be implemented in phases)
 // pub mod filters;
@@ -148,6 +149,10 @@ pub use bytes::Bytes;
 pub use nori_observe::{Meter, NoopMeter};
 pub use nori_sstable::Entry;
 pub use nori_wal::{Record, Version};
+
+// Re-export vector types
+pub use nori_vector::{DistanceFunction, VectorIndex, VectorMatch};
+pub use vector::{VectorIndexType, VectorNamespaceConfig, VectorStorage};
 
 /// Represents a single operation in a batch write.
 ///

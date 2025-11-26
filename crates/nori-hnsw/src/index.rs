@@ -8,11 +8,12 @@ use crate::layer::{random_layer, Layers};
 use crate::Result;
 use nori_vector::{DistanceFunction, VectorError, VectorIndex, VectorMatch};
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
 /// HNSW configuration parameters.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HnswConfig {
     /// Max connections per node (M parameter).
     /// Default: 16

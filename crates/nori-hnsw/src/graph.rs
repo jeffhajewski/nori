@@ -26,6 +26,7 @@ pub struct Neighbors {
     pub ids: Vec<NodeId>,
 }
 
+#[allow(dead_code)]
 impl Neighbors {
     /// Create empty neighbors.
     pub fn new() -> Self {
@@ -93,6 +94,7 @@ pub struct LayerGraph {
     max_degree: usize,
 }
 
+#[allow(dead_code)]
 impl LayerGraph {
     /// Create a new layer graph.
     pub fn new(max_degree: usize) -> Self {

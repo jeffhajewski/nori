@@ -8,8 +8,10 @@
 //! All functions are designed to be auto-vectorized by the compiler when using
 //! release builds with appropriate target features.
 
+use serde::{Deserialize, Serialize};
+
 /// Distance function enumeration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DistanceFunction {
     /// Euclidean (L2) distance: sqrt(sum((a[i] - b[i])^2))
     Euclidean,

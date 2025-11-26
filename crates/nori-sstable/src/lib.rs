@@ -175,6 +175,7 @@ mod format;
 mod index;
 mod iterator;
 mod reader;
+pub mod vector_block;
 mod writer;
 
 pub use block::{Block, BlockBuilder, BlockIterator};
@@ -189,6 +190,10 @@ pub use format::{
 pub use index::{Index, IndexEntry};
 pub use iterator::SSTableIterator;
 pub use reader::SSTableReader;
+pub use vector_block::{
+    DistanceFn, RawVectorBlockBuilder, RawVectorBlockReader, VectorBlockHeader,
+    VectorBlockType, VectorEntry, VECTOR_BLOCK_MAGIC, VECTOR_BLOCK_VERSION,
+};
 pub use writer::SSTableWriter;
 
 // Re-export for convenience

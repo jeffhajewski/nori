@@ -5,6 +5,7 @@
 use crate::graph::{LayerGraph, NodeId};
 
 /// Manages multiple HNSW layers.
+#[allow(dead_code)]
 pub struct Layers {
     /// Layer graphs (index 0 = bottom layer, highest index = top layer)
     layers: Vec<LayerGraph>,
@@ -14,6 +15,7 @@ pub struct Layers {
     m_max0: usize,
 }
 
+#[allow(dead_code)]
 impl Layers {
     /// Create a new layer manager.
     ///

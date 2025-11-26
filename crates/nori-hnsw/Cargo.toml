@@ -14,6 +14,7 @@ bytes = "1.5"
 thiserror = "1.0"
 parking_lot = "0.12"
 rand = "0.8"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 criterion = "0.5"

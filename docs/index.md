@@ -6,6 +6,10 @@ description: "NoriKV Documentation - Sharded, Raft-replicated, log-structured ke
 permalink: /
 ---
 
+<p align="center">
+  <img src="{{ '/assets/images/logo.png' | relative_url }}" alt="NoriKV Logo" width="250">
+</p>
+
 # NoriKV Documentation
 
 Welcome to the comprehensive documentation for **NoriKV** - a sharded, Raft-replicated, log-structured key-value store with first-class observability.

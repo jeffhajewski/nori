@@ -1,9 +1,17 @@
-# NoriKV
+<p align="center">
+  <img src="img/logo.png" alt="NoriKV Logo" width="300">
+</p>
 
-**A sharded, Raft-replicated, log-structured key–value store with portable SDKs and first-class observability.**
+<h1 align="center">NoriKV</h1>
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+<p align="center">
+  <strong>A sharded, Raft-replicated, log-structured key–value store with portable SDKs and first-class observability.</strong>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust"></a>
+</p>
 
 ## Overview
 

@@ -5,6 +5,7 @@
 //! - Meta: WatchCluster
 //! - Admin: TransferShard, SnapshotShard
 //! - Raft: RequestVote, AppendEntries, InstallSnapshot, ReadIndex
+//! - Vector: CreateIndex, DropIndex, Insert, Delete, Search, Get
 
 pub mod proto {
     //! Generated protobuf types and service traits.
@@ -19,6 +20,8 @@ pub mod raft;
 pub mod raft_service;
 pub mod server;
 pub mod health;
+pub mod vector;
+pub mod vector_backend;
 
 pub use server::GrpcServer;
 pub use health::{HealthService, HealthStatus};
@@ -27,3 +30,5 @@ pub use raft_service::RaftService;
 pub use kv_backend::{KvBackend, SingleShardBackend};
 pub use meta::{MetaService, ClusterViewProvider, ClusterView, ClusterNode, ShardInfo, ShardReplica};
 pub use admin::{AdminService, ShardManagerOps, ShardMetadata};
+pub use vector::VectorService;
+pub use vector_backend::{VectorBackend, DistanceFunction, VectorIndexType, VectorMatch};

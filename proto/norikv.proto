@@ -81,3 +81,92 @@ service Raft {
   rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
   rpc ReadIndex(ReadIndexRequest) returns (ReadIndexResponse);
 }
+
+// Vector search messages
+enum DistanceFunction {
+  DISTANCE_FUNCTION_UNSPECIFIED = 0;
+  DISTANCE_FUNCTION_EUCLIDEAN = 1;
+  DISTANCE_FUNCTION_COSINE = 2;
+  DISTANCE_FUNCTION_INNER_PRODUCT = 3;
+}
+
+enum VectorIndexType {
+  VECTOR_INDEX_TYPE_UNSPECIFIED = 0;
+  VECTOR_INDEX_TYPE_BRUTE_FORCE = 1;
+  VECTOR_INDEX_TYPE_HNSW = 2;
+}
+
+message VectorMatch {
+  string id = 1;
+  float distance = 2;
+  repeated float vector = 3;
+}
+
+message CreateVectorIndexRequest {
+  string namespace = 1;
+  uint32 dimensions = 2;
+  DistanceFunction distance = 3;
+  VectorIndexType index_type = 4;
+  string idempotency_key = 5;
+}
+message CreateVectorIndexResponse {
+  bool created = 1;
+  map<string,string> meta = 2;
+}
+
+message DropVectorIndexRequest {
+  string namespace = 1;
+  string idempotency_key = 2;
+}
+message DropVectorIndexResponse {
+  bool dropped = 1;
+}
+
+message VectorInsertRequest {
+  string namespace = 1;
+  string id = 2;
+  repeated float vector = 3;
+  string idempotency_key = 4;
+}
+message VectorInsertResponse {
+  bool inserted = 1;
+  Version version = 2;
+}
+
+message VectorDeleteRequest {
+  string namespace = 1;
+  string id = 2;
+  string idempotency_key = 3;
+}
+message VectorDeleteResponse {
+  bool deleted = 1;
+}
+
+message VectorSearchRequest {
+  string namespace = 1;
+  repeated float query = 2;
+  uint32 k = 3;
+  bool include_vectors = 4;
+}
+message VectorSearchResponse {
+  repeated VectorMatch matches = 1;
+  uint64 search_time_us = 2;
+}
+
+message VectorGetRequest {
+  string namespace = 1;
+  string id = 2;
+}
+message VectorGetResponse {
+  repeated float vector = 1;
+  bool found = 2;
+}
+
+service Vector {
+  rpc CreateIndex(CreateVectorIndexRequest) returns (CreateVectorIndexResponse);
+  rpc DropIndex(DropVectorIndexRequest) returns (DropVectorIndexResponse);
+  rpc Insert(VectorInsertRequest) returns (VectorInsertResponse);
+  rpc Delete(VectorDeleteRequest) returns (VectorDeleteResponse);
+  rpc Search(VectorSearchRequest) returns (VectorSearchResponse);
+  rpc Get(VectorGetRequest) returns (VectorGetResponse);
+}

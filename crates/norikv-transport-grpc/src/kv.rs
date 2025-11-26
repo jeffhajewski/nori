@@ -734,7 +734,7 @@ mod tests {
         assert!(result.is_ok(), "CAS should succeed when version matches");
 
         // Verify the value was updated
-        let stored_value = backend.get(&key).await.unwrap().unwrap();
+        let (stored_value, _, _) = backend.get(&key).await.unwrap().unwrap();
         assert_eq!(stored_value, Bytes::from(value2));
     }
 
@@ -781,7 +781,7 @@ mod tests {
         assert!(err.message().contains("Version mismatch"));
 
         // Verify the value was NOT updated
-        let stored_value = backend.get(&key).await.unwrap().unwrap();
+        let (stored_value, _, _) = backend.get(&key).await.unwrap().unwrap();
         assert_eq!(stored_value, Bytes::from(value1));
     }
 
@@ -846,7 +846,7 @@ mod tests {
         assert!(result.is_ok(), "PUT without CAS should succeed on existing key");
 
         // Verify the value was updated
-        let stored_value = backend.get(&key).await.unwrap().unwrap();
+        let (stored_value, _, _) = backend.get(&key).await.unwrap().unwrap();
         assert_eq!(stored_value, Bytes::from(value2));
     }
 }

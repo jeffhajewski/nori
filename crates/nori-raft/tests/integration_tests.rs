@@ -14,13 +14,18 @@
 
 use bytes::Bytes;
 use nori_raft::transport::{InMemoryTransport, RpcSender};
-use nori_raft::{ConfigEntry, NodeId, RaftConfig, ReplicatedLSM};
+use nori_raft::{ConfigEntry, LogIndex, NodeId, RaftConfig, ReplicatedLSM, Term};
 use nori_lsm::ATLLConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
+
+/// Helper to extract just the value from replicated_get() result, ignoring version
+fn get_value(result: Option<(Bytes, Term, LogIndex)>) -> Option<Bytes> {
+    result.map(|(v, _, _)| v)
+}
 
 /// Test cluster for integration tests
 struct IntegrationTestCluster {
@@ -228,8 +233,8 @@ async fn test_snapshot_while_proposing() {
             i
         );
         assert_eq!(
-            actual_value.unwrap(),
-            expected_value,
+            get_value(actual_value),
+            Some(expected_value),
             "Value mismatch for key_{}",
             i
         );
@@ -298,8 +303,8 @@ async fn test_leadership_transfer_preserves_state() {
             key
         );
         assert_eq!(
-            actual_value.unwrap(),
-            *expected_value,
+            get_value(actual_value),
+            Some(expected_value.clone()),
             "Value mismatch for key {:?} on new leader",
             key
         );
@@ -440,13 +445,16 @@ async fn test_stale_read_prevention() {
         .await
         .unwrap();
 
-    // Phase 3: Immediately read (should see updated value due to read-index)
+    // Wait for apply loop to process the committed entry
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Phase 3: Read (should see updated value due to read-index)
     let read_value = leader.replicated_get(&key).await.unwrap();
 
     assert!(read_value.is_some(), "Key should exist");
     assert_eq!(
-        read_value.unwrap(),
-        new_value,
+        get_value(read_value),
+        Some(new_value.clone()),
         "Should read the most recent value (no stale reads)"
     );
 
@@ -469,8 +477,8 @@ async fn test_stale_read_prevention() {
     match follower_read {
         Ok(value) => {
             assert_eq!(
-                value.unwrap(),
-                new_value,
+                get_value(value),
+                Some(new_value),
                 "Follower read should see latest value"
             );
         }

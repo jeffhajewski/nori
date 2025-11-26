@@ -11,7 +11,7 @@
 
 use bytes::Bytes;
 use nori_raft::transport::{InMemoryTransport, RpcSender};
-use nori_raft::{ConfigEntry, NodeId, RaftConfig, ReplicatedLSM};
+use nori_raft::{ConfigEntry, LogIndex, NodeId, RaftConfig, ReplicatedLSM, Term};
 use nori_lsm::ATLLConfig;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,6 +19,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::sync::Mutex;
+
+/// Helper to extract just the value from replicated_get() result, ignoring version
+fn get_value(result: Option<(Bytes, Term, LogIndex)>) -> Option<Bytes> {
+    result.map(|(v, _, _)| v)
+}
 
 /// Test cluster for stability tests
 struct StabilityTestCluster {
@@ -257,7 +262,7 @@ async fn test_extended_soak() {
         // Perform read operation every 10 writes
         if operation_counter % 10 == 0 {
             match leader.replicated_lsm.replicated_get(&key).await {
-                Ok(Some(v)) => {
+                Ok(Some((v, _term, _index))) => {
                     stats.record_read(v.len());
                     assert_eq!(v, value, "Read returned wrong value");
                 }

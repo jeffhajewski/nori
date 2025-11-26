@@ -293,6 +293,11 @@ mod tests {
     use std::collections::HashMap;
     use tempfile::TempDir;
 
+    /// Helper to extract just the value from replicated_get() result, ignoring version
+    fn get_value(result: Option<(Bytes, Term, LogIndex)>) -> Option<Bytes> {
+        result.map(|(v, _, _)| v)
+    }
+
     async fn create_test_replicated_lsm(
         node_id: &str,
     ) -> Result<(ReplicatedLSM, TempDir, TempDir)> {
@@ -392,7 +397,7 @@ mod tests {
 
         // Get (linearizable read)
         let result = replicated_lsm.replicated_get(b"test_key").await.unwrap();
-        assert_eq!(result, Some(Bytes::from("test_value")));
+        assert_eq!(get_value(result), Some(Bytes::from("test_value")));
 
         replicated_lsm.shutdown().await.unwrap();
     }

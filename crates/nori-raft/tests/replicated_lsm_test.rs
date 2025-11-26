@@ -9,12 +9,17 @@
 
 use bytes::Bytes;
 use nori_raft::transport::InMemoryTransport;
-use nori_raft::{ConfigEntry, NodeId, RaftConfig, ReplicatedLSM};
+use nori_raft::{ConfigEntry, LogIndex, NodeId, RaftConfig, ReplicatedLSM, Term};
 use nori_lsm::ATLLConfig;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
+
+/// Helper to extract just the value from replicated_get() result, ignoring version
+fn get_value(result: Option<(Bytes, Term, LogIndex)>) -> Option<Bytes> {
+    result.map(|(v, _, _)| v)
+}
 
 /// Helper to create a single-node ReplicatedLSM for integration testing.
 async fn create_single_node_cluster() -> (Arc<ReplicatedLSM>, TempDir, TempDir) {
@@ -45,6 +50,7 @@ async fn create_single_node_cluster() -> (Arc<ReplicatedLSM>, TempDir, TempDir) 
         raft_log,
         transport,
         initial_config,
+        None, // No RPC receiver for single-node tests
     )
     .await
     .unwrap();
@@ -83,7 +89,7 @@ async fn test_end_to_end_put_get_delete() {
         .await
         .expect("Get should succeed");
 
-    assert_eq!(result, Some(Bytes::from("integration_value1")));
+    assert_eq!(get_value(result), Some(Bytes::from("integration_value1")));
 
     // Test 3: Write another key
     replicated_lsm
@@ -97,8 +103,8 @@ async fn test_end_to_end_put_get_delete() {
     let result1 = replicated_lsm.replicated_get(b"integration_key1").await.unwrap();
     let result2 = replicated_lsm.replicated_get(b"key2").await.unwrap();
 
-    assert_eq!(result1, Some(Bytes::from("integration_value1")));
-    assert_eq!(result2, Some(Bytes::from("value2")));
+    assert_eq!(get_value(result1), Some(Bytes::from("integration_value1")));
+    assert_eq!(get_value(result2), Some(Bytes::from("value2")));
 
     // Test 5: Delete a key
     replicated_lsm
@@ -114,7 +120,7 @@ async fn test_end_to_end_put_get_delete() {
 
     // Test 7: First key should still exist
     let result = replicated_lsm.replicated_get(b"integration_key1").await.unwrap();
-    assert_eq!(result, Some(Bytes::from("integration_value1")));
+    assert_eq!(get_value(result), Some(Bytes::from("integration_value1")));
 
     replicated_lsm.shutdown().await.unwrap();
 }
@@ -167,7 +173,7 @@ async fn test_bulk_operations() {
             .expect("Get should succeed");
 
         assert_eq!(
-            result,
+            get_value(result),
             Some(Bytes::from(expected_value)),
             "Key {} should have correct value",
             i
@@ -198,7 +204,7 @@ async fn test_ttl_operations() {
 
     // Key should exist initially
     let result = replicated_lsm.replicated_get(b"ttl_key").await.unwrap();
-    assert_eq!(result, Some(Bytes::from("ttl_value")));
+    assert_eq!(get_value(result), Some(Bytes::from("ttl_value")));
 
     // Wait for TTL to expire
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -242,6 +248,7 @@ async fn test_persistence_across_restart() {
             raft_log,
             transport,
             initial_config,
+            None, // No RPC receiver for single-node tests
         )
         .await
         .unwrap();
@@ -259,7 +266,7 @@ async fn test_persistence_across_restart() {
 
         // Verify it exists
         let result = replicated_lsm.replicated_get(b"persist_key").await.unwrap();
-        assert_eq!(result, Some(Bytes::from("persist_value")));
+        assert_eq!(get_value(result), Some(Bytes::from("persist_value")));
 
         replicated_lsm.shutdown().await.unwrap();
     }
@@ -291,6 +298,7 @@ async fn test_persistence_across_restart() {
             raft_log,
             transport,
             initial_config,
+            None, // No RPC receiver for single-node tests
         )
         .await
         .unwrap();
@@ -301,7 +309,7 @@ async fn test_persistence_across_restart() {
         // Data should still exist after restart
         let result = replicated_lsm.replicated_get(b"persist_key").await.unwrap();
         assert_eq!(
-            result,
+            get_value(result),
             Some(Bytes::from("persist_value")),
             "Data should persist across restarts"
         );
@@ -345,7 +353,7 @@ async fn test_snapshot_creation_with_data() {
     for i in 0..20 {
         let key = format!("snap_key_{}", i);
         let result = replicated_lsm.replicated_get(key.as_bytes()).await.unwrap();
-        assert_eq!(result, Some(Bytes::from(format!("snap_value_{}", i))));
+        assert_eq!(get_value(result), Some(Bytes::from(format!("snap_value_{}", i))));
     }
 
     replicated_lsm.shutdown().await.unwrap();
@@ -382,8 +390,9 @@ async fn test_concurrent_reads() {
                 let key = format!("concurrent_key_{}", i);
                 let result = lsm_clone.replicated_get(key.as_bytes()).await;
                 assert!(result.is_ok(), "Concurrent read should succeed");
+                let value = result.unwrap().map(|(v, _, _)| v);
                 assert_eq!(
-                    result.unwrap(),
+                    value,
                     Some(Bytes::from(format!("concurrent_value_{}", i)))
                 );
             }
@@ -418,7 +427,7 @@ async fn test_write_after_write() {
 
     // Verify first write
     let result = replicated_lsm.replicated_get(b"overwrite_key").await.unwrap();
-    assert_eq!(result, Some(Bytes::from("value1")));
+    assert_eq!(get_value(result), Some(Bytes::from("value1")));
 
     // Overwrite with new value
     replicated_lsm
@@ -430,7 +439,7 @@ async fn test_write_after_write() {
 
     // Verify new value
     let result = replicated_lsm.replicated_get(b"overwrite_key").await.unwrap();
-    assert_eq!(result, Some(Bytes::from("value2")));
+    assert_eq!(get_value(result), Some(Bytes::from("value2")));
 
     replicated_lsm.shutdown().await.unwrap();
 }
@@ -451,7 +460,7 @@ async fn test_empty_key_value() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let result = replicated_lsm.replicated_get(b"").await.unwrap();
-    assert_eq!(result, Some(Bytes::from("empty_key_value")));
+    assert_eq!(get_value(result), Some(Bytes::from("empty_key_value")));
 
     // Test key with empty value
     replicated_lsm
@@ -465,7 +474,7 @@ async fn test_empty_key_value() {
         .replicated_get(b"empty_value_key")
         .await
         .unwrap();
-    assert_eq!(result, Some(Bytes::from("")));
+    assert_eq!(get_value(result), Some(Bytes::from("")));
 
     replicated_lsm.shutdown().await.unwrap();
 }

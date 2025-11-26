@@ -294,7 +294,11 @@ impl TestClient {
         // Try each node until we find the leader
         for node in &cluster.nodes {
             match node.replicated_lsm.replicated_get(&key).await {
-                Ok(value) => return OperationResult::GetOk(value),
+                Ok(value) => {
+                    // Extract just the value, ignoring version metadata
+                    let value_only = value.map(|(v, _, _)| v);
+                    return OperationResult::GetOk(value_only);
+                }
                 Err(e) if format!("{:?}", e).contains("NotLeader") => continue,
                 Err(e) => return OperationResult::Error(format!("{:?}", e)),
             }

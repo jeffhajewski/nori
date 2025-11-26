@@ -91,9 +91,14 @@ impl StateMachine for LsmStateMachineAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nori_lsm::{ATLLConfig, LsmEngine};
+    use nori_lsm::{ATLLConfig, LsmEngine, Version};
     use std::sync::Arc;
     use tempfile::TempDir;
+
+    /// Helper to extract just the value from get() result, ignoring version
+    fn get_value(result: Option<(Bytes, Version)>) -> Option<Bytes> {
+        result.map(|(v, _)| v)
+    }
 
     async fn create_test_adapter() -> (LsmStateMachineAdapter, TempDir) {
         let temp_dir = TempDir::new().unwrap();
@@ -127,7 +132,7 @@ mod tests {
         // Verify via LSM
         let lsm = adapter.lsm().await;
         let result = lsm.engine().get(b"key1").await.unwrap();
-        assert_eq!(result, Some(Bytes::from("value1")));
+        assert_eq!(get_value(result), Some(Bytes::from("value1")));
     }
 
     #[tokio::test(flavor = "multi_thread")]

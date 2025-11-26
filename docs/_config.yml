@@ -9,7 +9,6 @@ url: "https://j-haj.github.io" # GitHub Pages URL
 # Theme Configuration
 theme: just-the-docs
 color_scheme: dark
-logo: "/assets/images/logo.png"
 
 # Search Configuration
 search_enabled: true

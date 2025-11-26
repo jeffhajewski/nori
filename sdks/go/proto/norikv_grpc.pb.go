@@ -425,3 +425,479 @@ var Admin_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "norikv.proto",
 }
+
+const (
+	Raft_RequestVote_FullMethodName     = "/norikv.v1.Raft/RequestVote"
+	Raft_AppendEntries_FullMethodName   = "/norikv.v1.Raft/AppendEntries"
+	Raft_InstallSnapshot_FullMethodName = "/norikv.v1.Raft/InstallSnapshot"
+	Raft_ReadIndex_FullMethodName       = "/norikv.v1.Raft/ReadIndex"
+)
+
+// RaftClient is the client API for Raft service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type RaftClient interface {
+	RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteResponse, error)
+	AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error)
+	InstallSnapshot(ctx context.Context, in *InstallSnapshotRequest, opts ...grpc.CallOption) (*InstallSnapshotResponse, error)
+	ReadIndex(ctx context.Context, in *ReadIndexRequest, opts ...grpc.CallOption) (*ReadIndexResponse, error)
+}
+
+type raftClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewRaftClient(cc grpc.ClientConnInterface) RaftClient {
+	return &raftClient{cc}
+}
+
+func (c *raftClient) RequestVote(ctx context.Context, in *RequestVoteRequest, opts ...grpc.CallOption) (*RequestVoteResponse, error) {
+	out := new(RequestVoteResponse)
+	err := c.cc.Invoke(ctx, Raft_RequestVote_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftClient) AppendEntries(ctx context.Context, in *AppendEntriesRequest, opts ...grpc.CallOption) (*AppendEntriesResponse, error) {
+	out := new(AppendEntriesResponse)
+	err := c.cc.Invoke(ctx, Raft_AppendEntries_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftClient) InstallSnapshot(ctx context.Context, in *InstallSnapshotRequest, opts ...grpc.CallOption) (*InstallSnapshotResponse, error) {
+	out := new(InstallSnapshotResponse)
+	err := c.cc.Invoke(ctx, Raft_InstallSnapshot_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftClient) ReadIndex(ctx context.Context, in *ReadIndexRequest, opts ...grpc.CallOption) (*ReadIndexResponse, error) {
+	out := new(ReadIndexResponse)
+	err := c.cc.Invoke(ctx, Raft_ReadIndex_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RaftServer is the server API for Raft service.
+// All implementations must embed UnimplementedRaftServer
+// for forward compatibility
+type RaftServer interface {
+	RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteResponse, error)
+	AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error)
+	InstallSnapshot(context.Context, *InstallSnapshotRequest) (*InstallSnapshotResponse, error)
+	ReadIndex(context.Context, *ReadIndexRequest) (*ReadIndexResponse, error)
+	mustEmbedUnimplementedRaftServer()
+}
+
+// UnimplementedRaftServer must be embedded to have forward compatible implementations.
+type UnimplementedRaftServer struct {
+}
+
+func (UnimplementedRaftServer) RequestVote(context.Context, *RequestVoteRequest) (*RequestVoteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestVote not implemented")
+}
+func (UnimplementedRaftServer) AppendEntries(context.Context, *AppendEntriesRequest) (*AppendEntriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AppendEntries not implemented")
+}
+func (UnimplementedRaftServer) InstallSnapshot(context.Context, *InstallSnapshotRequest) (*InstallSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
+}
+func (UnimplementedRaftServer) ReadIndex(context.Context, *ReadIndexRequest) (*ReadIndexResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReadIndex not implemented")
+}
+func (UnimplementedRaftServer) mustEmbedUnimplementedRaftServer() {}
+
+// UnsafeRaftServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to RaftServer will
+// result in compilation errors.
+type UnsafeRaftServer interface {
+	mustEmbedUnimplementedRaftServer()
+}
+
+func RegisterRaftServer(s grpc.ServiceRegistrar, srv RaftServer) {
+	s.RegisterService(&Raft_ServiceDesc, srv)
+}
+
+func _Raft_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RequestVoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftServer).RequestVote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Raft_RequestVote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftServer).RequestVote(ctx, req.(*RequestVoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Raft_AppendEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AppendEntriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftServer).AppendEntries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Raft_AppendEntries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftServer).AppendEntries(ctx, req.(*AppendEntriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Raft_InstallSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InstallSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftServer).InstallSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Raft_InstallSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftServer).InstallSnapshot(ctx, req.(*InstallSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Raft_ReadIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftServer).ReadIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Raft_ReadIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftServer).ReadIndex(ctx, req.(*ReadIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// Raft_ServiceDesc is the grpc.ServiceDesc for Raft service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var Raft_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "norikv.v1.Raft",
+	HandlerType: (*RaftServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RequestVote",
+			Handler:    _Raft_RequestVote_Handler,
+		},
+		{
+			MethodName: "AppendEntries",
+			Handler:    _Raft_AppendEntries_Handler,
+		},
+		{
+			MethodName: "InstallSnapshot",
+			Handler:    _Raft_InstallSnapshot_Handler,
+		},
+		{
+			MethodName: "ReadIndex",
+			Handler:    _Raft_ReadIndex_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "norikv.proto",
+}
+
+const (
+	Vector_CreateIndex_FullMethodName = "/norikv.v1.Vector/CreateIndex"
+	Vector_DropIndex_FullMethodName   = "/norikv.v1.Vector/DropIndex"
+	Vector_Insert_FullMethodName      = "/norikv.v1.Vector/Insert"
+	Vector_Delete_FullMethodName      = "/norikv.v1.Vector/Delete"
+	Vector_Search_FullMethodName      = "/norikv.v1.Vector/Search"
+	Vector_Get_FullMethodName         = "/norikv.v1.Vector/Get"
+)
+
+// VectorClient is the client API for Vector service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type VectorClient interface {
+	CreateIndex(ctx context.Context, in *CreateVectorIndexRequest, opts ...grpc.CallOption) (*CreateVectorIndexResponse, error)
+	DropIndex(ctx context.Context, in *DropVectorIndexRequest, opts ...grpc.CallOption) (*DropVectorIndexResponse, error)
+	Insert(ctx context.Context, in *VectorInsertRequest, opts ...grpc.CallOption) (*VectorInsertResponse, error)
+	Delete(ctx context.Context, in *VectorDeleteRequest, opts ...grpc.CallOption) (*VectorDeleteResponse, error)
+	Search(ctx context.Context, in *VectorSearchRequest, opts ...grpc.CallOption) (*VectorSearchResponse, error)
+	Get(ctx context.Context, in *VectorGetRequest, opts ...grpc.CallOption) (*VectorGetResponse, error)
+}
+
+type vectorClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewVectorClient(cc grpc.ClientConnInterface) VectorClient {
+	return &vectorClient{cc}
+}
+
+func (c *vectorClient) CreateIndex(ctx context.Context, in *CreateVectorIndexRequest, opts ...grpc.CallOption) (*CreateVectorIndexResponse, error) {
+	out := new(CreateVectorIndexResponse)
+	err := c.cc.Invoke(ctx, Vector_CreateIndex_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorClient) DropIndex(ctx context.Context, in *DropVectorIndexRequest, opts ...grpc.CallOption) (*DropVectorIndexResponse, error) {
+	out := new(DropVectorIndexResponse)
+	err := c.cc.Invoke(ctx, Vector_DropIndex_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorClient) Insert(ctx context.Context, in *VectorInsertRequest, opts ...grpc.CallOption) (*VectorInsertResponse, error) {
+	out := new(VectorInsertResponse)
+	err := c.cc.Invoke(ctx, Vector_Insert_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorClient) Delete(ctx context.Context, in *VectorDeleteRequest, opts ...grpc.CallOption) (*VectorDeleteResponse, error) {
+	out := new(VectorDeleteResponse)
+	err := c.cc.Invoke(ctx, Vector_Delete_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorClient) Search(ctx context.Context, in *VectorSearchRequest, opts ...grpc.CallOption) (*VectorSearchResponse, error) {
+	out := new(VectorSearchResponse)
+	err := c.cc.Invoke(ctx, Vector_Search_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vectorClient) Get(ctx context.Context, in *VectorGetRequest, opts ...grpc.CallOption) (*VectorGetResponse, error) {
+	out := new(VectorGetResponse)
+	err := c.cc.Invoke(ctx, Vector_Get_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// VectorServer is the server API for Vector service.
+// All implementations must embed UnimplementedVectorServer
+// for forward compatibility
+type VectorServer interface {
+	CreateIndex(context.Context, *CreateVectorIndexRequest) (*CreateVectorIndexResponse, error)
+	DropIndex(context.Context, *DropVectorIndexRequest) (*DropVectorIndexResponse, error)
+	Insert(context.Context, *VectorInsertRequest) (*VectorInsertResponse, error)
+	Delete(context.Context, *VectorDeleteRequest) (*VectorDeleteResponse, error)
+	Search(context.Context, *VectorSearchRequest) (*VectorSearchResponse, error)
+	Get(context.Context, *VectorGetRequest) (*VectorGetResponse, error)
+	mustEmbedUnimplementedVectorServer()
+}
+
+// UnimplementedVectorServer must be embedded to have forward compatible implementations.
+type UnimplementedVectorServer struct {
+}
+
+func (UnimplementedVectorServer) CreateIndex(context.Context, *CreateVectorIndexRequest) (*CreateVectorIndexResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateIndex not implemented")
+}
+func (UnimplementedVectorServer) DropIndex(context.Context, *DropVectorIndexRequest) (*DropVectorIndexResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DropIndex not implemented")
+}
+func (UnimplementedVectorServer) Insert(context.Context, *VectorInsertRequest) (*VectorInsertResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Insert not implemented")
+}
+func (UnimplementedVectorServer) Delete(context.Context, *VectorDeleteRequest) (*VectorDeleteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
+}
+func (UnimplementedVectorServer) Search(context.Context, *VectorSearchRequest) (*VectorSearchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
+}
+func (UnimplementedVectorServer) Get(context.Context, *VectorGetRequest) (*VectorGetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedVectorServer) mustEmbedUnimplementedVectorServer() {}
+
+// UnsafeVectorServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to VectorServer will
+// result in compilation errors.
+type UnsafeVectorServer interface {
+	mustEmbedUnimplementedVectorServer()
+}
+
+func RegisterVectorServer(s grpc.ServiceRegistrar, srv VectorServer) {
+	s.RegisterService(&Vector_ServiceDesc, srv)
+}
+
+func _Vector_CreateIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateVectorIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorServer).CreateIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Vector_CreateIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorServer).CreateIndex(ctx, req.(*CreateVectorIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Vector_DropIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DropVectorIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorServer).DropIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Vector_DropIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorServer).DropIndex(ctx, req.(*DropVectorIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Vector_Insert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VectorInsertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorServer).Insert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Vector_Insert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorServer).Insert(ctx, req.(*VectorInsertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Vector_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VectorDeleteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorServer).Delete(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Vector_Delete_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorServer).Delete(ctx, req.(*VectorDeleteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Vector_Search_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VectorSearchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorServer).Search(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Vector_Search_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorServer).Search(ctx, req.(*VectorSearchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Vector_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VectorGetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VectorServer).Get(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Vector_Get_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VectorServer).Get(ctx, req.(*VectorGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// Vector_ServiceDesc is the grpc.ServiceDesc for Vector service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var Vector_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "norikv.v1.Vector",
+	HandlerType: (*VectorServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateIndex",
+			Handler:    _Vector_CreateIndex_Handler,
+		},
+		{
+			MethodName: "DropIndex",
+			Handler:    _Vector_DropIndex_Handler,
+		},
+		{
+			MethodName: "Insert",
+			Handler:    _Vector_Insert_Handler,
+		},
+		{
+			MethodName: "Delete",
+			Handler:    _Vector_Delete_Handler,
+		},
+		{
+			MethodName: "Search",
+			Handler:    _Vector_Search_Handler,
+		},
+		{
+			MethodName: "Get",
+			Handler:    _Vector_Get_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "norikv.proto",
+}

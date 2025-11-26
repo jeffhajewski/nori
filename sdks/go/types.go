@@ -205,3 +205,105 @@ func DefaultClientConfig(nodes []string) *ClientConfig {
 		MaxConnectionsPerNode: 10,
 	}
 }
+
+// DistanceFunction specifies the distance metric for vector similarity.
+type DistanceFunction int32
+
+const (
+	// DistanceEuclidean uses Euclidean (L2) distance.
+	DistanceEuclidean DistanceFunction = 0
+
+	// DistanceCosine uses Cosine similarity (1 - cosine similarity).
+	DistanceCosine DistanceFunction = 1
+
+	// DistanceInnerProduct uses negative inner product (for similarity ranking).
+	DistanceInnerProduct DistanceFunction = 2
+)
+
+// String returns the string representation of the distance function.
+func (d DistanceFunction) String() string {
+	switch d {
+	case DistanceEuclidean:
+		return "euclidean"
+	case DistanceCosine:
+		return "cosine"
+	case DistanceInnerProduct:
+		return "inner_product"
+	default:
+		return "unknown"
+	}
+}
+
+// VectorIndexType specifies the type of vector index.
+type VectorIndexType int32
+
+const (
+	// VectorIndexBruteForce uses brute force search (exact, but O(n)).
+	VectorIndexBruteForce VectorIndexType = 0
+
+	// VectorIndexHNSW uses Hierarchical Navigable Small World graph (approximate, fast).
+	VectorIndexHNSW VectorIndexType = 1
+)
+
+// String returns the string representation of the index type.
+func (t VectorIndexType) String() string {
+	switch t {
+	case VectorIndexBruteForce:
+		return "brute_force"
+	case VectorIndexHNSW:
+		return "hnsw"
+	default:
+		return "unknown"
+	}
+}
+
+// VectorMatch represents a search result from vector similarity search.
+type VectorMatch struct {
+	// ID of the matching vector.
+	ID string
+
+	// Distance from the query vector (lower is more similar for Euclidean/Cosine).
+	Distance float32
+
+	// Vector data (only included if include_vectors was set in search).
+	Vector []float32
+}
+
+// CreateVectorIndexOptions contains options for CreateVectorIndex operations.
+type CreateVectorIndexOptions struct {
+	// IdempotencyKey for safe retries.
+	IdempotencyKey string
+}
+
+// DropVectorIndexOptions contains options for DropVectorIndex operations.
+type DropVectorIndexOptions struct {
+	// IdempotencyKey for safe retries.
+	IdempotencyKey string
+}
+
+// VectorInsertOptions contains options for vector Insert operations.
+type VectorInsertOptions struct {
+	// IdempotencyKey for safe retries.
+	IdempotencyKey string
+}
+
+// VectorDeleteOptions contains options for vector Delete operations.
+type VectorDeleteOptions struct {
+	// IdempotencyKey for safe retries.
+	IdempotencyKey string
+}
+
+// VectorSearchOptions contains options for vector Search operations.
+type VectorSearchOptions struct {
+	// IncludeVectors includes the full vector data in results.
+	IncludeVectors bool
+}
+
+// VectorSearchResult contains the results of a vector search.
+type VectorSearchResult struct {
+	// Matches contains the nearest neighbors, sorted by distance.
+	Matches []VectorMatch
+
+	// SearchTimeUs is the search time in microseconds.
+	SearchTimeUs uint64
+}

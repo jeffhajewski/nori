@@ -15,6 +15,7 @@ const (
 	ErrorCodeNotLeader        ErrorCode = "NOT_LEADER"
 	ErrorCodeAlreadyExists    ErrorCode = "ALREADY_EXISTS"
 	ErrorCodeVersionMismatch  ErrorCode = "VERSION_MISMATCH"
+	ErrorCodeNotFound         ErrorCode = "NOT_FOUND"
 	ErrorCodeUnavailable      ErrorCode = "UNAVAILABLE"
 	ErrorCodeDeadlineExceeded ErrorCode = "DEADLINE_EXCEEDED"
 	ErrorCodeInvalidArgument  ErrorCode = "INVALID_ARGUMENT"
@@ -103,6 +104,36 @@ func (e *AlreadyExistsError) Error() string {
 
 // Unwrap returns the underlying error.
 func (e *AlreadyExistsError) Unwrap() error {
+	return e.Cause
+}
+
+// NotFoundError indicates the requested resource was not found.
+type NotFoundError struct {
+	Code    ErrorCode
+	Message string
+	Cause   error
+	Key     string // The key that was not found
+}
+
+// NewNotFoundError creates a new NotFoundError.
+func NewNotFoundError(key string) *NotFoundError {
+	return &NotFoundError{
+		Code:    ErrorCodeNotFound,
+		Message: fmt.Sprintf("Key not found: %s", key),
+		Key:     key,
+	}
+}
+
+// Error implements the error interface.
+func (e *NotFoundError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %s (caused by: %v)", e.Code, e.Message, e.Cause)
+	}
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
+}
+
+// Unwrap returns the underlying error.
+func (e *NotFoundError) Unwrap() error {
 	return e.Cause
 }
 

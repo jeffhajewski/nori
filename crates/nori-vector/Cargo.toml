@@ -1,0 +1,23 @@
+[package]
+name = "nori-vector"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Vector similarity search: distance functions, traits, and brute force index."
+repository = "https://github.com/your-org/norikv"
+readme = "README.md"
+
+[dependencies]
+nori-observe = { path = "../nori-observe" }
+bytes = "1.5"
+thiserror = "1.0"
+parking_lot = "0.12"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"
+rand = "0.8"
+
+[[bench]]
+name = "distance"
+harness = false

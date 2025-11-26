@@ -1,0 +1,25 @@
+[package]
+name = "nori-hnsw"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "HNSW (Hierarchical Navigable Small World) index for approximate nearest neighbor search."
+repository = "https://github.com/your-org/norikv"
+readme = "README.md"
+
+[dependencies]
+nori-vector = { path = "../nori-vector" }
+nori-observe = { path = "../nori-observe" }
+bytes = "1.5"
+thiserror = "1.0"
+parking_lot = "0.12"
+rand = "0.8"
+
+[dev-dependencies]
+criterion = "0.5"
+proptest = "1.4"
+tempfile = "3.8"
+
+[[bench]]
+name = "hnsw"
+harness = false

@@ -31,4 +31,4 @@ pub use kv_backend::{KvBackend, SingleShardBackend};
 pub use meta::{MetaService, ClusterViewProvider, ClusterView, ClusterNode, ShardInfo, ShardReplica};
 pub use admin::{AdminService, ShardManagerOps, ShardMetadata};
 pub use vector::VectorService;
-pub use vector_backend::{VectorBackend, DistanceFunction, VectorIndexType, VectorMatch};
+pub use vector_backend::{VectorBackend, SingleShardVectorBackend, DistanceFunction, VectorIndexType, VectorMatch};

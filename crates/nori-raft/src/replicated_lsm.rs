@@ -285,6 +285,112 @@ impl ReplicatedLSM {
     pub fn lsm(&self) -> &Arc<LsmEngine> {
         &self.lsm_engine
     }
+
+    // =========================================================================
+    // Vector Operations
+    // =========================================================================
+
+    /// Create a vector index for a namespace.
+    pub async fn replicated_vector_create_index(
+        &self,
+        namespace: String,
+        dimensions: usize,
+        distance: nori_lsm::DistanceFunction,
+        index_type: nori_lsm::VectorIndexType,
+    ) -> Result<LogIndex> {
+        let cmd = Command::VectorCreateIndex {
+            namespace,
+            dimensions,
+            distance,
+            index_type,
+        };
+
+        let serialized = cmd.serialize().map_err(|e| RaftError::Internal {
+            reason: format!("Failed to serialize command: {}", e),
+        })?;
+
+        self.raft.propose(serialized).await
+    }
+
+    /// Drop a vector index.
+    pub async fn replicated_vector_drop_index(&self, namespace: String) -> Result<LogIndex> {
+        let cmd = Command::VectorDropIndex { namespace };
+
+        let serialized = cmd.serialize().map_err(|e| RaftError::Internal {
+            reason: format!("Failed to serialize command: {}", e),
+        })?;
+
+        self.raft.propose(serialized).await
+    }
+
+    /// Insert a vector.
+    pub async fn replicated_vector_insert(
+        &self,
+        namespace: String,
+        id: String,
+        vector: Vec<f32>,
+    ) -> Result<LogIndex> {
+        let cmd = Command::VectorInsert {
+            namespace,
+            id,
+            vector,
+        };
+
+        let serialized = cmd.serialize().map_err(|e| RaftError::Internal {
+            reason: format!("Failed to serialize command: {}", e),
+        })?;
+
+        self.raft.propose(serialized).await
+    }
+
+    /// Delete a vector.
+    pub async fn replicated_vector_delete(
+        &self,
+        namespace: String,
+        id: String,
+    ) -> Result<LogIndex> {
+        let cmd = Command::VectorDelete { namespace, id };
+
+        let serialized = cmd.serialize().map_err(|e| RaftError::Internal {
+            reason: format!("Failed to serialize command: {}", e),
+        })?;
+
+        self.raft.propose(serialized).await
+    }
+
+    /// Search for similar vectors (read-only, uses read-index for linearizability).
+    pub async fn replicated_vector_search(
+        &self,
+        _namespace: &str,
+        _query: &[f32],
+        _k: usize,
+    ) -> Result<Vec<nori_lsm::VectorMatch>> {
+        // Ensure linearizability via read-index
+        self.raft.read_index().await?;
+
+        // Access the vector storage through the LSM state machine
+        // Note: This requires the LsmStateMachine to expose vector_storage()
+        // For now, we return an error indicating this needs implementation
+        Err(RaftError::Internal {
+            reason: "Vector search not yet implemented - requires LsmStateMachine integration".to_string(),
+        })
+    }
+
+    /// Get a specific vector by ID (read-only).
+    pub async fn replicated_vector_get(
+        &self,
+        _namespace: &str,
+        _id: &str,
+    ) -> Result<Option<Vec<f32>>> {
+        // Ensure linearizability via read-index
+        self.raft.read_index().await?;
+
+        // Access the vector storage through the LSM state machine
+        // For now, we return an error indicating this needs implementation
+        Err(RaftError::Internal {
+            reason: "Vector get not yet implemented - requires LsmStateMachine integration".to_string(),
+        })
+    }
 }
 
 #[cfg(test)]

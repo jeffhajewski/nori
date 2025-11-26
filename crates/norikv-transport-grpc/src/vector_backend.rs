@@ -80,6 +80,119 @@ pub trait VectorBackend: Send + Sync {
     fn commit_index(&self) -> LogIndex;
 }
 
+/// Adapter to make ReplicatedLSM implement VectorBackend.
+pub struct SingleShardVectorBackend {
+    lsm: std::sync::Arc<nori_raft::ReplicatedLSM>,
+}
+
+impl SingleShardVectorBackend {
+    /// Create a new single-shard vector backend.
+    pub fn new(lsm: std::sync::Arc<nori_raft::ReplicatedLSM>) -> Self {
+        Self { lsm }
+    }
+
+    /// Convert backend distance function to nori_lsm type.
+    fn to_lsm_distance(dist: DistanceFunction) -> nori_lsm::DistanceFunction {
+        match dist {
+            DistanceFunction::Euclidean => nori_lsm::DistanceFunction::Euclidean,
+            DistanceFunction::Cosine => nori_lsm::DistanceFunction::Cosine,
+            DistanceFunction::InnerProduct => nori_lsm::DistanceFunction::InnerProduct,
+        }
+    }
+
+    /// Convert backend index type to nori_lsm type.
+    fn to_lsm_index_type(idx_type: VectorIndexType) -> nori_lsm::VectorIndexType {
+        match idx_type {
+            VectorIndexType::BruteForce => nori_lsm::VectorIndexType::BruteForce,
+            VectorIndexType::Hnsw => nori_lsm::VectorIndexType::Hnsw,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl VectorBackend for SingleShardVectorBackend {
+    async fn create_index(
+        &self,
+        namespace: String,
+        dimensions: usize,
+        distance: DistanceFunction,
+        index_type: VectorIndexType,
+    ) -> Result<bool, RaftError> {
+        self.lsm
+            .replicated_vector_create_index(
+                namespace,
+                dimensions,
+                Self::to_lsm_distance(distance),
+                Self::to_lsm_index_type(index_type),
+            )
+            .await?;
+        Ok(true)
+    }
+
+    async fn drop_index(&self, namespace: String) -> Result<bool, RaftError> {
+        self.lsm.replicated_vector_drop_index(namespace).await?;
+        Ok(true)
+    }
+
+    async fn insert(
+        &self,
+        namespace: String,
+        id: String,
+        vector: Vec<f32>,
+    ) -> Result<LogIndex, RaftError> {
+        self.lsm
+            .replicated_vector_insert(namespace, id, vector)
+            .await
+    }
+
+    async fn delete(&self, namespace: String, id: String) -> Result<bool, RaftError> {
+        self.lsm.replicated_vector_delete(namespace, id).await?;
+        Ok(true)
+    }
+
+    async fn search(
+        &self,
+        namespace: &str,
+        query: &[f32],
+        k: usize,
+        include_vectors: bool,
+    ) -> Result<Vec<VectorMatch>, RaftError> {
+        let matches = self
+            .lsm
+            .replicated_vector_search(namespace, query, k)
+            .await?;
+
+        Ok(matches
+            .into_iter()
+            .map(|m| VectorMatch {
+                id: m.id,
+                distance: m.distance,
+                vector: if include_vectors { m.vector } else { None },
+            })
+            .collect())
+    }
+
+    async fn get(&self, namespace: &str, id: &str) -> Result<Option<Vec<f32>>, RaftError> {
+        self.lsm.replicated_vector_get(namespace, id).await
+    }
+
+    fn is_leader(&self) -> bool {
+        self.lsm.is_leader()
+    }
+
+    fn leader(&self) -> Option<NodeId> {
+        self.lsm.leader()
+    }
+
+    fn current_term(&self) -> Term {
+        self.lsm.raft().current_term()
+    }
+
+    fn commit_index(&self) -> LogIndex {
+        self.lsm.raft().commit_index()
+    }
+}
+
 #[cfg(test)]
 pub struct MockVectorBackend;
 

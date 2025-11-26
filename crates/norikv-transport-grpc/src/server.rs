@@ -5,9 +5,11 @@ use crate::kv::KvService;
 use crate::kv_backend::{KvBackend, SingleShardBackend};
 use crate::meta::{ClusterViewProvider, MetaService};
 use crate::raft_service::RaftService;
+use crate::vector::VectorService;
+use crate::vector_backend::VectorBackend;
 use crate::proto::{
     admin_server::AdminServer, kv_server::KvServer, meta_server::MetaServer,
-    raft_server::RaftServer,
+    raft_server::RaftServer, vector_server::VectorServer,
 };
 use nori_observe::Meter;
 use nori_raft::transport::RpcMessage;
@@ -19,10 +21,11 @@ use tonic::transport::Server;
 
 /// gRPC server wrapper.
 ///
-/// Hosts all gRPC services (Kv, Meta, Admin, optionally Raft) and manages the server lifecycle.
+/// Hosts all gRPC services (Kv, Meta, Admin, Vector, optionally Raft) and manages the server lifecycle.
 pub struct GrpcServer {
     addr: SocketAddr,
     backend: Arc<dyn KvBackend>,
+    vector_backend: Option<Arc<dyn VectorBackend>>,
     cluster_view: Option<Arc<dyn ClusterViewProvider>>,
     shard_manager: Option<Arc<dyn ShardManagerOps>>,
     meter: Option<Arc<dyn Meter>>,
@@ -43,6 +46,7 @@ impl GrpcServer {
         Self {
             addr,
             backend,
+            vector_backend: None,
             cluster_view: None,
             shard_manager: None,
             meter: None,
@@ -61,6 +65,7 @@ impl GrpcServer {
         Self {
             addr,
             backend,
+            vector_backend: None,
             cluster_view: None,
             shard_manager: None,
             meter: None,
@@ -89,6 +94,17 @@ impl GrpcServer {
     /// - `shard_manager`: ShardManagerOps implementation
     pub fn with_shard_manager(mut self, shard_manager: Arc<dyn ShardManagerOps>) -> Self {
         self.shard_manager = Some(shard_manager);
+        self
+    }
+
+    /// Set the vector backend for Vector service.
+    ///
+    /// If provided, Vector service operations (CreateIndex, Insert, Search, etc.) will be enabled.
+    ///
+    /// # Arguments
+    /// - `vector_backend`: VectorBackend implementation (single-shard or multi-shard routing)
+    pub fn with_vector_backend(mut self, vector_backend: Arc<dyn VectorBackend>) -> Self {
+        self.vector_backend = Some(vector_backend);
         self
     }
 
@@ -178,6 +194,17 @@ impl GrpcServer {
             tracing::info!("Enabling Raft peer-to-peer service");
             let raft_service = RaftService::new(rpc_tx);
             server_builder = server_builder.add_service(RaftServer::new(raft_service));
+        }
+
+        // Add Vector service if backend provided
+        if let Some(vector_backend) = &self.vector_backend {
+            tracing::info!("Enabling Vector service for similarity search");
+            let vector_service = if let Some(meter) = &self.meter {
+                VectorService::with_meter(vector_backend.clone(), meter.clone())
+            } else {
+                VectorService::new(vector_backend.clone())
+            };
+            server_builder = server_builder.add_service(VectorServer::new(vector_service));
         }
 
         let server = server_builder.serve_with_shutdown(self.addr, async {

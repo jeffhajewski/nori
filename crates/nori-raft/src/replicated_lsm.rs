@@ -241,6 +241,7 @@ impl ReplicatedLSM {
     /// # Errors
     /// - `NotLeader`: If this node is not the current leader
     /// - `Internal`: If LSM read fails
+    ///
     /// Gets a value by key with linearizable read semantics.
     ///
     /// # Returns

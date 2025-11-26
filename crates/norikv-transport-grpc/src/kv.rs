@@ -19,6 +19,8 @@ const MAX_VALUE_SIZE: usize = 1024 * 1024;  // 1 MB hard limit
 #[derive(Clone, Debug)]
 struct IdempotencyEntry {
     version: proto::Version,
+    /// Timestamp for future TTL-based eviction
+    #[allow(dead_code)]
     timestamp: SystemTime,
 }
 
@@ -66,6 +68,7 @@ impl KvService {
     }
 
     /// Validate request size limits.
+    #[allow(clippy::result_large_err)]
     fn validate_size(&self, key: &[u8], value: Option<&[u8]>) -> Result<(), Status> {
         if key.len() > MAX_KEY_SIZE {
             return Err(Status::invalid_argument(format!(

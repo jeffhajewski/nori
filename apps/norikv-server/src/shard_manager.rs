@@ -23,6 +23,7 @@ pub type ShardId = u32;
 
 /// Error types for ShardManager operations
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum ShardError {
     #[error("Shard {0} not found")]
     NotFound(ShardId),
@@ -45,6 +46,7 @@ pub enum ShardError {
 
 /// Metadata about a shard
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ShardInfo {
     /// Shard ID
     pub shard_id: ShardId,
@@ -146,7 +148,7 @@ impl ShardManager {
         shard_lsm_config.data_dir = lsm_dir.clone();
 
         // Create node ID with shard suffix (e.g., "node1-shard0")
-        let node_id = NodeId::new(&format!("{}-shard{}", self.config.node_id, shard_id));
+        let node_id = NodeId::new(format!("{}-shard{}", self.config.node_id, shard_id));
 
         // Create RPC receiver channel for multi-node mode
         let raft_rpc_rx = if !self.config.cluster.seed_nodes.is_empty() {
@@ -164,7 +166,7 @@ impl ShardManager {
                 // Map each base node ID to its shard-specific ID
                 let shard_nodes: Vec<NodeId> = nodes
                     .iter()
-                    .map(|base_id| NodeId::new(&format!("{}-shard{}", base_id.as_str(), shard_id)))
+                    .map(|base_id| NodeId::new(format!("{}-shard{}", base_id.as_str(), shard_id)))
                     .collect();
                 ConfigEntry::Single(shard_nodes)
             }
@@ -172,11 +174,11 @@ impl ShardManager {
                 // Handle joint consensus (for membership changes)
                 let old_shard: Vec<NodeId> = old
                     .iter()
-                    .map(|base_id| NodeId::new(&format!("{}-shard{}", base_id.as_str(), shard_id)))
+                    .map(|base_id| NodeId::new(format!("{}-shard{}", base_id.as_str(), shard_id)))
                     .collect();
                 let new_shard: Vec<NodeId> = new
                     .iter()
-                    .map(|base_id| NodeId::new(&format!("{}-shard{}", base_id.as_str(), shard_id)))
+                    .map(|base_id| NodeId::new(format!("{}-shard{}", base_id.as_str(), shard_id)))
                     .collect();
                 ConfigEntry::Joint { old: old_shard, new: new_shard }
             }
@@ -209,6 +211,7 @@ impl ShardManager {
     ///
     /// This is expensive - creates 1024 Raft groups and LSM engines.
     /// For development, you may want to create shards lazily (on first access).
+    #[allow(dead_code)]
     pub async fn create_all_shards(&self) -> Result<(), ShardError> {
         let total_shards = self.config.cluster.total_shards;
         tracing::info!("Creating all {} shards...", total_shards);
@@ -235,6 +238,7 @@ impl ShardManager {
     }
 
     /// Starts all shards.
+    #[allow(dead_code)]
     pub async fn start_all_shards(&self) -> Result<(), ShardError> {
         let shard_ids: Vec<ShardId> = self.shards.read().await.keys().copied().collect();
 
@@ -294,6 +298,7 @@ impl ShardManager {
     }
 
     /// Gets metadata for all shards.
+    #[allow(dead_code)]
     pub async fn all_shard_info(&self) -> Vec<ShardInfo> {
         let shard_ids: Vec<ShardId> = self.shards.read().await.keys().copied().collect();
 
@@ -308,6 +313,7 @@ impl ShardManager {
     }
 
     /// Returns the number of shards currently created.
+    #[allow(dead_code)]
     pub async fn shard_count(&self) -> usize {
         self.shards.read().await.len()
     }

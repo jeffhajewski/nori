@@ -747,6 +747,7 @@ impl LsmEngine {
     ///
     /// # TODO
     /// - Heat tracking integration (currently commented out)
+    ///
     /// Gets a value by key, returning the value and its version.
     ///
     /// # Returns

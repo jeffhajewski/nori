@@ -176,8 +176,9 @@ async fn metrics_handler(State(state): State<HttpServerState>) -> Response {
 /// Query parameters for GET /kv/{key}
 #[derive(Debug, Deserialize)]
 struct GetQueryParams {
-    /// Read consistency level: lease (default), linearizable, or stale_ok
+    /// Read consistency level: lease (default), linearizable, or stale_ok (future use)
     #[serde(default)]
+    #[allow(dead_code)]
     consistency: Option<String>,
 }
 

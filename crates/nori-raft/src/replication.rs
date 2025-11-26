@@ -335,7 +335,7 @@ pub async fn heartbeat_loop(
 /// Otherwise, clients consume from the applied channel to update their state machine.
 pub async fn apply_loop(
     state: Arc<RaftState>,
-    mut applied_tx: tokio::sync::mpsc::Sender<(LogIndex, bytes::Bytes)>,
+    applied_tx: tokio::sync::mpsc::Sender<(LogIndex, bytes::Bytes)>,
     shutdown_rx: tokio::sync::broadcast::Receiver<()>,
     state_machine: Option<Arc<tokio::sync::Mutex<dyn crate::snapshot::StateMachine>>>,
 ) {
@@ -373,11 +373,14 @@ pub async fn apply_loop(
                                 }
 
                                 // Send to applied channel (for backward compatibility, only if no state machine)
-                                if state_machine.is_none() {
-                                    if applied_tx.send((entry.index, entry.command.clone())).await.is_err() {
-                                        // Receiver dropped, exit
-                                        return;
-                                    }
+                                if state_machine.is_none()
+                                    && applied_tx
+                                        .send((entry.index, entry.command.clone()))
+                                        .await
+                                        .is_err()
+                                {
+                                    // Receiver dropped, exit
+                                    return;
                                 }
 
                                 // Update last_applied

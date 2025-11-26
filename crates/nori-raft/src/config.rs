@@ -85,6 +85,14 @@ pub struct RaftConfig {
     ///
     /// Default: 100 commands
     pub apply_batch_size: usize,
+
+    /// Propose timeout (how long to wait for commit).
+    ///
+    /// After appending a log entry, propose() waits until commit_index
+    /// reaches the entry's index. This timeout prevents indefinite waits.
+    ///
+    /// Default: 5000ms
+    pub propose_timeout: Duration,
 }
 
 impl Default for RaftConfig {
@@ -111,6 +119,9 @@ impl Default for RaftConfig {
 
             // Apply batching
             apply_batch_size: 100,
+
+            // Propose timeout
+            propose_timeout: Duration::from_millis(5000),
         }
     }
 }

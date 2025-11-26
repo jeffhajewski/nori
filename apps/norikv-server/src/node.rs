@@ -73,13 +73,17 @@ impl Node {
         tracing::info!("LSM directory: {}", lsm_dir.display());
 
         // Configure Raft
-        let mut raft_config = RaftConfig::default();
-        raft_config.election_timeout_min = Duration::from_millis(150);
-        raft_config.election_timeout_max = Duration::from_millis(300);
+        let raft_config = RaftConfig {
+            election_timeout_min: Duration::from_millis(150),
+            election_timeout_max: Duration::from_millis(300),
+            ..RaftConfig::default()
+        };
 
         // Configure LSM
-        let mut lsm_config = ATLLConfig::default();
-        lsm_config.data_dir = lsm_dir.clone();
+        let lsm_config = ATLLConfig {
+            data_dir: lsm_dir.clone(),
+            ..ATLLConfig::default()
+        };
 
         let node_id = NodeId::new(&config.node_id);
 
@@ -133,7 +137,7 @@ impl Node {
             let mut cluster_nodes = vec![node_id.clone()];
 
             // Add peer nodes (avoiding duplicates)
-            for (peer_id, _addr) in &peer_addrs {
+            for peer_id in peer_addrs.keys() {
                 let peer_node_id = NodeId::new(peer_id);
                 if peer_node_id != node_id {
                     cluster_nodes.push(peer_node_id);
@@ -310,20 +314,15 @@ impl Node {
             swim.start().await
                 .map_err(|e| NodeError::Startup(format!("Failed to start SWIM: {:?}", e)))?;
 
-            // Join cluster via seed nodes
-            if !self.config.cluster.seed_nodes.is_empty() {
-                for seed in &self.config.cluster.seed_nodes {
-                    let seed_addr = seed.parse().map_err(|e| {
-                        NodeError::Startup(format!("Invalid seed node address: {}", e))
-                    })?;
+            // Join cluster via first seed node
+            if let Some(seed) = self.config.cluster.seed_nodes.first() {
+                let seed_addr = seed.parse().map_err(|e| {
+                    NodeError::Startup(format!("Invalid seed node address: {}", e))
+                })?;
 
-                    tracing::info!("Joining cluster via seed: {}", seed_addr);
-                    swim.join(seed_addr).await
-                        .map_err(|e| NodeError::Startup(format!("Failed to join cluster: {:?}", e)))?;
-
-                    // For now, just join one seed successfully
-                    break;
-                }
+                tracing::info!("Joining cluster via seed: {}", seed_addr);
+                swim.join(seed_addr).await
+                    .map_err(|e| NodeError::Startup(format!("Failed to join cluster: {:?}", e)))?;
             }
 
             tracing::info!("SWIM membership initialized");
@@ -392,32 +391,38 @@ impl Node {
     }
 
     /// Get reference to ShardManager (for testing/debugging).
+    #[allow(dead_code)]
     pub fn shard_manager(&self) -> &Arc<ShardManager> {
         &self.shard_manager
     }
 
     /// Get reference to ClusterViewManager.
+    #[allow(dead_code)]
     pub fn cluster_view(&self) -> &Arc<ClusterViewManager> {
         &self.cluster_view
     }
 
     /// Get reference to HealthChecker.
+    #[allow(dead_code)]
     pub fn health_checker(&self) -> &Arc<HealthChecker> {
         &self.health_checker
     }
 
     /// Get comprehensive health status of the node (all shards).
+    #[allow(dead_code)]
     pub async fn health(&self) -> crate::health::ServerHealthStatus {
         self.health_checker.check().await
     }
 
     /// Quick health check (for load balancers).
+    #[allow(dead_code)]
     pub async fn health_quick(&self) -> bool {
         self.health_checker.check_quick().await
     }
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum NodeError {
     #[error("Initialization error: {0}")]
     Initialization(String),

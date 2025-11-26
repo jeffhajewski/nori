@@ -79,7 +79,7 @@ impl HealthChecker {
         let mut leader_shards = 0;
         let mut follower_shards = 0;
         let mut shard_samples = Vec::new();
-        let mut has_errors = false;
+        let has_errors = false;
 
         // Query all shards (up to first 1024, which is our max)
         for shard_id in 0..self.total_shards.min(1024) {

@@ -7,9 +7,8 @@ use crate::proto::{self, raft_server::Raft};
 use bytes::Bytes;
 use nori_raft::transport::RpcMessage;
 use nori_raft::types::{
-    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-    InstallSnapshotResponse, LogEntry, LogIndex, NodeId, ReadIndexRequest, ReadIndexResponse,
-    RequestVoteRequest, RequestVoteResponse, Term,
+    AppendEntriesRequest, InstallSnapshotRequest, LogEntry, LogIndex, NodeId, ReadIndexRequest,
+    RequestVoteRequest, Term,
 };
 use tokio::sync::oneshot;
 use tonic::{Request, Response, Status};
@@ -41,7 +40,8 @@ impl RaftService {
         }
     }
 
-    /// Convert Rust LogEntry to protobuf
+    /// Convert Rust LogEntry to protobuf (for future AppendEntries handling)
+    #[allow(dead_code)]
     fn to_proto_entry(entry: &LogEntry) -> proto::LogEntry {
         proto::LogEntry {
             term: entry.term.as_u64(),

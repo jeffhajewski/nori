@@ -122,7 +122,8 @@ pub trait RaftTransport: Send + Sync + std::any::Any {
 /// ));
 /// ```
 pub struct InMemoryTransport {
-    /// This node's ID
+    /// This node's ID (stored for potential future use in debugging/logging)
+    #[allow(dead_code)]
     local_id: NodeId,
 
     /// Channels to other nodes (NodeId → sender)

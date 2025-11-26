@@ -78,8 +78,11 @@ pub struct ClusterViewManager {
     shard_manager: Arc<ShardManager>,
 
     /// Server configuration
+    #[allow(dead_code)]
     node_id: NodeId,
+    #[allow(dead_code)]
     node_addr: String,
+    #[allow(dead_code)]
     total_shards: u32,
 }
 
@@ -116,6 +119,7 @@ impl ClusterViewManager {
     }
 
     /// Get the current cluster view.
+    #[allow(dead_code)]
     pub fn current(&self) -> ClusterView {
         self.view.read().clone()
     }
@@ -123,6 +127,7 @@ impl ClusterViewManager {
     /// Subscribe to cluster view updates.
     ///
     /// Returns a receiver that will receive new ClusterView on each change.
+    #[allow(dead_code)]
     pub fn subscribe(&self) -> broadcast::Receiver<ClusterView> {
         self.update_tx.subscribe()
     }
@@ -337,6 +342,7 @@ impl ClusterViewManager {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum ClusterViewError {
     #[error("Shard manager error: {0}")]
     ShardManager(String),
@@ -360,19 +366,11 @@ impl ClusterViewProvider for ClusterViewManager {
 
         // Spawn task to convert types
         tokio::spawn(async move {
-            loop {
-                match rx.recv().await {
-                    Ok(view) => {
-                        let transport_view = to_transport_cluster_view(&view);
-                        if tx.send(transport_view).is_err() {
-                            // No subscribers, exit
-                            break;
-                        }
-                    }
-                    Err(_) => {
-                        // Channel closed
-                        break;
-                    }
+            while let Ok(view) = rx.recv().await {
+                let transport_view = to_transport_cluster_view(&view);
+                if tx.send(transport_view).is_err() {
+                    // No subscribers, exit
+                    break;
                 }
             }
         });

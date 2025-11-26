@@ -98,7 +98,8 @@ impl GrpcRaftTransport {
         }
     }
 
-    /// Convert protobuf LogEntry to Rust
+    /// Convert protobuf LogEntry to Rust (for future snapshot handling)
+    #[allow(dead_code)]
     fn from_proto_entry(_entry: &proto::LogEntry) -> LogEntry {
         LogEntry {
             term: Term(_entry.term),
@@ -128,10 +129,7 @@ impl RaftTransport for GrpcRaftTransport {
             .request_vote(proto_req)
             .await
             .map_err(|e| RaftError::Io {
-                source: std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("RequestVote RPC failed: {}", e),
-                ),
+                source: std::io::Error::other(format!("RequestVote RPC failed: {}", e)),
             })?
             .into_inner();
 
@@ -161,10 +159,7 @@ impl RaftTransport for GrpcRaftTransport {
             .append_entries(proto_req)
             .await
             .map_err(|e| RaftError::Io {
-                source: std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("AppendEntries RPC failed: {}", e),
-                ),
+                source: std::io::Error::other(format!("AppendEntries RPC failed: {}", e)),
             })?
             .into_inner();
 
@@ -201,10 +196,7 @@ impl RaftTransport for GrpcRaftTransport {
             .install_snapshot(proto_req)
             .await
             .map_err(|e| RaftError::Io {
-                source: std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("InstallSnapshot RPC failed: {}", e),
-                ),
+                source: std::io::Error::other(format!("InstallSnapshot RPC failed: {}", e)),
             })?
             .into_inner();
 
@@ -231,10 +223,7 @@ impl RaftTransport for GrpcRaftTransport {
             .read_index(proto_req)
             .await
             .map_err(|e| RaftError::Io {
-                source: std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("ReadIndex RPC failed: {}", e),
-                ),
+                source: std::io::Error::other(format!("ReadIndex RPC failed: {}", e)),
             })?
             .into_inner();
 

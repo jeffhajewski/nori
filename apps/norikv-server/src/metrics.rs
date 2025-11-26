@@ -12,14 +12,23 @@ use prometheus_client::registry::Registry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// Label pairs for prometheus metrics.
+type Labels = Vec<(String, String)>;
+/// Thread-safe counter family map.
+type CounterMap = Arc<Mutex<HashMap<String, Family<Labels, PromCounter>>>>;
+/// Thread-safe gauge family map.
+type GaugeMap = Arc<Mutex<HashMap<String, Family<Labels, PromGauge>>>>;
+/// Thread-safe histogram family map.
+type HistogramMap = Arc<Mutex<HashMap<String, Family<Labels, PromHistogram>>>>;
+
 /// Prometheus metrics collector.
 ///
 /// Implements the nori-observe::Meter trait using prometheus-client.
 pub struct PrometheusMeter {
     registry: Arc<Mutex<Registry>>,
-    counters: Arc<Mutex<HashMap<String, Family<Vec<(String, String)>, PromCounter>>>>,
-    gauges: Arc<Mutex<HashMap<String, Family<Vec<(String, String)>, PromGauge>>>>,
-    histograms: Arc<Mutex<HashMap<String, Family<Vec<(String, String)>, PromHistogram>>>>,
+    counters: CounterMap,
+    gauges: GaugeMap,
+    histograms: HistogramMap,
 }
 
 impl PrometheusMeter {

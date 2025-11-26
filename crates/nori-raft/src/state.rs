@@ -23,7 +23,7 @@
 //! - `match_index[]`: For each follower, index of highest log entry known to be replicated
 
 use crate::config::RaftConfig;
-use crate::error::{RaftError, Result};
+use crate::error::Result;
 use crate::lease::LeaseState;
 use crate::log::RaftLog;
 use crate::transport::RaftTransport;
@@ -53,7 +53,8 @@ pub struct RaftState {
     /// Log storage
     log: RaftLog,
 
-    /// Transport for RPC communication
+    /// Transport for RPC communication (stored for potential future use)
+    #[allow(dead_code)]
     transport: Arc<dyn RaftTransport>,
 
     /// Observability meter for metrics and events
@@ -231,7 +232,7 @@ impl RaftState {
             let already_voted = persistent
                 .voted_for
                 .as_ref()
-                .map_or(false, |id| id != &request.candidate_id);
+                .is_some_and(|id| id != &request.candidate_id);
 
             if !already_voted {
                 // Check log up-to-dateness

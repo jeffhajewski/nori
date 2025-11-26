@@ -74,7 +74,7 @@ impl Default for ClusterConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetryConfig {
     /// Prometheus configuration
     #[serde(default)]
@@ -85,14 +85,6 @@ pub struct TelemetryConfig {
     pub otlp: OtlpConfig,
 }
 
-impl Default for TelemetryConfig {
-    fn default() -> Self {
-        Self {
-            prometheus: PrometheusConfig::default(),
-            otlp: OtlpConfig::default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrometheusConfig {
@@ -114,7 +106,7 @@ impl Default for PrometheusConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OtlpConfig {
     /// Enable OTLP exporter
     #[serde(default)]
@@ -122,15 +114,6 @@ pub struct OtlpConfig {
 
     /// OTLP endpoint
     pub endpoint: Option<String>,
-}
-
-impl Default for OtlpConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            endpoint: None,
-        }
-    }
 }
 
 fn default_rpc_addr() -> String {

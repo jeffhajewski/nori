@@ -76,7 +76,7 @@ impl Raft {
     ) -> Self {
         // Default to NoopMeter for backward compatibility
         // Can be overridden via with_meter()
-        let meter = Arc::new(nori_observe::NoopMeter::default());
+        let meter: Arc<dyn nori_observe::Meter> = Arc::new(nori_observe::NoopMeter);
 
         let state = Arc::new(RaftState::new(
             node_id,
@@ -369,8 +369,14 @@ async fn snapshot_loop(
 impl ReplicatedLog for Raft {
     /// Propose a new command to be replicated.
     ///
-    /// If this node is the leader, appends the command to the log and replicates it.
-    /// Returns the log index where the command was stored.
+    /// If this node is the leader, appends the command to the log and waits for it
+    /// to be committed (replicated to a majority). Returns the log index where the
+    /// command was stored.
+    ///
+    /// This function blocks until:
+    /// - The entry is committed (commit_index >= proposed index), or
+    /// - Leadership is lost (returns NotLeader), or
+    /// - Timeout expires (returns CommitTimeout)
     async fn propose(&self, cmd: Bytes) -> Result<LogIndex> {
         // Check if we're leader
         if self.state.role() != Role::Leader {
@@ -393,10 +399,37 @@ impl ReplicatedLog for Raft {
         // Reset election timer (we're actively leading)
         self.election_timer.reset();
 
-        // Replication happens in background via heartbeat loop
-        // Commitment happens in background via advance_commit_index
+        // Wait for commit (replication happens in background via heartbeat loop)
+        let start = tokio::time::Instant::now();
+        let deadline = start + self.config.propose_timeout;
+        let poll_interval = std::cmp::min(
+            self.config.heartbeat_interval / 3,
+            std::time::Duration::from_millis(50),
+        );
 
-        Ok(index)
+        loop {
+            // Check if committed
+            if self.state.commit_index() >= index {
+                return Ok(index);
+            }
+
+            // Check if still leader
+            if self.state.role() != Role::Leader {
+                return Err(RaftError::NotLeader {
+                    leader: self.state.leader(),
+                });
+            }
+
+            // Check timeout
+            if tokio::time::Instant::now() >= deadline {
+                return Err(RaftError::CommitTimeout {
+                    elapsed_ms: start.elapsed().as_millis() as u64,
+                });
+            }
+
+            // Poll
+            tokio::time::sleep(poll_interval).await;
+        }
     }
 
     /// Perform a linearizable read.

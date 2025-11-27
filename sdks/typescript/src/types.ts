@@ -207,3 +207,82 @@ export interface RouteInfo {
   /** All replica addresses for this shard */
   replicaAddrs: string[];
 }
+
+// ============================================================================
+// Vector Types
+// ============================================================================
+
+/**
+ * Distance function for vector similarity.
+ */
+export type DistanceFunction = 'euclidean' | 'cosine' | 'inner_product';
+
+/**
+ * Vector index type.
+ */
+export type VectorIndexType = 'brute_force' | 'hnsw';
+
+/**
+ * A vector search match result.
+ */
+export interface VectorMatch {
+  /** ID of the matching vector */
+  id: string;
+
+  /** Distance from the query vector (lower is more similar for euclidean/cosine) */
+  distance: number;
+
+  /** Vector data (only included if includeVectors was set) */
+  vector?: number[];
+}
+
+/**
+ * Options for creating a vector index.
+ */
+export interface CreateVectorIndexOptions {
+  /** Idempotency key for safe retries */
+  idempotencyKey?: string;
+}
+
+/**
+ * Options for dropping a vector index.
+ */
+export interface DropVectorIndexOptions {
+  /** Idempotency key for safe retries */
+  idempotencyKey?: string;
+}
+
+/**
+ * Options for inserting a vector.
+ */
+export interface VectorInsertOptions {
+  /** Idempotency key for safe retries */
+  idempotencyKey?: string;
+}
+
+/**
+ * Options for deleting a vector.
+ */
+export interface VectorDeleteOptions {
+  /** Idempotency key for safe retries */
+  idempotencyKey?: string;
+}
+
+/**
+ * Options for vector search.
+ */
+export interface VectorSearchOptions {
+  /** Include full vector data in results */
+  includeVectors?: boolean;
+}
+
+/**
+ * Result of a vector search.
+ */
+export interface VectorSearchResult {
+  /** Nearest neighbors, sorted by distance */
+  matches: VectorMatch[];
+
+  /** Search time in microseconds */
+  searchTimeUs: bigint;
+}

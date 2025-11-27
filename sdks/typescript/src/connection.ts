@@ -11,8 +11,8 @@
 import * as grpc from '@grpc/grpc-js';
 import { ConnectionError, UnavailableError } from '@norikv/client/errors';
 import type { NodeConnection } from '@norikv/client/types';
-import { createKvClient, createMetaClient, closeClient } from '@norikv/client/grpc-services';
-import type { KvClient, MetaClient } from '@norikv/client/proto/norikv';
+import { createKvClient, createMetaClient, createVectorClient, closeClient } from '@norikv/client/grpc-services';
+import type { KvClient, MetaClient, VectorClient } from '@norikv/client/proto/norikv';
 
 /**
  * Configuration for connection pool.
@@ -44,6 +44,7 @@ export class ConnectionPool {
   private connections = new Map<string, NodeConnection>();
   private kvClients = new Map<string, KvClient>();
   private metaClients = new Map<string, MetaClient>();
+  private vectorClients = new Map<string, VectorClient>();
   private reconnectTimers = new Map<string, NodeJS.Timeout>();
   private healthCheckTimers = new Map<string, NodeJS.Timeout>();
   private reconnectAttempts = new Map<string, number>();
@@ -144,6 +145,30 @@ export class ConnectionPool {
     if (!client) {
       client = createMetaClient(address);
       this.metaClients.set(address, client);
+    }
+
+    return client;
+  }
+
+  /**
+   * Get or create a Vector service client for a node.
+   *
+   * @param address - Node address (host:port)
+   * @returns VectorClient instance
+   * @throws ConnectionError if connection fails
+   */
+  async getVectorClient(address: string): Promise<VectorClient> {
+    if (this.closed) {
+      throw new ConnectionError('Connection pool is closed', address);
+    }
+
+    // Ensure connection exists
+    await this.getConnection(address);
+
+    let client = this.vectorClients.get(address);
+    if (!client) {
+      client = createVectorClient(address);
+      this.vectorClients.set(address, client);
     }
 
     return client;
@@ -311,6 +336,12 @@ export class ConnectionPool {
       this.metaClients.delete(address);
     }
 
+    const oldVectorClient = this.vectorClients.get(address);
+    if (oldVectorClient) {
+      closeClient(oldVectorClient);
+      this.vectorClients.delete(address);
+    }
+
     // Close old connection
     const oldConn = this.connections.get(address);
     if (oldConn?.channel) {
@@ -397,6 +428,12 @@ export class ConnectionPool {
       this.metaClients.delete(address);
     }
 
+    const vectorClient = this.vectorClients.get(address);
+    if (vectorClient) {
+      closeClient(vectorClient);
+      this.vectorClients.delete(address);
+    }
+
     // Clear timers
     const reconnectTimer = this.reconnectTimers.get(address);
     if (reconnectTimer) {
@@ -437,6 +474,11 @@ export class ConnectionPool {
       closeClient(client);
     }
     this.metaClients.clear();
+
+    for (const client of this.vectorClients.values()) {
+      closeClient(client);
+    }
+    this.vectorClients.clear();
 
     // Clear all timers
     for (const timer of this.reconnectTimers.values()) {

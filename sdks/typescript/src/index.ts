@@ -52,6 +52,16 @@ export type {
   NodeConnection,
   RouteInfo,
   ConsistencyLevel,
+  // Vector types
+  DistanceFunction,
+  VectorIndexType,
+  VectorMatch,
+  CreateVectorIndexOptions,
+  DropVectorIndexOptions,
+  VectorInsertOptions,
+  VectorDeleteOptions,
+  VectorSearchOptions,
+  VectorSearchResult,
 } from '@norikv/client/types';
 
 // Errors
@@ -66,6 +76,7 @@ export {
   ConnectionError,
   NoNodesAvailableError,
   RetryExhaustedError,
+  NotFoundError,
 } from '@norikv/client/errors';
 
 // Utilities

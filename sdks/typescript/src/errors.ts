@@ -133,6 +133,17 @@ export class RetryExhaustedError extends NoriKVError {
 }
 
 /**
+ * Error indicating the requested key or resource was not found.
+ */
+export class NotFoundError extends NoriKVError {
+  constructor(message: string, public readonly id?: string) {
+    super(message, 'NOT_FOUND');
+    this.name = 'NotFoundError';
+    Object.setPrototypeOf(this, NotFoundError.prototype);
+  }
+}
+
+/**
  * Convert gRPC status code to NoriKV error.
  */
 export function fromGrpcError(error: any, metadata?: any): NoriKVError {
@@ -160,6 +171,9 @@ export function fromGrpcError(error: any, metadata?: any): NoriKVError {
 
     case 9: // FAILED_PRECONDITION (version mismatch)
       return new VersionMismatchError(message, new Uint8Array(), null, null);
+
+    case 5: // NOT_FOUND
+      return new NotFoundError(message);
 
     default:
       return new NoriKVError(message, String(code));

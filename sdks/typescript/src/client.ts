@@ -15,16 +15,36 @@ import {
   toProtoVersion,
   fromProtoClusterView,
   toProtoClusterView,
+  toProtoDistanceFunction,
+  toProtoVectorIndexType,
   type ProtoPutRequest,
   type ProtoGetRequest,
   type ProtoDeleteRequest,
+  type ProtoCreateVectorIndexRequest,
+  type ProtoDropVectorIndexRequest,
+  type ProtoVectorInsertRequest,
+  type ProtoVectorDeleteRequest,
+  type ProtoVectorSearchRequest,
+  type ProtoVectorGetRequest,
 } from '@norikv/client/proto-types';
 import {
   NotLeaderError,
   InvalidArgumentError,
   NoNodesAvailableError,
+  NotFoundError,
 } from '@norikv/client/errors';
-import { kvPut, kvGet, kvDelete, metaWatchCluster } from '@norikv/client/grpc-services';
+import {
+  kvPut,
+  kvGet,
+  kvDelete,
+  metaWatchCluster,
+  vectorCreateIndex,
+  vectorDropIndex,
+  vectorInsert,
+  vectorDelete,
+  vectorSearch,
+  vectorGet,
+} from '@norikv/client/grpc-services';
 import type {
   Key,
   Value,
@@ -35,7 +55,15 @@ import type {
   GetResult,
   ClusterView,
   Version,
-  // ConsistencyLevel, // Type-only import doesn't need to be commented
+  DistanceFunction,
+  VectorIndexType,
+  CreateVectorIndexOptions,
+  DropVectorIndexOptions,
+  VectorInsertOptions,
+  VectorDeleteOptions,
+  VectorSearchOptions,
+  VectorSearchResult,
+  VectorMatch,
 } from '@norikv/client/types';
 
 /**
@@ -381,6 +409,354 @@ export class NoriKVClient {
     const client = await this.connectionPool.getKvClient(address);
     const response = await kvDelete(client, request, this.config.timeout);
     return response.tombstoned;
+  }
+
+  // ===========================================================================
+  // Vector Operations
+  // ===========================================================================
+
+  /**
+   * Create a vector index.
+   *
+   * @param namespace - The namespace/index name
+   * @param dimensions - Number of dimensions for vectors
+   * @param distance - Distance function (euclidean, cosine, inner_product)
+   * @param indexType - Index type (brute_force, hnsw)
+   * @param options - Create options
+   * @returns true if created, false if already existed
+   *
+   * @example
+   * ```ts
+   * const created = await client.vectorCreateIndex(
+   *   'embeddings',
+   *   1536,
+   *   'cosine',
+   *   'hnsw'
+   * );
+   * ```
+   */
+  async vectorCreateIndex(
+    namespace: string,
+    dimensions: number,
+    distance: DistanceFunction,
+    indexType: VectorIndexType,
+    options: CreateVectorIndexOptions = {}
+  ): Promise<boolean> {
+    this.ensureInitialized();
+
+    if (!namespace) {
+      throw new InvalidArgumentError('namespace cannot be empty');
+    }
+    if (dimensions <= 0) {
+      throw new InvalidArgumentError('dimensions must be greater than 0');
+    }
+
+    const request: ProtoCreateVectorIndexRequest = {
+      namespace,
+      dimensions,
+      distance: toProtoDistanceFunction(distance),
+      indexType: toProtoVectorIndexType(indexType),
+      idempotencyKey: options.idempotencyKey || '',
+    };
+
+    return await withRetry(
+      async () => this.vectorCreateIndexInternal(request),
+      this.config.retry,
+      { isIdempotent: !!options.idempotencyKey }
+    );
+  }
+
+  private async vectorCreateIndexInternal(request: ProtoCreateVectorIndexRequest): Promise<boolean> {
+    const address = await this.getAnyAddress();
+    const client = await this.connectionPool.getVectorClient(address);
+    const response = await vectorCreateIndex(client, request, this.config.timeout);
+    return response.created;
+  }
+
+  /**
+   * Drop a vector index.
+   *
+   * @param namespace - The namespace/index name to drop
+   * @param options - Drop options
+   * @returns true if dropped, false if didn't exist
+   *
+   * @example
+   * ```ts
+   * const dropped = await client.vectorDropIndex('embeddings');
+   * ```
+   */
+  async vectorDropIndex(
+    namespace: string,
+    options: DropVectorIndexOptions = {}
+  ): Promise<boolean> {
+    this.ensureInitialized();
+
+    if (!namespace) {
+      throw new InvalidArgumentError('namespace cannot be empty');
+    }
+
+    const request: ProtoDropVectorIndexRequest = {
+      namespace,
+      idempotencyKey: options.idempotencyKey || '',
+    };
+
+    return await withRetry(
+      async () => this.vectorDropIndexInternal(request),
+      this.config.retry,
+      { isIdempotent: !!options.idempotencyKey }
+    );
+  }
+
+  private async vectorDropIndexInternal(request: ProtoDropVectorIndexRequest): Promise<boolean> {
+    const address = await this.getAnyAddress();
+    const client = await this.connectionPool.getVectorClient(address);
+    const response = await vectorDropIndex(client, request, this.config.timeout);
+    return response.dropped;
+  }
+
+  /**
+   * Insert a vector into an index.
+   *
+   * @param namespace - The namespace/index name
+   * @param id - Unique ID for the vector
+   * @param vector - The vector data
+   * @param options - Insert options
+   * @returns Version of the inserted vector
+   *
+   * @example
+   * ```ts
+   * const version = await client.vectorInsert(
+   *   'embeddings',
+   *   'doc-123',
+   *   [0.1, 0.2, 0.3, ...]
+   * );
+   * ```
+   */
+  async vectorInsert(
+    namespace: string,
+    id: string,
+    vector: number[],
+    options: VectorInsertOptions = {}
+  ): Promise<Version> {
+    this.ensureInitialized();
+
+    if (!namespace) {
+      throw new InvalidArgumentError('namespace cannot be empty');
+    }
+    if (!id) {
+      throw new InvalidArgumentError('id cannot be empty');
+    }
+    if (!vector || vector.length === 0) {
+      throw new InvalidArgumentError('vector cannot be empty');
+    }
+
+    const request: ProtoVectorInsertRequest = {
+      namespace,
+      id,
+      vector,
+      idempotencyKey: options.idempotencyKey || '',
+    };
+
+    return await withRetry(
+      async () => this.vectorInsertInternal(request),
+      this.config.retry,
+      { isIdempotent: !!options.idempotencyKey }
+    );
+  }
+
+  private async vectorInsertInternal(request: ProtoVectorInsertRequest): Promise<Version> {
+    const address = await this.getAnyAddress();
+    const client = await this.connectionPool.getVectorClient(address);
+    const response = await vectorInsert(client, request, this.config.timeout);
+
+    const version = fromProtoVersion(response.version);
+    if (!version) {
+      throw new Error('Server returned empty version');
+    }
+    return version;
+  }
+
+  /**
+   * Delete a vector from an index.
+   *
+   * @param namespace - The namespace/index name
+   * @param id - ID of the vector to delete
+   * @param options - Delete options
+   * @returns true if deleted, false if didn't exist
+   *
+   * @example
+   * ```ts
+   * const deleted = await client.vectorDelete('embeddings', 'doc-123');
+   * ```
+   */
+  async vectorDelete(
+    namespace: string,
+    id: string,
+    options: VectorDeleteOptions = {}
+  ): Promise<boolean> {
+    this.ensureInitialized();
+
+    if (!namespace) {
+      throw new InvalidArgumentError('namespace cannot be empty');
+    }
+    if (!id) {
+      throw new InvalidArgumentError('id cannot be empty');
+    }
+
+    const request: ProtoVectorDeleteRequest = {
+      namespace,
+      id,
+      idempotencyKey: options.idempotencyKey || '',
+    };
+
+    return await withRetry(
+      async () => this.vectorDeleteInternal(request),
+      this.config.retry,
+      { isIdempotent: !!options.idempotencyKey }
+    );
+  }
+
+  private async vectorDeleteInternal(request: ProtoVectorDeleteRequest): Promise<boolean> {
+    const address = await this.getAnyAddress();
+    const client = await this.connectionPool.getVectorClient(address);
+    const response = await vectorDelete(client, request, this.config.timeout);
+    return response.deleted;
+  }
+
+  /**
+   * Search for nearest neighbors.
+   *
+   * @param namespace - The namespace/index name
+   * @param query - Query vector
+   * @param k - Number of nearest neighbors to return
+   * @param options - Search options
+   * @returns Search results with matches and timing
+   *
+   * @example
+   * ```ts
+   * const result = await client.vectorSearch(
+   *   'embeddings',
+   *   [0.1, 0.2, 0.3, ...],
+   *   10,
+   *   { includeVectors: true }
+   * );
+   * for (const match of result.matches) {
+   *   console.log(`${match.id}: distance=${match.distance}`);
+   * }
+   * ```
+   */
+  async vectorSearch(
+    namespace: string,
+    query: number[],
+    k: number,
+    options: VectorSearchOptions = {}
+  ): Promise<VectorSearchResult> {
+    this.ensureInitialized();
+
+    if (!namespace) {
+      throw new InvalidArgumentError('namespace cannot be empty');
+    }
+    if (!query || query.length === 0) {
+      throw new InvalidArgumentError('query vector cannot be empty');
+    }
+    if (k <= 0) {
+      throw new InvalidArgumentError('k must be greater than 0');
+    }
+
+    const request: ProtoVectorSearchRequest = {
+      namespace,
+      query,
+      k,
+      includeVectors: options.includeVectors || false,
+    };
+
+    return await withRetry(
+      async () => this.vectorSearchInternal(request),
+      this.config.retry,
+      { isIdempotent: true }
+    );
+  }
+
+  private async vectorSearchInternal(request: ProtoVectorSearchRequest): Promise<VectorSearchResult> {
+    const address = await this.getAnyAddress();
+    const client = await this.connectionPool.getVectorClient(address);
+    const response = await vectorSearch(client, request, this.config.timeout);
+
+    const matches: VectorMatch[] = (response.matches || []).map((m) => ({
+      id: m.id,
+      distance: m.distance,
+      vector: m.vector,
+    }));
+
+    return {
+      matches,
+      searchTimeUs: BigInt(response.searchTimeUs || 0),
+    };
+  }
+
+  /**
+   * Get a vector by ID.
+   *
+   * @param namespace - The namespace/index name
+   * @param id - ID of the vector
+   * @returns The vector data, or null if not found
+   *
+   * @example
+   * ```ts
+   * const vector = await client.vectorGet('embeddings', 'doc-123');
+   * if (vector) {
+   *   console.log(`Vector has ${vector.length} dimensions`);
+   * }
+   * ```
+   */
+  async vectorGet(
+    namespace: string,
+    id: string
+  ): Promise<number[] | null> {
+    this.ensureInitialized();
+
+    if (!namespace) {
+      throw new InvalidArgumentError('namespace cannot be empty');
+    }
+    if (!id) {
+      throw new InvalidArgumentError('id cannot be empty');
+    }
+
+    const request: ProtoVectorGetRequest = {
+      namespace,
+      id,
+    };
+
+    return await withRetry(
+      async () => this.vectorGetInternal(request, id),
+      this.config.retry,
+      { isIdempotent: true }
+    );
+  }
+
+  private async vectorGetInternal(request: ProtoVectorGetRequest, id: string): Promise<number[] | null> {
+    const address = await this.getAnyAddress();
+    const client = await this.connectionPool.getVectorClient(address);
+    const response = await vectorGet(client, request, this.config.timeout);
+
+    if (!response.found) {
+      return null;
+    }
+    return response.vector || null;
+  }
+
+  /**
+   * Get any available node address (for operations that don't need routing).
+   */
+  private async getAnyAddress(): Promise<string> {
+    const view = this.topology.getView();
+    if (view && view.nodes.length > 0) {
+      return view.nodes[0].addr;
+    }
+    if (this.config.nodes.length > 0) {
+      return this.config.nodes[0];
+    }
+    throw new NoNodesAvailableError();
   }
 
   /**

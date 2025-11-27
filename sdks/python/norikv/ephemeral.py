@@ -32,7 +32,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 
 from norikv.client import NoriKVClient
-from norikv.config import ClientConfig
+from norikv.types import ClientConfig
 from norikv.errors import NoriKVError
 
 

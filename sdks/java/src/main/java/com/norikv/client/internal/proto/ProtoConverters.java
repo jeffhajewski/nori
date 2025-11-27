@@ -6,6 +6,7 @@ import norikv.v1.Norikv;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Utility class for converting between client types and protobuf types.
@@ -167,5 +168,221 @@ public final class ProtoConverters {
         }
 
         return new ClusterView(view.getEpoch(), nodes, shards);
+    }
+
+    // =========================================================================
+    // Vector Operations
+    // =========================================================================
+
+    /**
+     * Converts DistanceFunction to proto enum.
+     *
+     * @param distance the client distance function
+     * @return the proto distance function
+     */
+    public static Norikv.DistanceFunction toProto(DistanceFunction distance) {
+        if (distance == null) {
+            return Norikv.DistanceFunction.DISTANCE_FUNCTION_UNSPECIFIED;
+        }
+        switch (distance) {
+            case EUCLIDEAN:
+                return Norikv.DistanceFunction.DISTANCE_FUNCTION_EUCLIDEAN;
+            case COSINE:
+                return Norikv.DistanceFunction.DISTANCE_FUNCTION_COSINE;
+            case INNER_PRODUCT:
+                return Norikv.DistanceFunction.DISTANCE_FUNCTION_INNER_PRODUCT;
+            default:
+                return Norikv.DistanceFunction.DISTANCE_FUNCTION_UNSPECIFIED;
+        }
+    }
+
+    /**
+     * Converts VectorIndexType to proto enum.
+     *
+     * @param indexType the client index type
+     * @return the proto index type
+     */
+    public static Norikv.VectorIndexType toProto(VectorIndexType indexType) {
+        if (indexType == null) {
+            return Norikv.VectorIndexType.VECTOR_INDEX_TYPE_UNSPECIFIED;
+        }
+        switch (indexType) {
+            case BRUTE_FORCE:
+                return Norikv.VectorIndexType.VECTOR_INDEX_TYPE_BRUTE_FORCE;
+            case HNSW:
+                return Norikv.VectorIndexType.VECTOR_INDEX_TYPE_HNSW;
+            default:
+                return Norikv.VectorIndexType.VECTOR_INDEX_TYPE_UNSPECIFIED;
+        }
+    }
+
+    /**
+     * Builds a CreateVectorIndexRequest from client parameters.
+     *
+     * @param namespace the index namespace
+     * @param dimensions the vector dimensions
+     * @param distance the distance function
+     * @param indexType the index type
+     * @param options the options (may be null)
+     * @return the proto request
+     */
+    public static Norikv.CreateVectorIndexRequest buildCreateVectorIndexRequest(
+            String namespace,
+            int dimensions,
+            DistanceFunction distance,
+            VectorIndexType indexType,
+            CreateVectorIndexOptions options) {
+        Norikv.CreateVectorIndexRequest.Builder builder = Norikv.CreateVectorIndexRequest.newBuilder()
+                .setNamespace(namespace)
+                .setDimensions(dimensions)
+                .setDistance(toProto(distance))
+                .setIndexType(toProto(indexType));
+
+        if (options != null && options.getIdempotencyKey() != null) {
+            builder.setIdempotencyKey(options.getIdempotencyKey());
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Builds a DropVectorIndexRequest from client parameters.
+     *
+     * @param namespace the index namespace
+     * @param options the options (may be null)
+     * @return the proto request
+     */
+    public static Norikv.DropVectorIndexRequest buildDropVectorIndexRequest(
+            String namespace,
+            DropVectorIndexOptions options) {
+        Norikv.DropVectorIndexRequest.Builder builder = Norikv.DropVectorIndexRequest.newBuilder()
+                .setNamespace(namespace);
+
+        if (options != null && options.getIdempotencyKey() != null) {
+            builder.setIdempotencyKey(options.getIdempotencyKey());
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Builds a VectorInsertRequest from client parameters.
+     *
+     * @param namespace the index namespace
+     * @param id the vector ID
+     * @param vector the vector data
+     * @param options the options (may be null)
+     * @return the proto request
+     */
+    public static Norikv.VectorInsertRequest buildVectorInsertRequest(
+            String namespace,
+            String id,
+            List<Float> vector,
+            VectorInsertOptions options) {
+        Norikv.VectorInsertRequest.Builder builder = Norikv.VectorInsertRequest.newBuilder()
+                .setNamespace(namespace)
+                .setId(id)
+                .addAllVector(vector);
+
+        if (options != null && options.getIdempotencyKey() != null) {
+            builder.setIdempotencyKey(options.getIdempotencyKey());
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Builds a VectorDeleteRequest from client parameters.
+     *
+     * @param namespace the index namespace
+     * @param id the vector ID
+     * @param options the options (may be null)
+     * @return the proto request
+     */
+    public static Norikv.VectorDeleteRequest buildVectorDeleteRequest(
+            String namespace,
+            String id,
+            VectorDeleteOptions options) {
+        Norikv.VectorDeleteRequest.Builder builder = Norikv.VectorDeleteRequest.newBuilder()
+                .setNamespace(namespace)
+                .setId(id);
+
+        if (options != null && options.getIdempotencyKey() != null) {
+            builder.setIdempotencyKey(options.getIdempotencyKey());
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Builds a VectorSearchRequest from client parameters.
+     *
+     * @param namespace the index namespace
+     * @param query the query vector
+     * @param k number of nearest neighbors
+     * @param options the options (may be null)
+     * @return the proto request
+     */
+    public static Norikv.VectorSearchRequest buildVectorSearchRequest(
+            String namespace,
+            List<Float> query,
+            int k,
+            VectorSearchOptions options) {
+        Norikv.VectorSearchRequest.Builder builder = Norikv.VectorSearchRequest.newBuilder()
+                .setNamespace(namespace)
+                .addAllQuery(query)
+                .setK(k);
+
+        if (options != null) {
+            builder.setIncludeVectors(options.isIncludeVectors());
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Builds a VectorGetRequest from client parameters.
+     *
+     * @param namespace the index namespace
+     * @param id the vector ID
+     * @return the proto request
+     */
+    public static Norikv.VectorGetRequest buildVectorGetRequest(String namespace, String id) {
+        return Norikv.VectorGetRequest.newBuilder()
+                .setNamespace(namespace)
+                .setId(id)
+                .build();
+    }
+
+    /**
+     * Converts a VectorSearchResponse to client VectorSearchResult.
+     *
+     * @param response the proto response
+     * @return the client result
+     */
+    public static VectorSearchResult fromProto(Norikv.VectorSearchResponse response) {
+        List<VectorMatch> matches = response.getMatchesList().stream()
+                .map(ProtoConverters::fromProto)
+                .collect(Collectors.toList());
+
+        return new VectorSearchResult(matches, response.getSearchTimeUs());
+    }
+
+    /**
+     * Converts a proto VectorMatch to client VectorMatch.
+     *
+     * @param match the proto match
+     * @return the client match
+     */
+    public static VectorMatch fromProto(Norikv.VectorMatch match) {
+        List<Float> vector = match.getVectorCount() > 0
+                ? new ArrayList<>(match.getVectorList())
+                : null;
+
+        return new VectorMatch(
+                match.getId(),
+                match.getDistance(),
+                vector
+        );
     }
 }

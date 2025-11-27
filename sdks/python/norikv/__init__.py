@@ -33,6 +33,7 @@ from norikv.errors import (
     InvalidArgumentError,
     NoNodesAvailableError,
     NoriKVError,
+    NotFoundError,
     NotLeaderError,
     RetryExhaustedError,
     UnavailableError,
@@ -46,6 +47,16 @@ from norikv.types import (
     PutOptions,
     RetryConfig,
     Version,
+    # Vector types
+    DistanceFunction,
+    VectorIndexType,
+    VectorMatch,
+    VectorSearchResult,
+    CreateVectorIndexOptions,
+    DropVectorIndexOptions,
+    VectorInsertOptions,
+    VectorDeleteOptions,
+    VectorSearchOptions,
 )
 
 __all__ = [
@@ -67,6 +78,7 @@ __all__ = [
     "Version",
     # Errors
     "NoriKVError",
+    "NotFoundError",
     "NotLeaderError",
     "AlreadyExistsError",
     "VersionMismatchError",
@@ -77,4 +89,14 @@ __all__ = [
     "NoNodesAvailableError",
     "RetryExhaustedError",
     "EphemeralServerError",
+    # Vector types
+    "DistanceFunction",
+    "VectorIndexType",
+    "VectorMatch",
+    "VectorSearchResult",
+    "CreateVectorIndexOptions",
+    "DropVectorIndexOptions",
+    "VectorInsertOptions",
+    "VectorDeleteOptions",
+    "VectorSearchOptions",
 ]

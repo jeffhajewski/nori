@@ -12,7 +12,10 @@ import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import norikv.v1.KvGrpc;
 import norikv.v1.Norikv;
+import norikv.v1.VectorGrpc;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -208,6 +211,183 @@ public final class NoriKVClient implements AutoCloseable {
                 // Update leader cache and retry
                 router.handleNotLeader(e);
                 throw e;
+            } catch (StatusRuntimeException e) {
+                throw convertGrpcException(e);
+            }
+        });
+    }
+
+    // =========================================================================
+    // Vector Operations
+    // =========================================================================
+
+    /**
+     * Creates a vector index.
+     *
+     * @param namespace the index namespace/name
+     * @param dimensions the number of dimensions for vectors
+     * @param distance the distance function
+     * @param indexType the index type
+     * @param options optional create options (null for defaults)
+     * @return true if created, false if already existed
+     * @throws NoriKVException if the operation fails
+     */
+    public boolean vectorCreateIndex(
+            String namespace,
+            int dimensions,
+            DistanceFunction distance,
+            VectorIndexType indexType,
+            CreateVectorIndexOptions options) throws NoriKVException {
+        ensureNotClosed();
+        validateNamespace(namespace);
+        if (dimensions <= 0) {
+            throw new NoriKVException("INVALID_ARGUMENT", "dimensions must be greater than 0");
+        }
+
+        return retryPolicy.execute(() -> {
+            ManagedChannel channel = getAnyChannel();
+
+            try {
+                return performVectorCreateIndex(channel, namespace, dimensions, distance, indexType, options);
+            } catch (StatusRuntimeException e) {
+                throw convertGrpcException(e);
+            }
+        });
+    }
+
+    /**
+     * Drops a vector index.
+     *
+     * @param namespace the index namespace/name
+     * @param options optional drop options (null for defaults)
+     * @return true if dropped, false if didn't exist
+     * @throws NoriKVException if the operation fails
+     */
+    public boolean vectorDropIndex(String namespace, DropVectorIndexOptions options) throws NoriKVException {
+        ensureNotClosed();
+        validateNamespace(namespace);
+
+        return retryPolicy.execute(() -> {
+            ManagedChannel channel = getAnyChannel();
+
+            try {
+                return performVectorDropIndex(channel, namespace, options);
+            } catch (StatusRuntimeException e) {
+                throw convertGrpcException(e);
+            }
+        });
+    }
+
+    /**
+     * Inserts a vector into an index.
+     *
+     * @param namespace the index namespace/name
+     * @param id the unique vector ID
+     * @param vector the vector data
+     * @param options optional insert options (null for defaults)
+     * @return the version of the inserted vector
+     * @throws NoriKVException if the operation fails
+     */
+    public Version vectorInsert(
+            String namespace,
+            String id,
+            List<Float> vector,
+            VectorInsertOptions options) throws NoriKVException {
+        ensureNotClosed();
+        validateNamespace(namespace);
+        validateVectorId(id);
+        validateVector(vector);
+
+        return retryPolicy.execute(() -> {
+            ManagedChannel channel = getAnyChannel();
+
+            try {
+                return performVectorInsert(channel, namespace, id, vector, options);
+            } catch (StatusRuntimeException e) {
+                throw convertGrpcException(e);
+            }
+        });
+    }
+
+    /**
+     * Deletes a vector from an index.
+     *
+     * @param namespace the index namespace/name
+     * @param id the vector ID to delete
+     * @param options optional delete options (null for defaults)
+     * @return true if deleted, false if didn't exist
+     * @throws NoriKVException if the operation fails
+     */
+    public boolean vectorDelete(
+            String namespace,
+            String id,
+            VectorDeleteOptions options) throws NoriKVException {
+        ensureNotClosed();
+        validateNamespace(namespace);
+        validateVectorId(id);
+
+        return retryPolicy.execute(() -> {
+            ManagedChannel channel = getAnyChannel();
+
+            try {
+                return performVectorDelete(channel, namespace, id, options);
+            } catch (StatusRuntimeException e) {
+                throw convertGrpcException(e);
+            }
+        });
+    }
+
+    /**
+     * Searches for nearest neighbors.
+     *
+     * @param namespace the index namespace/name
+     * @param query the query vector
+     * @param k the number of nearest neighbors to return
+     * @param options optional search options (null for defaults)
+     * @return search results with matches and timing
+     * @throws NoriKVException if the operation fails
+     */
+    public VectorSearchResult vectorSearch(
+            String namespace,
+            List<Float> query,
+            int k,
+            VectorSearchOptions options) throws NoriKVException {
+        ensureNotClosed();
+        validateNamespace(namespace);
+        validateVector(query);
+        if (k <= 0) {
+            throw new NoriKVException("INVALID_ARGUMENT", "k must be greater than 0");
+        }
+
+        return retryPolicy.execute(() -> {
+            ManagedChannel channel = getAnyChannel();
+
+            try {
+                return performVectorSearch(channel, namespace, query, k, options);
+            } catch (StatusRuntimeException e) {
+                throw convertGrpcException(e);
+            }
+        });
+    }
+
+    /**
+     * Gets a vector by ID.
+     *
+     * @param namespace the index namespace/name
+     * @param id the vector ID
+     * @return the vector data, or null if not found
+     * @throws NoriKVException if the operation fails
+     */
+    public List<Float> vectorGet(String namespace, String id) throws NoriKVException {
+        ensureNotClosed();
+        validateNamespace(namespace);
+        validateVectorId(id);
+
+        return retryPolicy.execute(() -> {
+            ManagedChannel channel = getAnyChannel();
+
+            try {
+                return performVectorGet(channel, namespace, id);
             } catch (StatusRuntimeException e) {
                 throw convertGrpcException(e);
             }
@@ -411,6 +591,171 @@ public final class NoriKVClient implements AutoCloseable {
             default:
                 return new NoriKVException(code, message, e);
         }
+    }
+
+    /**
+     * Validates a namespace.
+     *
+     * @param namespace the namespace to validate
+     * @throws NoriKVException if the namespace is invalid
+     */
+    private void validateNamespace(String namespace) throws NoriKVException {
+        if (namespace == null || namespace.isEmpty()) {
+            throw new NoriKVException("INVALID_ARGUMENT", "Namespace cannot be null or empty");
+        }
+    }
+
+    /**
+     * Validates a vector ID.
+     *
+     * @param id the ID to validate
+     * @throws NoriKVException if the ID is invalid
+     */
+    private void validateVectorId(String id) throws NoriKVException {
+        if (id == null || id.isEmpty()) {
+            throw new NoriKVException("INVALID_ARGUMENT", "Vector ID cannot be null or empty");
+        }
+    }
+
+    /**
+     * Validates a vector.
+     *
+     * @param vector the vector to validate
+     * @throws NoriKVException if the vector is invalid
+     */
+    private void validateVector(List<Float> vector) throws NoriKVException {
+        if (vector == null || vector.isEmpty()) {
+            throw new NoriKVException("INVALID_ARGUMENT", "Vector cannot be null or empty");
+        }
+    }
+
+    /**
+     * Gets any available channel for non-key-routed operations.
+     *
+     * @return a gRPC channel
+     * @throws NoriKVException if no channels are available
+     */
+    private ManagedChannel getAnyChannel() throws NoriKVException {
+        List<String> nodes = config.getNodes();
+        if (nodes.isEmpty()) {
+            throw new ConnectionException("No nodes available", null);
+        }
+
+        // Try to get a channel from any node
+        for (String node : nodes) {
+            try {
+                return connectionPool.getChannel(node);
+            } catch (Exception e) {
+                // Try next node
+            }
+        }
+
+        throw new ConnectionException("Unable to connect to any node", null);
+    }
+
+    // =========================================================================
+    // Vector RPC Implementations
+    // =========================================================================
+
+    private boolean performVectorCreateIndex(
+            ManagedChannel channel,
+            String namespace,
+            int dimensions,
+            DistanceFunction distance,
+            VectorIndexType indexType,
+            CreateVectorIndexOptions options) throws NoriKVException {
+        VectorGrpc.VectorBlockingStub stub = VectorGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
+
+        Norikv.CreateVectorIndexRequest request = ProtoConverters.buildCreateVectorIndexRequest(
+                namespace, dimensions, distance, indexType, options);
+
+        Norikv.CreateVectorIndexResponse response = stub.createIndex(request);
+
+        return response.getCreated();
+    }
+
+    private boolean performVectorDropIndex(
+            ManagedChannel channel,
+            String namespace,
+            DropVectorIndexOptions options) throws NoriKVException {
+        VectorGrpc.VectorBlockingStub stub = VectorGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
+
+        Norikv.DropVectorIndexRequest request = ProtoConverters.buildDropVectorIndexRequest(
+                namespace, options);
+
+        Norikv.DropVectorIndexResponse response = stub.dropIndex(request);
+
+        return response.getDropped();
+    }
+
+    private Version performVectorInsert(
+            ManagedChannel channel,
+            String namespace,
+            String id,
+            List<Float> vector,
+            VectorInsertOptions options) throws NoriKVException {
+        VectorGrpc.VectorBlockingStub stub = VectorGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
+
+        Norikv.VectorInsertRequest request = ProtoConverters.buildVectorInsertRequest(
+                namespace, id, vector, options);
+
+        Norikv.VectorInsertResponse response = stub.insert(request);
+
+        return ProtoConverters.fromProto(response.getVersion());
+    }
+
+    private boolean performVectorDelete(
+            ManagedChannel channel,
+            String namespace,
+            String id,
+            VectorDeleteOptions options) throws NoriKVException {
+        VectorGrpc.VectorBlockingStub stub = VectorGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
+
+        Norikv.VectorDeleteRequest request = ProtoConverters.buildVectorDeleteRequest(
+                namespace, id, options);
+
+        Norikv.VectorDeleteResponse response = stub.delete(request);
+
+        return response.getDeleted();
+    }
+
+    private VectorSearchResult performVectorSearch(
+            ManagedChannel channel,
+            String namespace,
+            List<Float> query,
+            int k,
+            VectorSearchOptions options) throws NoriKVException {
+        VectorGrpc.VectorBlockingStub stub = VectorGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
+
+        Norikv.VectorSearchRequest request = ProtoConverters.buildVectorSearchRequest(
+                namespace, query, k, options);
+
+        Norikv.VectorSearchResponse response = stub.search(request);
+
+        return ProtoConverters.fromProto(response);
+    }
+
+    private List<Float> performVectorGet(
+            ManagedChannel channel,
+            String namespace,
+            String id) throws NoriKVException {
+        VectorGrpc.VectorBlockingStub stub = VectorGrpc.newBlockingStub(channel)
+                .withDeadlineAfter(config.getTimeoutMs(), TimeUnit.MILLISECONDS);
+
+        Norikv.VectorGetRequest request = ProtoConverters.buildVectorGetRequest(namespace, id);
+
+        Norikv.VectorGetResponse response = stub.get(request);
+
+        if (!response.getFound()) {
+            return null;
+        }
+
+        return new ArrayList<>(response.getVectorList());
     }
 
     /**

@@ -146,6 +146,17 @@ class RetryExhaustedError(NoriKVError):
         )
 
 
+class NotFoundError(NoriKVError):
+    """Error indicating the requested key or resource was not found."""
+
+    def __init__(self, message: str, id: Optional[str] = None):
+        super().__init__(message, "NOT_FOUND")
+        self.id = id
+
+    def __repr__(self) -> str:
+        return f"NotFoundError(message={str(self)!r}, id={self.id!r})"
+
+
 def from_grpc_error(error: Any, metadata: Optional[Any] = None) -> NoriKVError:
     """Convert gRPC status code to NoriKV error.
 
@@ -199,6 +210,9 @@ def from_grpc_error(error: Any, metadata: Optional[Any] = None) -> NoriKVError:
 
     if code == 9:  # FAILED_PRECONDITION (version mismatch)
         return VersionMismatchError(message, b"", None, None)
+
+    if code == 5:  # NOT_FOUND
+        return NotFoundError(message)
 
     # Default to base NoriKVError
     return NoriKVError(message, str(code) if code is not None else None)

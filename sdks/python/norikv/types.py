@@ -231,3 +231,88 @@ class RouteInfo:
 
     replica_addrs: List[str]
     """All replica addresses for this shard."""
+
+
+# ============================================================================
+# Vector Types
+# ============================================================================
+
+
+class DistanceFunction(str, Enum):
+    """Distance function for vector similarity."""
+
+    EUCLIDEAN = "euclidean"
+    COSINE = "cosine"
+    INNER_PRODUCT = "inner_product"
+
+
+class VectorIndexType(str, Enum):
+    """Vector index type."""
+
+    BRUTE_FORCE = "brute_force"
+    HNSW = "hnsw"
+
+
+@dataclass
+class VectorMatch:
+    """A vector search match result."""
+
+    id: str
+    """ID of the matching vector."""
+
+    distance: float
+    """Distance from the query vector."""
+
+    vector: Optional[List[float]] = None
+    """Vector data (only included if include_vectors was set)."""
+
+
+@dataclass
+class VectorSearchResult:
+    """Result of a vector search."""
+
+    matches: List[VectorMatch]
+    """Nearest neighbors, sorted by distance."""
+
+    search_time_us: int
+    """Search time in microseconds."""
+
+
+@dataclass
+class CreateVectorIndexOptions:
+    """Options for creating a vector index."""
+
+    idempotency_key: Optional[str] = None
+    """Idempotency key for safe retries."""
+
+
+@dataclass
+class DropVectorIndexOptions:
+    """Options for dropping a vector index."""
+
+    idempotency_key: Optional[str] = None
+    """Idempotency key for safe retries."""
+
+
+@dataclass
+class VectorInsertOptions:
+    """Options for inserting a vector."""
+
+    idempotency_key: Optional[str] = None
+    """Idempotency key for safe retries."""
+
+
+@dataclass
+class VectorDeleteOptions:
+    """Options for deleting a vector."""
+
+    idempotency_key: Optional[str] = None
+    """Idempotency key for safe retries."""
+
+
+@dataclass
+class VectorSearchOptions:
+    """Options for vector search."""
+
+    include_vectors: bool = False
+    """Include full vector data in results."""

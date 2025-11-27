@@ -1,18 +1,28 @@
 """NoriKV Python client implementation."""
 
 import asyncio
-from typing import Optional
+from typing import List, Optional
 
 from norikv._internal.connection import ConnectionPool
 from norikv._internal.topology import TopologyManager
 from norikv._internal.router import Router
 from norikv._internal.retry import RetryPolicy
-from norikv.errors import InvalidArgumentError, from_grpc_error
+from norikv.errors import InvalidArgumentError, NoNodesAvailableError, from_grpc_error
 from norikv.hash import get_shard_for_key, key_to_bytes, value_to_bytes
 from norikv.proto import (
     DeleteRequest,
     GetRequest,
     PutRequest,
+    # Vector types
+    CreateVectorIndexRequest,
+    DropVectorIndexRequest,
+    VectorInsertRequest,
+    VectorDeleteRequest,
+    VectorSearchRequest,
+    VectorGetRequest,
+    VectorStub,
+    DistanceFunction as ProtoDistanceFunction,
+    VectorIndexType as ProtoVectorIndexType,
 )
 from norikv.types import (
     ClientConfig,
@@ -21,6 +31,16 @@ from norikv.types import (
     GetResult,
     PutOptions,
     Version,
+    # Vector types
+    DistanceFunction,
+    VectorIndexType,
+    VectorMatch,
+    VectorSearchResult,
+    CreateVectorIndexOptions,
+    DropVectorIndexOptions,
+    VectorInsertOptions,
+    VectorDeleteOptions,
+    VectorSearchOptions,
 )
 
 
@@ -264,3 +284,338 @@ class NoriKVClient:
             Shard ID (0 to total_shards-1)
         """
         return get_shard_for_key(key, self._config.total_shards)
+
+    # =========================================================================
+    # Vector Operations
+    # =========================================================================
+
+    async def vector_create_index(
+        self,
+        namespace: str,
+        dimensions: int,
+        distance: DistanceFunction,
+        index_type: VectorIndexType,
+        options: Optional[CreateVectorIndexOptions] = None,
+    ) -> bool:
+        """Create a vector index.
+
+        Args:
+            namespace: The namespace/index name
+            dimensions: Number of dimensions for vectors
+            distance: Distance function (euclidean, cosine, inner_product)
+            index_type: Index type (brute_force, hnsw)
+            options: Create options
+
+        Returns:
+            True if created, False if already existed
+        """
+        if not self._connected:
+            raise InvalidArgumentError("Client not connected")
+
+        if not namespace:
+            raise InvalidArgumentError("namespace cannot be empty")
+
+        if dimensions <= 0:
+            raise InvalidArgumentError("dimensions must be greater than 0")
+
+        opts = options or CreateVectorIndexOptions()
+
+        # Map to proto enum values
+        proto_distance = self._to_proto_distance_function(distance)
+        proto_index_type = self._to_proto_vector_index_type(index_type)
+
+        request = CreateVectorIndexRequest(
+            namespace=namespace,
+            dimensions=dimensions,
+            distance=proto_distance,
+            index_type=proto_index_type,
+            idempotency_key=opts.idempotency_key or "",
+        )
+
+        async def operation():
+            channel = await self._get_any_channel()
+            stub = VectorStub(channel)
+            return await stub.CreateIndex(
+                request, timeout=self._config.timeout / 1000.0
+            )
+
+        response = await self._retry_policy.execute_with_retry(
+            operation, operation_name="VectorCreateIndex"
+        )
+        return response.created
+
+    async def vector_drop_index(
+        self,
+        namespace: str,
+        options: Optional[DropVectorIndexOptions] = None,
+    ) -> bool:
+        """Drop a vector index.
+
+        Args:
+            namespace: The namespace/index name to drop
+            options: Drop options
+
+        Returns:
+            True if dropped, False if didn't exist
+        """
+        if not self._connected:
+            raise InvalidArgumentError("Client not connected")
+
+        if not namespace:
+            raise InvalidArgumentError("namespace cannot be empty")
+
+        opts = options or DropVectorIndexOptions()
+
+        request = DropVectorIndexRequest(
+            namespace=namespace,
+            idempotency_key=opts.idempotency_key or "",
+        )
+
+        async def operation():
+            channel = await self._get_any_channel()
+            stub = VectorStub(channel)
+            return await stub.DropIndex(
+                request, timeout=self._config.timeout / 1000.0
+            )
+
+        response = await self._retry_policy.execute_with_retry(
+            operation, operation_name="VectorDropIndex"
+        )
+        return response.dropped
+
+    async def vector_insert(
+        self,
+        namespace: str,
+        id: str,
+        vector: List[float],
+        options: Optional[VectorInsertOptions] = None,
+    ) -> Version:
+        """Insert a vector into an index.
+
+        Args:
+            namespace: The namespace/index name
+            id: Unique ID for the vector
+            vector: The vector data
+            options: Insert options
+
+        Returns:
+            Version of the inserted vector
+        """
+        if not self._connected:
+            raise InvalidArgumentError("Client not connected")
+
+        if not namespace:
+            raise InvalidArgumentError("namespace cannot be empty")
+
+        if not id:
+            raise InvalidArgumentError("id cannot be empty")
+
+        if not vector:
+            raise InvalidArgumentError("vector cannot be empty")
+
+        opts = options or VectorInsertOptions()
+
+        request = VectorInsertRequest(
+            namespace=namespace,
+            id=id,
+            vector=vector,
+            idempotency_key=opts.idempotency_key or "",
+        )
+
+        async def operation():
+            channel = await self._get_any_channel()
+            stub = VectorStub(channel)
+            return await stub.Insert(
+                request, timeout=self._config.timeout / 1000.0
+            )
+
+        response = await self._retry_policy.execute_with_retry(
+            operation, operation_name="VectorInsert"
+        )
+        return Version(term=response.version.term, index=response.version.index)
+
+    async def vector_delete(
+        self,
+        namespace: str,
+        id: str,
+        options: Optional[VectorDeleteOptions] = None,
+    ) -> bool:
+        """Delete a vector from an index.
+
+        Args:
+            namespace: The namespace/index name
+            id: ID of the vector to delete
+            options: Delete options
+
+        Returns:
+            True if deleted, False if didn't exist
+        """
+        if not self._connected:
+            raise InvalidArgumentError("Client not connected")
+
+        if not namespace:
+            raise InvalidArgumentError("namespace cannot be empty")
+
+        if not id:
+            raise InvalidArgumentError("id cannot be empty")
+
+        opts = options or VectorDeleteOptions()
+
+        request = VectorDeleteRequest(
+            namespace=namespace,
+            id=id,
+            idempotency_key=opts.idempotency_key or "",
+        )
+
+        async def operation():
+            channel = await self._get_any_channel()
+            stub = VectorStub(channel)
+            return await stub.Delete(
+                request, timeout=self._config.timeout / 1000.0
+            )
+
+        response = await self._retry_policy.execute_with_retry(
+            operation, operation_name="VectorDelete"
+        )
+        return response.deleted
+
+    async def vector_search(
+        self,
+        namespace: str,
+        query: List[float],
+        k: int,
+        options: Optional[VectorSearchOptions] = None,
+    ) -> VectorSearchResult:
+        """Search for nearest neighbors.
+
+        Args:
+            namespace: The namespace/index name
+            query: Query vector
+            k: Number of nearest neighbors to return
+            options: Search options
+
+        Returns:
+            Search results with matches and timing
+        """
+        if not self._connected:
+            raise InvalidArgumentError("Client not connected")
+
+        if not namespace:
+            raise InvalidArgumentError("namespace cannot be empty")
+
+        if not query:
+            raise InvalidArgumentError("query vector cannot be empty")
+
+        if k <= 0:
+            raise InvalidArgumentError("k must be greater than 0")
+
+        opts = options or VectorSearchOptions()
+
+        request = VectorSearchRequest(
+            namespace=namespace,
+            query=query,
+            k=k,
+            include_vectors=opts.include_vectors,
+        )
+
+        async def operation():
+            channel = await self._get_any_channel()
+            stub = VectorStub(channel)
+            return await stub.Search(
+                request, timeout=self._config.timeout / 1000.0
+            )
+
+        response = await self._retry_policy.execute_with_retry(
+            operation, operation_name="VectorSearch"
+        )
+
+        matches = [
+            VectorMatch(
+                id=m.id,
+                distance=m.distance,
+                vector=list(m.vector) if m.vector else None,
+            )
+            for m in response.matches
+        ]
+
+        return VectorSearchResult(
+            matches=matches,
+            search_time_us=response.search_time_us,
+        )
+
+    async def vector_get(
+        self,
+        namespace: str,
+        id: str,
+    ) -> Optional[List[float]]:
+        """Get a vector by ID.
+
+        Args:
+            namespace: The namespace/index name
+            id: ID of the vector
+
+        Returns:
+            The vector data, or None if not found
+        """
+        if not self._connected:
+            raise InvalidArgumentError("Client not connected")
+
+        if not namespace:
+            raise InvalidArgumentError("namespace cannot be empty")
+
+        if not id:
+            raise InvalidArgumentError("id cannot be empty")
+
+        request = VectorGetRequest(
+            namespace=namespace,
+            id=id,
+        )
+
+        async def operation():
+            channel = await self._get_any_channel()
+            stub = VectorStub(channel)
+            return await stub.Get(
+                request, timeout=self._config.timeout / 1000.0
+            )
+
+        response = await self._retry_policy.execute_with_retry(
+            operation, operation_name="VectorGet"
+        )
+
+        if not response.found:
+            return None
+        return list(response.vector) if response.vector else None
+
+    async def _get_any_channel(self):
+        """Get any available gRPC channel for non-key-routed operations."""
+        nodes = self._topology.get_nodes()
+        if not nodes:
+            nodes = self._config.nodes
+
+        for addr in nodes:
+            try:
+                return await self._pool.get_channel(addr)
+            except Exception:
+                continue
+
+        raise NoNodesAvailableError()
+
+    def _to_proto_distance_function(self, distance: DistanceFunction) -> int:
+        """Convert SDK DistanceFunction to proto enum value."""
+        if distance == DistanceFunction.EUCLIDEAN:
+            return ProtoDistanceFunction.DISTANCE_FUNCTION_EUCLIDEAN
+        elif distance == DistanceFunction.COSINE:
+            return ProtoDistanceFunction.DISTANCE_FUNCTION_COSINE
+        elif distance == DistanceFunction.INNER_PRODUCT:
+            return ProtoDistanceFunction.DISTANCE_FUNCTION_INNER_PRODUCT
+        else:
+            return ProtoDistanceFunction.DISTANCE_FUNCTION_UNSPECIFIED
+
+    def _to_proto_vector_index_type(self, index_type: VectorIndexType) -> int:
+        """Convert SDK VectorIndexType to proto enum value."""
+        if index_type == VectorIndexType.BRUTE_FORCE:
+            return ProtoVectorIndexType.VECTOR_INDEX_TYPE_BRUTE_FORCE
+        elif index_type == VectorIndexType.HNSW:
+            return ProtoVectorIndexType.VECTOR_INDEX_TYPE_HNSW
+        else:
+            return ProtoVectorIndexType.VECTOR_INDEX_TYPE_UNSPECIFIED

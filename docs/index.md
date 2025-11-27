@@ -1,181 +1,245 @@
 ---
-layout: default
-title: Home
-nav_order: 1
-description: "NoriKV Documentation - Sharded, Raft-replicated, log-structured key-value store"
-permalink: /
+hide:
+  - navigation
+  - toc
 ---
 
-# NoriKV Documentation
+# NoriKV
 
-Welcome to the comprehensive documentation for **NoriKV** - a sharded, Raft-replicated, log-structured key-value store with first-class observability.
+<div class="hero" markdown>
 
-## What is NoriKV?
+## Distributed KV Store Built for Scale
 
-NoriKV is a distributed key-value store designed for:
-- **High availability** through Raft consensus
-- **Horizontal scalability** via consistent hashing and sharding
-- **Performance** with LSM-tree storage engine
-- **Observability** with first-class metrics and tracing
-- **Multi-language support** with SDKs for Java, Go, TypeScript, and Python
+A **sharded, Raft-replicated, log-structured key-value store** with first-class observability and multi-language SDKs.
 
-## Quick Navigation
+[Get Started](sdks/getting-started.md){ .md-button .md-button--primary }
+[View on GitHub](https://github.com/j-haj/nori){ .md-button }
 
-### [Client SDKs](./sdks/)
-Get started with NoriKV in your preferred language:
-- **[Java SDK](./sdks/java/)** - Production-ready with 123 tests, comprehensive guides
-- **[Go SDK](./sdks/go/)** - High-performance with zero-allocation routing
-- **[TypeScript SDK](./sdks/typescript/)** - Full type safety, async/await
-- **[Python SDK](./sdks/python/)** - Asyncio-based, type hints
-
-### Architecture & Internals
-Understand how NoriKV works:
-- **[Storage Engine](./architecture/)** - LSM-tree with WAL, SSTables, and compaction
-- **[Consensus](./architecture/)** - Raft protocol with read-index and leases
-- **[Membership](./architecture/)** - SWIM-based failure detection
-- **[Sharding](./architecture/multi-shard-server)** - Jump consistent hashing with 1024 virtual shards
-- **[Multi-Shard Server](./architecture/multi-shard-server)** - How 1024 virtual shards are managed
-- **[SWIM Topology Tracking](./architecture/swim-topology)** - Real-time cluster membership
-
-### Operations
-Deploy and manage NoriKV:
-- **[REST API](./operations/rest-api)** - HTTP endpoints for health and metrics
-- **[Metrics](./operations/metrics)** - Prometheus metrics reference and monitoring
-- **[Configuration](./operations/)** - Tuning parameters
-- **[Deployment](./operations/)** - Production deployment patterns
-- **[Troubleshooting](./operations/)** - Common issues and solutions
-
-## Features
-
-### Storage & Performance
-- **LSM-tree storage** with write-ahead log (WAL)
-- **SSTable format** with bloom filters and compression
-- **Automatic compaction** with configurable strategies
-- **Snapshots** for fast recovery and backups
-
-### Distributed Consensus
-- **Raft consensus** for strong consistency
-- **Read-index protocol** for linearizable reads
-- **Leader leases** for fast reads without quorum
-- **Joint consensus** for safe membership changes
-
-### Client Features
-- **Smart routing** - Direct requests to shard leaders
-- **Automatic retries** with exponential backoff
-- **Connection pooling** for efficient resource use
-- **CAS operations** for optimistic concurrency control
-- **TTL support** for automatic expiration
-- **Consistency levels** - Choose between speed and consistency
-
-## Getting Started
-
-### Choose Your SDK
-
-| Language | Status | Tests | Documentation |
-|----------|--------|-------|---------------|
-| [Java](./sdks/java/) | Production | 123/123 | Excellent |
-| [Go](./sdks/go/) | Production | 102+ | Excellent |
-| [TypeScript](./sdks/typescript/) | Production | 100+ | Good |
-| [Python](./sdks/python/) | Production | 40 | Good |
-
-### Installation
-
-Choose your preferred language and follow the SDK-specific guides:
-
-**Java (Maven)**
-```xml
-<dependency>
-    <groupId>com.norikv</groupId>
-    <artifactId>norikv-client</artifactId>
-    <version>0.1.0</version>
-</dependency>
-```
-
-**Go**
-```bash
-go get github.com/norikv/norikv-go
-```
-
-**TypeScript/JavaScript**
-```bash
-npm install @norikv/client
-```
-
-**Python**
-```bash
-pip install norikv
-```
-
-### Quick Example
-
-**Java**
-```java
-try (NoriKVClient client = new NoriKVClient(config)) {
-    Version version = client.put(key, value, null);
-    GetResult result = client.get(key, null);
-    client.delete(key, null);
-}
-```
-
-**Go**
-```go
-client, _ := norikv.NewClient(ctx, config)
-defer client.Close()
-
-version, _ := client.Put(ctx, key, value, nil)
-result, _ := client.Get(ctx, key, nil)
-client.Delete(ctx, key, nil)
-```
-
-**TypeScript**
-```typescript
-const client = new NoriKVClient(config);
-await client.connect();
-
-await client.put(key, value);
-const result = await client.get(key);
-await client.delete(key);
-```
-
-**Python**
-```python
-async with NoriKVClient(config) as client:
-    version = await client.put(key, value)
-    result = await client.get(key)
-    await client.delete(key)
-```
-
-## Documentation Structure
-
-This documentation is organized into several sections:
-
-- **[SDKs](./sdks/)** - Client library documentation for all languages
-  - API references, architecture guides, troubleshooting
-  - Advanced patterns and real-world examples
-
-- **Architecture** - Internal design and implementation
-  - Storage engine details
-  - Consensus protocol
-  - Membership and failure detection
-
-- **Operations** - Deployment and management
-  - Installation guides
-  - Configuration reference
-  - Monitoring and metrics
-  - Troubleshooting
-
-## Support & Contributing
-
-- **GitHub Repository**: [github.com/j-haj/nori](https://github.com/j-haj/nori)
-- **Issue Tracker**: [GitHub Issues](https://github.com/j-haj/nori/issues)
-- **Contributing**: See [CONTRIBUTING.md](https://github.com/j-haj/nori/blob/main/CONTRIBUTING.md)
-
-## License
-
-NoriKV is distributed under the **MIT OR Apache-2.0** license.
+</div>
 
 ---
 
-<div class="callout note">
-  <p><strong>Note:</strong> This documentation is for NoriKV version 0.1.x. For older versions, see the <a href="https://github.com/j-haj/nori/releases">releases page</a>.</p>
+<div class="grid cards" markdown>
+
+-   :material-server-network:{ .lg .middle } **Distributed by Design**
+
+    ---
+
+    Raft consensus for strong consistency with automatic leader election and failover. No single point of failure.
+
+    [:octicons-arrow-right-24: Architecture](architecture/index.md)
+
+-   :material-chart-line:{ .lg .middle } **LSM-Tree Storage**
+
+    ---
+
+    High-performance log-structured merge tree with WAL, SSTables, bloom filters, and automatic compaction.
+
+    [:octicons-arrow-right-24: Storage Crates](crates/index.md)
+
+-   :material-scale-balance:{ .lg .middle } **Smart Sharding**
+
+    ---
+
+    Jump consistent hashing with 1024 virtual shards. Client-side routing directly to shard leaders.
+
+    [:octicons-arrow-right-24: Multi-Shard Server](architecture/multi-shard-server.md)
+
+-   :material-language-python:{ .lg .middle } **Multi-Language SDKs**
+
+    ---
+
+    Production-ready clients for Java, Go, TypeScript, and Python with identical APIs and behavior.
+
+    [:octicons-arrow-right-24: Client SDKs](sdks/index.md)
+
+</div>
+
+---
+
+## Quick Example
+
+=== "Java"
+
+    ```java
+    ClientConfig config = ClientConfig.builder()
+        .nodes("localhost:9001", "localhost:9002", "localhost:9003")
+        .totalShards(1024)
+        .build();
+
+    try (NoriKVClient client = new NoriKVClient(config)) {
+        // Put a value
+        Version version = client.put("user:123".getBytes(),
+            "{\"name\":\"Alice\"}".getBytes(), null);
+
+        // Get the value
+        GetResult result = client.get("user:123".getBytes(), null);
+        System.out.println(new String(result.getValue()));
+
+        // Conditional update (CAS)
+        PutOptions options = PutOptions.builder()
+            .ifMatchVersion(version)
+            .build();
+        client.put("user:123".getBytes(), newValue, options);
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    config := norikv.ClientConfig{
+        Nodes:       []string{"localhost:9001", "localhost:9002", "localhost:9003"},
+        TotalShards: 1024,
+    }
+
+    client, err := norikv.NewClient(ctx, config)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    // Put a value
+    version, err := client.Put(ctx, []byte("user:123"),
+        []byte(`{"name":"Alice"}`), nil)
+
+    // Get the value
+    result, err := client.Get(ctx, []byte("user:123"), nil)
+    fmt.Println(string(result.Value))
+
+    // Conditional update (CAS)
+    _, err = client.Put(ctx, []byte("user:123"), newValue,
+        &norikv.PutOptions{IfMatchVersion: version})
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    const client = new NoriKVClient({
+      nodes: ['localhost:9001', 'localhost:9002', 'localhost:9003'],
+      totalShards: 1024,
+    });
+
+    await client.connect();
+
+    // Put a value
+    const version = await client.put('user:123', '{"name":"Alice"}');
+
+    // Get the value
+    const result = await client.get('user:123');
+    console.log(bytesToString(result.value));
+
+    // Conditional update (CAS)
+    await client.put('user:123', newValue, { ifMatchVersion: version });
+
+    await client.close();
+    ```
+
+=== "Python"
+
+    ```python
+    config = ClientConfig(
+        nodes=["localhost:9001", "localhost:9002", "localhost:9003"],
+        total_shards=1024,
+    )
+
+    async with NoriKVClient(config) as client:
+        # Put a value
+        version = await client.put("user:123", '{"name":"Alice"}')
+
+        # Get the value
+        result = await client.get("user:123")
+        print(result.value.decode())
+
+        # Conditional update (CAS)
+        await client.put("user:123", new_value,
+            PutOptions(if_match_version=version))
+    ```
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          NoriKV Cluster                              │
+├─────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │    Node 1    │  │    Node 2    │  │    Node 3    │              │
+│  │   (Leader)   │  │  (Follower)  │  │  (Follower)  │              │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘              │
+│         └─────────────────┼─────────────────┘                       │
+│                           │ Raft                                    │
+│         ┌─────────────────┼─────────────────┐                       │
+│  ┌──────▼───────┐  ┌──────▼───────┐  ┌──────▼───────┐              │
+│  │  LSM Engine  │  │  LSM Engine  │  │  LSM Engine  │              │
+│  │  WAL + SST   │  │  WAL + SST   │  │  WAL + SST   │              │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+└─────────────────────────────────────────────────────────────────────┘
+                           ▲
+                           │ gRPC
+┌──────────────────────────┴──────────────────────────┐
+│                    Smart Clients                     │
+│  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌────────┐ │
+│  │  Java   │  │   Go    │  │TypeScript│  │ Python │ │
+│  └─────────┘  └─────────┘  └──────────┘  └────────┘ │
+└─────────────────────────────────────────────────────┘
+```
+
+[:octicons-arrow-right-24: Learn more about Architecture](architecture/index.md)
+
+---
+
+## Design Principles
+
+<div class="grid" markdown>
+
+!!! info "Strong Consistency"
+    Raft consensus ensures linearizable operations. Every write is replicated to a quorum before acknowledgment.
+
+!!! success "Smart Routing"
+    Clients route directly to shard leaders. No proxy layer bottleneck. Automatic retry on failover.
+
+!!! tip "Observable"
+    First-class Prometheus metrics, structured logging, and distributed tracing support.
+
+!!! example "Production-Ready"
+    Comprehensive test suites across all SDKs. Battle-tested at scale.
+
+</div>
+
+---
+
+## Choose Your SDK
+
+| Language | Status | Tests | Key Features |
+|----------|--------|-------|--------------|
+| [**Java**](sdks/java/index.md) | Production | 123+ | Thread-safe, connection pooling |
+| [**Go**](sdks/go/index.md) | Production | 102+ | Zero-allocation routing, context support |
+| [**TypeScript**](sdks/typescript/index.md) | Production | 100+ | Full type safety, async/await |
+| [**Python**](sdks/python/index.md) | Production | 40+ | Asyncio-based, type hints |
+
+---
+
+## Get Started
+
+<div class="grid cards" markdown>
+
+-   :material-rocket-launch:{ .lg } **Quick Start**
+
+    Get up and running in 5 minutes with a simple key-value example.
+
+    [:octicons-arrow-right-24: Quick Start](sdks/getting-started.md)
+
+-   :material-book-open-variant:{ .lg } **SDK Documentation**
+
+    Comprehensive guides for Java, Go, TypeScript, and Python clients.
+
+    [:octicons-arrow-right-24: Client SDKs](sdks/index.md)
+
+-   :material-cog:{ .lg } **Operations Guide**
+
+    Deploy, configure, and monitor your NoriKV cluster.
+
+    [:octicons-arrow-right-24: Operations](operations/index.md)
+
 </div>

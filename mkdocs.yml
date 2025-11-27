@@ -1,0 +1,189 @@
+# NoriKV Documentation
+site_name: NoriKV
+site_description: A sharded, Raft-replicated, log-structured key-value store with first-class observability
+site_url: https://norikv.dev
+repo_url: https://github.com/j-haj/nori
+repo_name: j-haj/nori
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: teal
+    accent: amber
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/j-haj/nori
+  generator: false
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+plugins:
+  - search
+  - tags
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: sdks/getting-started.md
+    - Hash Compatibility: sdks/hash-compatibility.md
+    - Error Reference: sdks/error-reference.md
+  - SDKs:
+    - Overview: sdks/index.md
+    - Java:
+      - Overview: sdks/java/index.md
+      - API Guide: sdks/java/API_GUIDE.md
+      - Architecture: sdks/java/ARCHITECTURE.md
+      - Advanced Patterns: sdks/java/ADVANCED_PATTERNS.md
+      - Troubleshooting: sdks/java/TROUBLESHOOTING.md
+    - Go:
+      - Overview: sdks/go/index.md
+      - API Guide: sdks/go/API_GUIDE.md
+      - Architecture: sdks/go/ARCHITECTURE.md
+      - Advanced Patterns: sdks/go/ADVANCED_PATTERNS.md
+      - Troubleshooting: sdks/go/TROUBLESHOOTING.md
+    - TypeScript:
+      - Overview: sdks/typescript/index.md
+      - API Guide: sdks/typescript/API_GUIDE.md
+      - Architecture: sdks/typescript/ARCHITECTURE.md
+      - Advanced Patterns: sdks/typescript/ADVANCED_PATTERNS.md
+      - Troubleshooting: sdks/typescript/TROUBLESHOOTING.md
+    - Python:
+      - Overview: sdks/python/index.md
+      - API Guide: sdks/python/API_GUIDE.md
+      - Architecture: sdks/python/ARCHITECTURE.md
+      - Advanced Patterns: sdks/python/ADVANCED_PATTERNS.md
+      - Troubleshooting: sdks/python/TROUBLESHOOTING.md
+  - Architecture:
+    - Overview: architecture/index.md
+    - Multi-Shard Server: architecture/multi-shard-server.md
+    - SWIM Topology: architecture/swim-topology.md
+  - Storage Crates:
+    - Overview: crates/index.md
+    - nori-wal:
+      - Overview: crates/nori-wal/index.md
+      - Getting Started:
+        - Installation: crates/nori-wal/getting-started/installation.md
+        - Quick Start: crates/nori-wal/getting-started/quickstart.md
+        - Configuration: crates/nori-wal/getting-started/configuration.md
+      - Core Concepts:
+        - What is WAL?: crates/nori-wal/core-concepts/what-is-wal.md
+        - When to Use: crates/nori-wal/core-concepts/when-to-use.md
+        - Append-Only: crates/nori-wal/core-concepts/append-only.md
+        - Fsync Policies: crates/nori-wal/core-concepts/fsync-policies.md
+        - Recovery Guarantees: crates/nori-wal/core-concepts/recovery-guarantees.md
+      - How It Works:
+        - Record Format: crates/nori-wal/how-it-works/record-format.md
+        - Segment Lifecycle: crates/nori-wal/how-it-works/segment-lifecycle.md
+        - Recovery: crates/nori-wal/how-it-works/recovery.md
+        - Concurrency: crates/nori-wal/how-it-works/concurrency.md
+      - Performance:
+        - Benchmarks: crates/nori-wal/performance/benchmarks.md
+        - Tuning: crates/nori-wal/performance/tuning.md
+        - Hardware: crates/nori-wal/performance/hardware.md
+    - nori-sstable:
+      - Overview: crates/nori-sstable/index.md
+      - Getting Started: crates/nori-sstable/getting-started.md
+      - Core Concepts:
+        - What is SSTable?: crates/nori-sstable/core-concepts/what-is-sstable.md
+        - When to Use: crates/nori-sstable/core-concepts/when-to-use.md
+        - Block-Based Storage: crates/nori-sstable/core-concepts/block-based-storage.md
+        - Bloom Filters: crates/nori-sstable/core-concepts/bloom-filters.md
+        - Compression: crates/nori-sstable/core-concepts/compression-fundamentals.md
+      - How It Works:
+        - File Format: crates/nori-sstable/how-it-works/file-format.md
+      - Performance:
+        - Benchmarks: crates/nori-sstable/performance/benchmarks.md
+        - Tuning: crates/nori-sstable/performance/tuning.md
+    - nori-lsm:
+      - Overview: crates/nori-lsm/index.md
+      - Core Concepts:
+        - What is LSM?: crates/nori-lsm/core-concepts/what-is-lsm.md
+        - When to Use: crates/nori-lsm/core-concepts/when-to-use.md
+        - Write Path: crates/nori-lsm/core-concepts/write-path.md
+        - Read Path: crates/nori-lsm/core-concepts/read-path.md
+        - LSM Variants: crates/nori-lsm/core-concepts/lsm-variants.md
+      - How It Works:
+        - Memtable Management: crates/nori-lsm/how-it-works/memtable-management.md
+        - Flush Process: crates/nori-lsm/how-it-works/flush-process.md
+        - Compaction Lifecycle: crates/nori-lsm/how-it-works/compaction-lifecycle.md
+        - Slot Routing: crates/nori-lsm/how-it-works/slot-routing.md
+        - Snapshot Process: crates/nori-lsm/how-it-works/snapshot-process.md
+      - Design Decisions:
+        - Adaptive K-Fanout: crates/nori-lsm/design-decisions/adaptive-k-fanout.md
+        - Bandit Scheduler: crates/nori-lsm/design-decisions/bandit-scheduler.md
+        - Guard-Based Partitioning: crates/nori-lsm/design-decisions/guard-based-partitioning.md
+        - Heat Tracking: crates/nori-lsm/design-decisions/heat-tracking.md
+        - Memory Pressure: crates/nori-lsm/design-decisions/memory-pressure.md
+  - Operations:
+    - Overview: operations/index.md
+    - REST API: operations/rest-api.md
+    - Metrics: operations/metrics.md
+    - Configuration: operations/configuration.md
+    - Deployment: operations/deployment.md
+    - Troubleshooting: operations/troubleshooting.md

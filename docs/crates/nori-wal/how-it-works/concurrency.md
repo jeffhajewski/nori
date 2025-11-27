@@ -1,21 +1,8 @@
----
-layout: default
-title: Concurrency Model
-parent: How It Works
-nav_order: 3
----
-
 # Concurrency Model
-{: .no_toc }
 
 How nori-wal handles concurrent reads and writes safely and efficiently.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

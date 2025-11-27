@@ -1,11 +1,3 @@
----
-layout: default
-title: API Guide
-parent: TypeScript SDK
-grand_parent: Client SDKs
-nav_order: 1
----
-
 # NoriKV TypeScript Client API Guide
 
 Complete reference for the NoriKV TypeScript/JavaScript Client SDK.
@@ -618,7 +610,7 @@ main().catch(console.error);
 
 ## Next Steps
 
-- [Architecture Guide](ARCHITECTURE.html) - Understanding client internals
-- [Troubleshooting Guide](TROUBLESHOOTING.html) - Solving common issues
-- [Advanced Patterns](ADVANCED_PATTERNS.html) - Complex use cases
+- [Architecture Guide](ARCHITECTURE.md) - Understanding client internals
+- [Troubleshooting Guide](TROUBLESHOOTING.md) - Solving common issues
+- [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
 - [Examples](https://github.com/j-haj/nori/tree/main/sdks/typescript/examples) - Working code samples

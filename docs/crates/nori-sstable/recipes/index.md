@@ -1,17 +1,6 @@
----
-layout: default
-title: Recipes
-nav_order: 6
-has_children: true
-parent: nori-sstable
-grand_parent: Crates
----
-
 # Recipes
-{: .no_toc }
 
 Common patterns and practical examples for using nori-sstable.
-{: .fs-6 .fw-300 }
 
 ---
 

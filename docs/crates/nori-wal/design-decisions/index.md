@@ -1,16 +1,6 @@
----
-layout: default
-title: Design Decisions
-nav_order: 7
-has_children: true
-parent: nori-wal
-grand_parent: Crates
----
-
 # Design Decisions
 
 Why nori-wal is built the way it is.
-{: .fs-6 .fw-300 }
 
 This section documents the key architectural and implementation decisions made in nori-wal, including the rationale behind each choice and alternative approaches that were considered.
 

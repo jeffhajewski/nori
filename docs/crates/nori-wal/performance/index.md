@@ -1,16 +1,6 @@
----
-layout: default
-title: Performance
-nav_order: 9
-has_children: true
-parent: nori-wal
-grand_parent: Crates
----
-
 # Performance
 
 Benchmarks, optimization guides, and performance tuning for nori-wal.
-{: .fs-6 .fw-300 }
 
 This section helps you understand nori-wal's performance characteristics and optimize for your workload.
 

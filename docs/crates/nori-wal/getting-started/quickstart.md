@@ -1,21 +1,8 @@
----
-layout: default
-title: 5-Minute Quickstart
-parent: Getting Started
-nav_order: 1
----
-
 # 5-Minute Quickstart
-{: .no_toc }
 
 Get up and running with nori-wal in under 5 minutes.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

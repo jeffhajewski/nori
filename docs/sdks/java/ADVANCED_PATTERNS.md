@@ -1,11 +1,3 @@
----
-layout: default
-title: Advanced Patterns
-parent: Java SDK
-grand_parent: Client SDKs
-nav_order: 4
----
-
 # Advanced Patterns for NoriKV Java Client
 
 Complex use cases and design patterns for production systems.

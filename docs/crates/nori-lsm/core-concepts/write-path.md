@@ -1,22 +1,6 @@
----
-layout: default
-title: Write Path
-parent: Core Concepts
-grand_parent: nori-lsm
-nav_order: 4
----
-
 # Write Path
-{: .no_toc }
 
 How writes flow through nori-lsm from `put()` call to persistent storage, including WAL durability, memtable buffering, L0 flushes, and compaction.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -76,36 +76,6 @@
     margin-top: 3rem;
 }
 
-/* SDK language badges */
-.language-badge {
-    display: inline-block;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-.language-badge.java {
-    background-color: rgba(176, 114, 25, 0.2);
-    color: #b07219;
-}
-
-.language-badge.go {
-    background-color: rgba(0, 173, 216, 0.2);
-    color: #00add8;
-}
-
-.language-badge.typescript {
-    background-color: rgba(49, 120, 198, 0.2);
-    color: #3178c6;
-}
-
-.language-badge.python {
-    background-color: rgba(53, 114, 165, 0.2);
-    color: #3572a5;
-}
-
 /* Mobile adjustments */
 @media screen and (max-width: 76.1875em) {
     .hero h2 {

@@ -1,22 +1,6 @@
----
-layout: default
-title: Basic Usage
-parent: Recipes
-grand_parent: nori-sstable
-nav_order: 1
----
-
 # Basic Usage
-{: .no_toc }
 
 Complete examples for building and reading SSTables.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

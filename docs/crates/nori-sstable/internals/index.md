@@ -1,17 +1,6 @@
----
-layout: default
-title: Internals
-nav_order: 8
-has_children: true
-parent: nori-sstable
-grand_parent: Crates
----
-
 # Internals
-{: .no_toc }
 
 Deep implementation details for nori-sstable contributors and advanced users.
-{: .fs-6 .fw-300 }
 
 ---
 

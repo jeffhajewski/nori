@@ -1,22 +1,6 @@
----
-layout: default
-title: What is an LSM Tree?
-parent: Core Concepts
-grand_parent: nori-lsm
-nav_order: 1
----
-
 # What is an LSM Tree?
-{: .no_toc }
 
 Understanding the Log-Structured Merge Tree: history, theory, and fundamental concepts.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

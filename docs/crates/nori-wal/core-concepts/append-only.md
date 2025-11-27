@@ -1,21 +1,8 @@
----
-layout: default
-title: Append-Only Architecture
-parent: Core Concepts
-nav_order: 1
----
-
 # Append-Only Architecture
-{: .no_toc }
 
 Why WALs are append-only, what that means for your application, and the trade-offs involved.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

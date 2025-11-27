@@ -1,11 +1,3 @@
----
-layout: default
-title: Java SDK
-parent: Client SDKs
-nav_order: 4
-has_children: true
----
-
 # NoriKV Java Client SDK
 
 Production-ready Java client for NoriKV with comprehensive documentation and 100% test coverage.
@@ -73,7 +65,7 @@ The Java SDK includes comprehensive documentation:
 
 ### Core Guides
 
-- **[API Guide](./API_GUIDE.html)** - Complete API reference
+- **[API Guide](./API_GUIDE.md)** - Complete API reference
   - Installation and setup
   - Client configuration
   - All operations (PUT, GET, DELETE)
@@ -81,7 +73,7 @@ The Java SDK includes comprehensive documentation:
   - Error handling
   - Best practices
 
-- **[Architecture Guide](./ARCHITECTURE.html)** - Internal design
+- **[Architecture Guide](./ARCHITECTURE.md)** - Internal design
   - Component architecture
   - Request flow
   - Threading model
@@ -89,14 +81,14 @@ The Java SDK includes comprehensive documentation:
   - Routing & sharding
   - Performance considerations
 
-- **[Troubleshooting Guide](./TROUBLESHOOTING.html)** - Common issues
+- **[Troubleshooting Guide](./TROUBLESHOOTING.md)** - Common issues
   - Connection problems
   - Performance optimization
   - Version conflicts
   - Error messages and solutions
   - Debugging tips
 
-- **[Advanced Patterns](./ADVANCED_PATTERNS.html)** - Real-world examples
+- **[Advanced Patterns](./ADVANCED_PATTERNS.md)** - Real-world examples
   - Distributed Counter
   - Session Management
   - Inventory Management

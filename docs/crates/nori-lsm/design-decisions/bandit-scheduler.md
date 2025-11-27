@@ -1,22 +1,6 @@
----
-layout: default
-title: Bandit Scheduler
-parent: Design Decisions
-grand_parent: nori-lsm
-nav_order: 4
----
-
 # Bandit Scheduler
-{: .no_toc }
 
 Why we use epsilon-greedy multi-armed bandits with UCB for compaction scheduling instead of heuristics or round-robin.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

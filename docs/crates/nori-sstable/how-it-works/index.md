@@ -1,17 +1,6 @@
----
-layout: default
-title: How It Works
-nav_order: 4
-has_children: true
-parent: nori-sstable
-grand_parent: Crates
----
-
 # How It Works
-{: .no_toc }
 
 Deep dives into the file format, algorithms, and internal workings of nori-sstable.
-{: .fs-6 .fw-300 }
 
 ---
 

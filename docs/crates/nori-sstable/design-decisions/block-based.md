@@ -1,22 +1,6 @@
----
-layout: default
-title: Block-Based Organization
-parent: Design Decisions
-grand_parent: nori-sstable
-nav_order: 1
----
-
 # Block-Based Organization
-{: .no_toc }
 
 Why nori-sstable uses fixed-size 4KB blocks instead of alternatives.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

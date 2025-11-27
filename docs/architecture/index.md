@@ -1,23 +1,6 @@
----
-layout: default
-title: Architecture
-nav_order: 3
-has_children: true
----
-
 # Architecture
-{: .no_toc }
 
 Understanding how NoriKV components fit together to build a distributed key-value store.
-{: .fs-6 .fw-300 }
-
----
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -1,16 +1,6 @@
----
-layout: default
-title: Internals
-nav_order: 8
-has_children: true
-parent: nori-wal
-grand_parent: Crates
----
-
 # Internals
 
 Deep dives into nori-wal implementation details.
-{: .fs-6 .fw-300 }
 
 This section documents the internal implementation of nori-wal for contributors, maintainers, and anyone curious about how it works under the hood.
 

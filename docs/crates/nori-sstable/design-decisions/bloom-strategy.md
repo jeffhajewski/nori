@@ -1,22 +1,6 @@
----
-layout: default
-title: Bloom Filter Strategy
-parent: Design Decisions
-grand_parent: nori-sstable
-nav_order: 3
----
-
 # Bloom Filter Strategy
-{: .no_toc }
 
 Design decisions for bloom filters in nori-sstable.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

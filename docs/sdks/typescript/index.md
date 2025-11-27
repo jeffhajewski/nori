@@ -1,11 +1,3 @@
----
-layout: default
-title: TypeScript SDK
-parent: Client SDKs
-nav_order: 6
-has_children: true
----
-
 # NoriKV TypeScript Client SDK
 
 Type-safe TypeScript/JavaScript client for NoriKV with full async/await support.
@@ -62,10 +54,10 @@ await client.close();
 
 ### Core Guides
 
-- **[API Guide](./API_GUIDE.html)** - Complete API reference
-- **[Architecture Guide](./ARCHITECTURE.html)** - Internal design
-- **[Troubleshooting Guide](./TROUBLESHOOTING.html)** - Common issues
-- **[Advanced Patterns](./ADVANCED_PATTERNS.html)** - Real-world examples
+- **[API Guide](./API_GUIDE.md)** - Complete API reference
+- **[Architecture Guide](./ARCHITECTURE.md)** - Internal design
+- **[Troubleshooting Guide](./TROUBLESHOOTING.md)** - Common issues
+- **[Advanced Patterns](./ADVANCED_PATTERNS.md)** - Real-world examples
 
 ## Features
 

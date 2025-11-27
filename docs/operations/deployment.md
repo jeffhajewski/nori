@@ -1,23 +1,8 @@
----
-layout: default
-title: Deployment
-parent: Operations
-nav_order: 4
----
-
 # Deployment Guide
-{: .no_toc }
 
 Production deployment patterns for NoriKV on bare metal, Docker, and Kubernetes.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

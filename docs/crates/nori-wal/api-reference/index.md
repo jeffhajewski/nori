@@ -1,17 +1,6 @@
----
-layout: default
-title: API Reference
-nav_order: 5
-has_children: true
-parent: nori-wal
-grand_parent: Crates
----
-
 # API Reference
-{: .no_toc }
 
 Complete API documentation for all public types and methods in nori-wal.
-{: .fs-6 .fw-300 }
 
 ---
 

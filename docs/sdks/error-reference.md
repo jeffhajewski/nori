@@ -1,10 +1,3 @@
----
-layout: default
-title: Error Reference
-parent: Client SDKs
-nav_order: 3
----
-
 # Unified Error Reference
 
 Complete error code reference for all NoriKV client SDKs.
@@ -725,10 +718,10 @@ except NoriKVError as err:
 
 ## Next Steps
 
-- [Getting Started](./getting-started.html) - Quick start for all SDKs
-- [Hash Compatibility](./hash-compatibility.html) - Cross-SDK hash validation
+- [Getting Started](./getting-started.md) - Quick start for all SDKs
+- [Hash Compatibility](./hash-compatibility.md) - Cross-SDK hash validation
 - SDK-specific guides:
-  - [Java API Guide](./java/API_GUIDE.html)
-  - [Go API Guide](./go/API_GUIDE.html)
-  - [TypeScript API Guide](./typescript/API_GUIDE.html)
-  - [Python API Guide](./python/API_GUIDE.html)
+  - [Java API Guide](./java/API_GUIDE.md)
+  - [Go API Guide](./go/API_GUIDE.md)
+  - [TypeScript API Guide](./typescript/API_GUIDE.md)
+  - [Python API Guide](./python/API_GUIDE.md)

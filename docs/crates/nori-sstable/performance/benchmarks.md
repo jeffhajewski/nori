@@ -1,22 +1,6 @@
----
-layout: default
-title: Benchmarks
-parent: Performance
-grand_parent: nori-sstable
-nav_order: 1
----
-
 # Benchmarks
-{: .no_toc }
 
 Performance measurements for nori-sstable operations.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

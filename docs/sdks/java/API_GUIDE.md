@@ -1,11 +1,3 @@
----
-layout: default
-title: API Guide
-parent: Java SDK
-grand_parent: Client SDKs
-nav_order: 1
----
-
 # NoriKV Java Client API Guide
 
 Complete reference for the NoriKV Java Client SDK.

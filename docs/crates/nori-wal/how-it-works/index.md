@@ -1,17 +1,6 @@
----
-layout: default
-title: How It Works
-nav_order: 4
-has_children: true
-parent: nori-wal
-grand_parent: Crates
----
-
 # How It Works
-{: .no_toc }
 
 Deep dive into nori-wal's internals: record format, segment lifecycle, recovery, and concurrency.
-{: .fs-6 .fw-300 }
 
 ---
 

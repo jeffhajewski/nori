@@ -1,11 +1,3 @@
----
-layout: default
-title: Advanced Patterns
-parent: TypeScript SDK
-grand_parent: Client SDKs
-nav_order: 4
----
-
 # NoriKV TypeScript Client Advanced Patterns
 
 Complex real-world usage patterns and production-ready design examples.
@@ -1539,7 +1531,7 @@ await client.put(key, value, {
 
 ## Next Steps
 
-- [API Guide](API_GUIDE.html) - Core API reference
-- [Architecture Guide](ARCHITECTURE.html) - Internal design
-- [Troubleshooting Guide](TROUBLESHOOTING.html) - Common issues
+- [API Guide](API_GUIDE.md) - Core API reference
+- [Architecture Guide](ARCHITECTURE.md) - Internal design
+- [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
 - [GitHub Examples](https://github.com/j-haj/nori/tree/main/sdks/typescript/examples) - More code samples

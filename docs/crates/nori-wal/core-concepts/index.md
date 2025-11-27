@@ -1,17 +1,6 @@
----
-layout: default
-title: Core Concepts
-nav_order: 3
-has_children: true
-parent: nori-wal
-grand_parent: Crates
----
-
 # Core Concepts
-{: .no_toc }
 
 Fundamental concepts you need to understand to use nori-wal effectively.
-{: .fs-6 .fw-300 }
 
 ---
 

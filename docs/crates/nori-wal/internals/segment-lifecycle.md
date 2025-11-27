@@ -1,21 +1,8 @@
----
-layout: default
-title: Segment Lifecycle
-parent: Internals
-nav_order: 1
----
-
 # Segment Lifecycle
-{: .no_toc }
 
 How segments are created, written to, and closed.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

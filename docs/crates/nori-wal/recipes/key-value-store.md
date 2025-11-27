@@ -1,21 +1,8 @@
----
-layout: default
-title: Key-Value Store
-parent: Recipes
-nav_order: 1
----
-
 # Building a Key-Value Store
-{: .no_toc }
 
 Complete implementation of a durable key-value store using nori-wal.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

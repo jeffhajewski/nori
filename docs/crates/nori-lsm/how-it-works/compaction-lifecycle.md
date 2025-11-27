@@ -1,22 +1,6 @@
----
-layout: default
-title: Compaction Lifecycle
-parent: How It Works
-grand_parent: nori-lsm
-nav_order: 4
----
-
 # Compaction Lifecycle
-{: .no_toc }
 
 The full compaction process: slot selection via bandit scheduler, K-way merge, heat updates, and metrics.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

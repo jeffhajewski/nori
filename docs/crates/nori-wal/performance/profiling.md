@@ -1,21 +1,8 @@
----
-layout: default
-title: Profiling
-parent: Performance
-nav_order: 4
----
-
 # Performance Profiling
-{: .no_toc }
 
 How to measure and analyze nori-wal performance in your application.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -1,21 +1,8 @@
----
-layout: default
-title: Errors & Types
-parent: API Reference
-nav_order: 4
----
-
 # Errors & Types API
-{: .no_toc }
 
 Complete reference for error types and supporting structures in nori-wal.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

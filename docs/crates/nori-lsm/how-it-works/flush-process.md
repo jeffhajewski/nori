@@ -1,22 +1,6 @@
----
-layout: default
-title: Flush Process
-parent: How It Works
-grand_parent: nori-lsm
-nav_order: 2
----
-
 # Flush Process
-{: .no_toc }
 
 How memtables are flushed to L0 SSTables: sorting, serialization, bloom filter generation, and atomic swaps.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

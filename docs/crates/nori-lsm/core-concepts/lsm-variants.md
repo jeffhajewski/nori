@@ -1,22 +1,6 @@
----
-layout: default
-title: LSM Compaction Strategies
-parent: Core Concepts
-grand_parent: nori-lsm
-nav_order: 2
----
-
 # LSM Compaction Strategies
-{: .no_toc }
 
 Deep dive into Leveled, Tiered, and Universal compaction with mathematical analysis.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 
@@ -831,7 +815,7 @@ L0 count > 12: Write stall imminent
 
 **Implementation Docs:**
 - [RocksDB Compaction Wiki](https://github.com/facebook/rocksdb/wiki/Compaction)
-- [Cassandra STCS](https://cassandra.apache.org/doc/latest/cassandra/operating/compaction/stcs.html)
+- [Cassandra STCS](https://cassandra.apache.org/doc/latest/cassandra/operating/compaction/stcs.md)
 - [ScyllaDB ICS](https://www.scylladb.com/2018/01/17/compaction-series-space-amplification/)
 
 **Books:**

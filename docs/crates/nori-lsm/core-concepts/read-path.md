@@ -1,22 +1,6 @@
----
-layout: default
-title: Read Path
-parent: Core Concepts
-grand_parent: nori-lsm
-nav_order: 5
----
-
 # Read Path
-{: .no_toc }
 
 How reads flow through nori-lsm from `get()` call through memtable, L0, and slots, including bloom filter optimization and block caching.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

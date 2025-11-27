@@ -1,11 +1,3 @@
----
-layout: default
-title: Architecture
-parent: TypeScript SDK
-grand_parent: Client SDKs
-nav_order: 2
----
-
 # NoriKV TypeScript Client Architecture
 
 Understanding the internal design and components of the TypeScript client SDK.
@@ -490,7 +482,7 @@ module.exports = {
 
 ## References
 
-- [API Guide](API_GUIDE.html) - Public API documentation
-- [Troubleshooting Guide](TROUBLESHOOTING.html) - Common issues
-- [Advanced Patterns](ADVANCED_PATTERNS.html) - Complex use cases
+- [API Guide](API_GUIDE.md) - Public API documentation
+- [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
+- [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
 - [Source Code](https://github.com/j-haj/nori/tree/main/sdks/typescript) - Implementation

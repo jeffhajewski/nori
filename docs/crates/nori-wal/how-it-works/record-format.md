@@ -1,21 +1,8 @@
----
-layout: default
-title: Record Format
-parent: How It Works
-nav_order: 0
----
-
 # Record Format
-{: .no_toc }
 
 The on-disk structure of WAL records: header, CRC32C, compression, flags, and byte layout.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

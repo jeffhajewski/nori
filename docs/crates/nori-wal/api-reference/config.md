@@ -1,21 +1,8 @@
----
-layout: default
-title: Configuration
-parent: API Reference
-nav_order: 3
----
-
 # Configuration API
-{: .no_toc }
 
 Complete API reference for configuring nori-wal behavior.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

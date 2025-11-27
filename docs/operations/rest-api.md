@@ -1,23 +1,8 @@
----
-layout: default
-title: REST API
-parent: Operations
-nav_order: 1
----
-
 # REST API Reference
-{: .no_toc }
 
 HTTP endpoints for health checks, metrics, and cluster management.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

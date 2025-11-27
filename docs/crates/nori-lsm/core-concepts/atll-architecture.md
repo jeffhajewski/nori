@@ -1,22 +1,6 @@
----
-layout: default
-title: ATLL Architecture
-parent: Core Concepts
-grand_parent: nori-lsm
-nav_order: 3
----
-
 # ATLL Architecture
-{: .no_toc }
 
 ATLL (Adaptive Tiered-Leveled LSM) is nori-lsm's core innovation: a hybrid compaction strategy that adapts between tiered and leveled behavior per key range, optimizing for heterogeneous workloads.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

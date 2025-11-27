@@ -1,22 +1,6 @@
----
-layout: default
-title: Bloom Filters
-parent: Core Concepts
-grand_parent: nori-sstable
-nav_order: 4
----
-
 # Bloom Filters
-{: .no_toc }
 
 How probabilistic data structures prevent unnecessary disk reads in SSTables.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

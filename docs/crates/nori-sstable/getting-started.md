@@ -1,24 +1,8 @@
----
-layout: default
-title: Getting Started
-parent: nori-sstable
-grand_parent: Crates
-nav_order: 2
----
-
 # Getting Started with nori-sstable
-{: .no_toc }
 
 Build your first SSTable in 5 minutes.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

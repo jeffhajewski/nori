@@ -1,17 +1,6 @@
----
-layout: default
-title: Design Decisions
-nav_order: 7
-has_children: true
-parent: nori-lsm
-grand_parent: Crates
----
-
 # Design Decisions
-{: .no_toc }
 
 Rationale behind ATLL's key architectural choices and trade-offs.
-{: .fs-6 .fw-300 }
 
 ---
 

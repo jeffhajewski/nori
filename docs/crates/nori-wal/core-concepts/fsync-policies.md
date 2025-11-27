@@ -1,21 +1,8 @@
----
-layout: default
-title: Durability & Fsync Policies
-parent: Core Concepts
-nav_order: 2
----
-
 # Durability & Fsync Policies
-{: .no_toc }
 
 How to balance durability and performance with different fsync strategies.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

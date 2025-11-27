@@ -1,21 +1,8 @@
----
-layout: default
-title: Tuning Guide
-parent: Performance
-nav_order: 2
----
-
 # Performance Tuning Guide
-{: .no_toc }
 
 How to optimize nori-wal for your specific workload.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

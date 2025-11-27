@@ -1,17 +1,6 @@
----
-layout: default
-title: Performance
-nav_order: 5
-has_children: true
-parent: nori-sstable
-grand_parent: Crates
----
-
 # Performance
-{: .no_toc }
 
 Benchmarks, tuning guides, and performance analysis for nori-sstable.
-{: .fs-6 .fw-300 }
 
 ---
 

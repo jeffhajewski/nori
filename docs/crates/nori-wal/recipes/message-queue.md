@@ -1,21 +1,8 @@
----
-layout: default
-title: Message Queue
-parent: Recipes
-nav_order: 3
----
-
 # Building a Message Queue
-{: .no_toc }
 
 Simple message queue with consumer position tracking using nori-wal.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

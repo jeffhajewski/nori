@@ -1,10 +1,3 @@
----
-layout: default
-title: Getting Started
-parent: Client SDKs
-nav_order: 1
----
-
 # Getting Started with NoriKV Client SDKs
 
 Quick start guide for all NoriKV client SDKs.
@@ -512,16 +505,16 @@ except ConnectionError:
 
 ### SDK-Specific Documentation
 
-- [Java SDK Guide](./java/API_GUIDE.html)
-- [Go SDK Guide](./go/API_GUIDE.html)
-- [TypeScript SDK Guide](./typescript/API_GUIDE.html)
-- [Python SDK Guide](./python/API_GUIDE.html)
+- [Java SDK Guide](./java/API_GUIDE.md)
+- [Go SDK Guide](./go/API_GUIDE.md)
+- [TypeScript SDK Guide](./typescript/API_GUIDE.md)
+- [Python SDK Guide](./python/API_GUIDE.md)
 
 ### Cross-SDK Topics
 
-- [Hash Compatibility](./hash-compatibility.html) - Cross-SDK hash validation
-- [Error Reference](./error-reference.html) - Unified error codes
-- [SDK Comparison](./index.html#comparison) - Feature comparison
+- [Hash Compatibility](./hash-compatibility.md) - Cross-SDK hash validation
+- [Error Reference](./error-reference.md) - Unified error codes
+- [SDK Comparison](./index.md#comparison) - Feature comparison
 
 ### Common Patterns
 

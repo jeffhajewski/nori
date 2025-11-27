@@ -1,23 +1,8 @@
----
-layout: default
-title: Multi-Shard Server Architecture
-parent: Architecture
-nav_order: 5
----
-
 # Multi-Shard Server Architecture
-{: .no_toc }
 
 How NoriKV servers manage 1024 virtual shards with lazy initialization and consistent hashing.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

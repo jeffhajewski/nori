@@ -1,23 +1,8 @@
----
-layout: default
-title: Configuration
-parent: Operations
-nav_order: 3
----
-
 # Configuration Reference
-{: .no_toc }
 
 Complete reference for all NoriKV server configuration options.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -1,17 +1,6 @@
----
-layout: default
-title: Core Concepts
-nav_order: 2
-has_children: true
-parent: nori-sstable
-grand_parent: Crates
----
-
 # Core Concepts
-{: .no_toc }
 
 Fundamental concepts behind SSTables and how they enable fast, scalable storage.
-{: .fs-6 .fw-300 }
 
 ---
 

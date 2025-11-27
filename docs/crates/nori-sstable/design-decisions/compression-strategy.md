@@ -1,22 +1,6 @@
----
-layout: default
-title: Compression Strategy
-parent: Design Decisions
-grand_parent: nori-sstable
-nav_order: 2
----
-
 # Compression Strategy
-{: .no_toc }
 
 Why nori-sstable compresses at block granularity with LZ4/Zstd.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

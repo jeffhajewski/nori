@@ -1,11 +1,3 @@
----
-layout: default
-title: Troubleshooting
-parent: Java SDK
-grand_parent: Client SDKs
-nav_order: 3
----
-
 # NoriKV Java Client Troubleshooting Guide
 
 Solutions to common issues and debugging tips.

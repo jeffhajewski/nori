@@ -1,22 +1,6 @@
----
-layout: default
-title: When to Use ATLL
-parent: Core Concepts
-grand_parent: nori-lsm
-nav_order: 6
----
-
 # When to Use ATLL
-{: .no_toc }
 
 Guidance on when ATLL (Adaptive Tiered-Leveled LSM) is the right choice, when to use alternatives, and how to decide between storage engines.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

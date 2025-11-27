@@ -1,22 +1,6 @@
----
-layout: default
-title: Compression Fundamentals
-parent: Core Concepts
-grand_parent: nori-sstable
-nav_order: 5
----
-
 # Compression Fundamentals
-{: .no_toc }
 
 Why and how nori-sstable compresses data at block granularity.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

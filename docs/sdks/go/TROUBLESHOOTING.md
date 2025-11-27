@@ -1,11 +1,3 @@
----
-layout: default
-title: Troubleshooting
-parent: Go SDK
-grand_parent: Client SDKs
-nav_order: 3
----
-
 # NoriKV Go Client Troubleshooting Guide
 
 Solutions to common issues when using the Go client SDK.

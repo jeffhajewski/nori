@@ -1,16 +1,6 @@
----
-layout: default
-title: Core Concepts
-parent: nori-lsm
-nav_order: 1
-has_children: true
----
-
 # Core Concepts
-{: .no_toc }
 
 Foundational knowledge for understanding ATLL (Adaptive Tiered-Leveled LSM) and log-structured storage.
-{: .fs-6 .fw-300 }
 
 ---
 

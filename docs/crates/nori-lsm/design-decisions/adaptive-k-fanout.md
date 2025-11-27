@@ -1,22 +1,6 @@
----
-layout: default
-title: Adaptive K-Way Fanout
-parent: Design Decisions
-grand_parent: nori-lsm
-nav_order: 2
----
-
 # Adaptive K-Way Fanout
-{: .no_toc }
 
 Why each slot chooses its own K-max (maximum sorted runs) based on heat score instead of using a global strategy.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -1,11 +1,3 @@
----
-layout: default
-title: Client SDKs
-nav_order: 2
-has_children: true
-permalink: /sdks/
----
-
 # NoriKV Client SDKs
 
 Official client libraries for accessing NoriKV in your preferred programming language.
@@ -162,7 +154,7 @@ This means you can:
 - Migrate between languages without data migration
 - Mix languages in the same cluster
 
-[→ Hash Compatibility Guide](./hash-compatibility.html)
+[→ Hash Compatibility Guide](./hash-compatibility.md)
 
 ## Installation & Setup
 

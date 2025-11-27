@@ -1,11 +1,3 @@
----
-layout: default
-title: API Guide
-parent: Python SDK
-grand_parent: Client SDKs
-nav_order: 1
----
-
 # NoriKV Python Client API Guide
 
 Complete reference for the NoriKV Python Client SDK with async/await support.
@@ -636,7 +628,7 @@ finally:
 
 ## Next Steps
 
-- [Architecture Guide](ARCHITECTURE.html) - Understanding client internals
-- [Troubleshooting Guide](TROUBLESHOOTING.html) - Solving common issues
-- [Advanced Patterns](ADVANCED_PATTERNS.html) - Complex use cases
+- [Architecture Guide](ARCHITECTURE.md) - Understanding client internals
+- [Troubleshooting Guide](TROUBLESHOOTING.md) - Solving common issues
+- [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
 - [Examples](https://github.com/j-haj/nori/tree/main/sdks/python/examples) - Working code samples

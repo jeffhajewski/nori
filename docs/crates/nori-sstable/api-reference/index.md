@@ -1,25 +1,8 @@
----
-layout: default
-title: API Reference
-parent: nori-sstable
-grand_parent: Crates
-nav_order: 7
-has_children: true
----
-
 # API Reference
-{: .no_toc }
 
 Complete API documentation for nori-sstable.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

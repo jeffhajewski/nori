@@ -1,11 +1,3 @@
----
-layout: default
-title: Go SDK
-parent: Client SDKs
-nav_order: 5
-has_children: true
----
-
 # NoriKV Go Client SDK
 
 High-performance Go client for NoriKV with zero-allocation routing and comprehensive documentation.
@@ -71,7 +63,7 @@ The Go SDK includes comprehensive documentation:
 
 ### Core Guides
 
-- **[API Guide](./API_GUIDE.html)** - Complete API reference
+- **[API Guide](./API_GUIDE.md)** - Complete API reference
   - Installation and setup
   - Client configuration with context
   - All operations with Go idioms
@@ -79,7 +71,7 @@ The Go SDK includes comprehensive documentation:
   - Error handling with errors.Is
   - Best practices
 
-- **[Architecture Guide](./ARCHITECTURE.html)** - Internal design
+- **[Architecture Guide](./ARCHITECTURE.md)** - Internal design
   - Component architecture
   - Zero-allocation routing
   - Goroutine safety
@@ -87,14 +79,14 @@ The Go SDK includes comprehensive documentation:
   - Connection management
   - Performance optimizations
 
-- **[Troubleshooting Guide](./TROUBLESHOOTING.html)** - Common issues
+- **[Troubleshooting Guide](./TROUBLESHOOTING.md)** - Common issues
   - Connection problems
   - Performance with pprof
   - Version conflicts
   - Error solutions
   - Debugging goroutines
 
-- **[Advanced Patterns](./ADVANCED_PATTERNS.html)** - Production patterns
+- **[Advanced Patterns](./ADVANCED_PATTERNS.md)** - Production patterns
   - Distributed Counter
   - Session Management
   - Inventory Management

@@ -1,11 +1,3 @@
----
-layout: default
-title: Troubleshooting
-parent: Python SDK
-grand_parent: Client SDKs
-nav_order: 3
----
-
 # NoriKV Python Client Troubleshooting Guide
 
 Solutions to common issues when using the Python client SDK.
@@ -702,5 +694,5 @@ except Exception as err:
 ## Getting Help
 
 - **Issues**: [GitHub Issues](https://github.com/j-haj/nori/issues)
-- **Documentation**: [API Guide](API_GUIDE.html), [Architecture Guide](ARCHITECTURE.html)
+- **Documentation**: [API Guide](API_GUIDE.md), [Architecture Guide](ARCHITECTURE.md)
 - **Examples**: [GitHub Examples](https://github.com/j-haj/nori/tree/main/sdks/python/examples)

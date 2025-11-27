@@ -1,21 +1,8 @@
----
-layout: default
-title: What is a Write-Ahead Log?
-parent: Core Concepts
-nav_order: 0
----
-
 # What is a Write-Ahead Log?
-{: .no_toc }
 
 The fundamental concept behind WALs, why they exist, and how they power modern systems.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

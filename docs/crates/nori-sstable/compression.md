@@ -1,24 +1,8 @@
----
-layout: default
-title: Compression
-parent: nori-sstable
-grand_parent: Crates
-nav_order: 5
----
-
 # Block Compression
-{: .no_toc }
 
 Deep dive into LZ4 and Zstd compression in nori-sstable.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -1,22 +1,6 @@
----
-layout: default
-title: Slot Routing
-parent: How It Works
-grand_parent: nori-lsm
-nav_order: 3
----
-
 # Slot Routing
-{: .no_toc }
 
 How keys are mapped to slots using binary search on guard keys. Range queries and slot overlap detection.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

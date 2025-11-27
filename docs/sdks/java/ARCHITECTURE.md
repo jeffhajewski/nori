@@ -1,11 +1,3 @@
----
-layout: default
-title: Architecture
-parent: Java SDK
-grand_parent: Client SDKs
-nav_order: 2
----
-
 # NoriKV Java Client Architecture
 
 Understanding the internal design and components of the Java client SDK.

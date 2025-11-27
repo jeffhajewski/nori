@@ -1,22 +1,6 @@
----
-layout: default
-title: Hot Workloads
-parent: Recipes
-grand_parent: nori-sstable
-nav_order: 2
----
-
 # Hot Workloads
-{: .no_toc }
 
 Optimizing for high-throughput, cache-friendly read workloads.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -1,23 +1,8 @@
----
-layout: default
-title: SWIM Topology Tracking
-parent: Architecture
-nav_order: 4
----
-
 # SWIM Topology Tracking
-{: .no_toc }
 
 How NoriKV uses SWIM for failure detection and maintains a consistent cluster topology view.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

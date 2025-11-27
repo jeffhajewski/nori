@@ -1,22 +1,6 @@
----
-layout: default
-title: What is an SSTable?
-parent: Core Concepts
-grand_parent: nori-sstable
-nav_order: 1
----
-
 # What is an SSTable?
-{: .no_toc }
 
 Understanding the fundamental concept behind Sorted String Tables.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

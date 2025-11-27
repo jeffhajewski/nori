@@ -1,21 +1,8 @@
----
-layout: default
-title: Event Sourcing
-parent: Recipes
-nav_order: 2
----
-
 # Event Sourcing with nori-wal
-{: .no_toc }
 
 Building an event-sourced system using WAL for durable event storage.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

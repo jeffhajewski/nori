@@ -1,22 +1,6 @@
----
-layout: default
-title: Block-Based Storage
-parent: Core Concepts
-grand_parent: nori-sstable
-nav_order: 3
----
-
 # Block-Based Storage
-{: .no_toc }
 
 Why SSTables organize data into fixed-size blocks and how this design enables efficient I/O and caching.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

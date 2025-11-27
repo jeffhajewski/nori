@@ -1,16 +1,6 @@
----
-layout: default
-title: nori-wal
-nav_order: 3
-has_children: true
-parent: Crates
----
-
 # nori-wal
-{: .no_toc }
 
 Production-ready Write-Ahead Log for Rust with automatic recovery, rotation, and configurable durability.
-{: .fs-6 .fw-300 }
 
 [Quickstart](getting-started/quickstart){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [API Reference](api-reference/){: .btn .fs-5 .mb-4 .mb-md-0 }

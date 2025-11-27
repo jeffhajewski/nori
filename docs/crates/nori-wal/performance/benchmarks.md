@@ -1,21 +1,8 @@
----
-layout: default
-title: Benchmarks
-parent: Performance
-nav_order: 1
----
-
 # Benchmarks
-{: .no_toc }
 
 Detailed performance measurements for nori-wal.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

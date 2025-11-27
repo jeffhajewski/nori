@@ -1,23 +1,8 @@
----
-layout: default
-title: Metrics
-parent: Operations
-nav_order: 2
----
-
 # Metrics Reference
-{: .no_toc }
 
 Complete reference for all Prometheus metrics exposed by NoriKV.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

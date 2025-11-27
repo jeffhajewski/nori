@@ -1,17 +1,6 @@
----
-layout: default
-title: Design Decisions
-nav_order: 7
-has_children: true
-parent: nori-sstable
-grand_parent: Crates
----
-
 # Design Decisions
-{: .no_toc }
 
 Rationale behind key design choices in nori-sstable.
-{: .fs-6 .fw-300 }
 
 ---
 

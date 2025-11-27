@@ -1,23 +1,8 @@
----
-layout: default
-title: Troubleshooting
-parent: Operations
-nav_order: 5
----
-
 # Troubleshooting Guide
-{: .no_toc }
 
 Common issues and their solutions for NoriKV operations.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

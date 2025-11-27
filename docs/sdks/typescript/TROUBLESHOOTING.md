@@ -1,11 +1,3 @@
----
-layout: default
-title: Troubleshooting
-parent: TypeScript SDK
-grand_parent: Client SDKs
-nav_order: 3
----
-
 # NoriKV TypeScript Client Troubleshooting Guide
 
 Solutions to common issues when using the TypeScript/JavaScript client SDK.
@@ -391,5 +383,5 @@ console.log('Stats:', JSON.stringify(stats, null, 2));
 ## Getting Help
 
 - **Issues**: [GitHub Issues](https://github.com/j-haj/nori/issues)
-- **Documentation**: [API Guide](API_GUIDE.html), [Architecture Guide](ARCHITECTURE.html)
+- **Documentation**: [API Guide](API_GUIDE.md), [Architecture Guide](ARCHITECTURE.md)
 - **Examples**: [GitHub Examples](https://github.com/j-haj/nori/tree/main/sdks/typescript/examples)

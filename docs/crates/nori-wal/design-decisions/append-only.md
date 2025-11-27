@@ -1,21 +1,8 @@
----
-layout: default
-title: Append-Only Architecture
-parent: Design Decisions
-nav_order: 1
----
-
 # Append-Only Architecture
-{: .no_toc }
 
 Why the WAL never modifies existing data.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

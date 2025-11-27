@@ -1,21 +1,8 @@
----
-layout: default
-title: Record
-parent: API Reference
-nav_order: 2
----
-
 # Record API
-{: .no_toc }
 
 Complete API reference for the `Record` type - the fundamental unit of data in nori-wal.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

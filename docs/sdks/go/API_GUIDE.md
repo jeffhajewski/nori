@@ -1,11 +1,3 @@
----
-layout: default
-title: API Guide
-parent: Go SDK
-grand_parent: Client SDKs
-nav_order: 1
----
-
 # NoriKV Go Client API Guide
 
 Complete reference for the NoriKV Go Client SDK.

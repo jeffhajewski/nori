@@ -1,21 +1,8 @@
----
-layout: default
-title: Segment-Based Storage
-parent: Design Decisions
-nav_order: 3
----
-
 # Segment-Based Storage
-{: .no_toc }
 
 Why the WAL is split into multiple files.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -1,22 +1,6 @@
----
-layout: default
-title: Memory Pressure System
-parent: Design Decisions
-grand_parent: nori-lsm
-nav_order: 5
----
-
 # Memory Pressure System
-{: .no_toc }
 
 Why ATLL uses 4-zone adaptive backpressure (Green/Yellow/Orange/Red) with composite scoring instead of hard stalls or single thresholds.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

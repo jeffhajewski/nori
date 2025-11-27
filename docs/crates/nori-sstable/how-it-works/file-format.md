@@ -1,22 +1,6 @@
----
-layout: default
-title: File Format
-parent: How It Works
-grand_parent: nori-sstable
-nav_order: 1
----
-
 # File Format
-{: .no_toc }
 
 Complete specification of the `.sst` file format.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

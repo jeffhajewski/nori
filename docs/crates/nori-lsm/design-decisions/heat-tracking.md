@@ -1,22 +1,6 @@
----
-layout: default
-title: Heat Tracking (EWMA)
-parent: Design Decisions
-grand_parent: nori-lsm
-nav_order: 3
----
-
 # Heat Tracking (EWMA)
-{: .no_toc }
 
 Why we use Exponential Weighted Moving Average (α=0.1) for access pattern detection instead of counters or sliding windows.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

@@ -1,10 +1,3 @@
----
-layout: default
-title: Hash Compatibility
-parent: Client SDKs
-nav_order: 2
----
-
 # Cross-SDK Hash Compatibility
 
 Understanding and verifying hash compatibility across all NoriKV client SDKs.
@@ -479,6 +472,6 @@ If you need to change the number of shards:
 
 ## Next Steps
 
-- [Getting Started](./getting-started.html) - Quick start for all SDKs
-- [Error Reference](./error-reference.html) - Unified error codes
-- [SDK Comparison](./index.html) - Feature comparison
+- [Getting Started](./getting-started.md) - Quick start for all SDKs
+- [Error Reference](./error-reference.md) - Unified error codes
+- [SDK Comparison](./index.md) - Feature comparison

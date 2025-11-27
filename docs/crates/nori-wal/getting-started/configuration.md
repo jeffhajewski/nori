@@ -1,21 +1,8 @@
----
-layout: default
-title: Configuration Guide
-parent: Getting Started
-nav_order: 2
----
-
 # Configuration Guide
-{: .no_toc }
 
 Complete guide to configuring nori-wal for your workload.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

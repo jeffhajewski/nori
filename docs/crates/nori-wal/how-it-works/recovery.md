@@ -1,21 +1,8 @@
----
-layout: default
-title: Recovery Process
-parent: How It Works
-nav_order: 2
----
-
 # Recovery Process
-{: .no_toc }
 
 Detailed walkthrough of the recovery algorithm: scanning, validation, truncation, and rebuild.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

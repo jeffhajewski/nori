@@ -1,21 +1,8 @@
----
-layout: default
-title: When to Use a WAL
-parent: Core Concepts
-nav_order: 4
----
-
 # When to Use a WAL
-{: .no_toc }
 
 Scenarios where WALs shine and where they don't.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

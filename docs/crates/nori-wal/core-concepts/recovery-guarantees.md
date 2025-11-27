@@ -1,21 +1,8 @@
----
-layout: default
-title: Recovery Guarantees
-parent: Core Concepts
-nav_order: 3
----
-
 # Recovery Guarantees
-{: .no_toc }
 
 What happens after a crash and what guarantees you can rely on.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

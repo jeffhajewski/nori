@@ -1,11 +1,3 @@
----
-layout: default
-title: Python SDK
-parent: Client SDKs
-nav_order: 7
-has_children: true
----
-
 # NoriKV Python Client SDK
 
 Pythonic async client for NoriKV with type hints and context managers.
@@ -59,10 +51,10 @@ asyncio.run(main())
 
 ### Core Guides
 
-- **[API Guide](./API_GUIDE.html)** - Complete API reference
-- **[Architecture Guide](./ARCHITECTURE.html)** - Internal design
-- **[Troubleshooting Guide](./TROUBLESHOOTING.html)** - Common issues
-- **[Advanced Patterns](./ADVANCED_PATTERNS.html)** - Real-world examples
+- **[API Guide](./API_GUIDE.md)** - Complete API reference
+- **[Architecture Guide](./ARCHITECTURE.md)** - Internal design
+- **[Troubleshooting Guide](./TROUBLESHOOTING.md)** - Common issues
+- **[Advanced Patterns](./ADVANCED_PATTERNS.md)** - Real-world examples
 
 ## Features
 

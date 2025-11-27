@@ -1,16 +1,6 @@
----
-layout: default
-title: Recipes
-nav_order: 6
-has_children: true
-parent: nori-wal
-grand_parent: Crates
----
-
 # Recipes
 
 Practical examples and common patterns for using nori-wal.
-{: .fs-6 .fw-300 }
 
 This section provides complete, working examples for common use cases. Each recipe is a fully functional implementation you can adapt for your needs.
 

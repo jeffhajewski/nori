@@ -1,21 +1,8 @@
----
-layout: default
-title: Prefix-Valid Recovery
-parent: Design Decisions
-nav_order: 2
----
-
 # Prefix-Valid Recovery Strategy
-{: .no_toc }
 
 Why we truncate at the first corruption.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

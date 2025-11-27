@@ -1,24 +1,8 @@
----
-layout: default
-title: Block Caching
-parent: nori-sstable
-grand_parent: Crates
-nav_order: 6
----
-
 # LRU Block Cache
-{: .no_toc }
 
 Deep dive into the LRU block cache and achieving 18x performance improvements.
-{: .fs-6 .fw-300 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

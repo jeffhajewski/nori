@@ -1,21 +1,8 @@
----
-layout: default
-title: Installation
-parent: Getting Started
-nav_order: 0
----
-
 # Installation
-{: .no_toc }
 
 How to add nori-wal to your Rust project.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

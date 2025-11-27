@@ -1,15 +1,6 @@
----
-layout: default
-title: Crates
-nav_order: 2
-has_children: true
----
-
 # Crates
-{: .no_toc }
 
 NoriKV is built from composable, production-ready crates that can be used individually or together.
-{: .fs-6 .fw-300 }
 
 ---
 

@@ -1,21 +1,8 @@
----
-layout: default
-title: Wal
-parent: API Reference
-nav_order: 0
----
-
 # Wal
-{: .no_toc }
 
 Main WAL interface for append-only logging with automatic recovery and rotation.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

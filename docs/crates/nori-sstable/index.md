@@ -1,28 +1,12 @@
----
-layout: default
-title: nori-sstable
-nav_order: 4
-has_children: true
-parent: Crates
----
-
 # nori-sstable
-{: .no_toc }
 
 Immutable sorted string tables with blocks, index, bloom filters, and compression.
-{: .fs-6 .fw-300 }
 
 [Get Started](getting-started){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [API Reference](api-reference/){: .btn .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [View on GitHub](https://github.com/j-haj/nori/tree/main/crates/nori-sstable){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

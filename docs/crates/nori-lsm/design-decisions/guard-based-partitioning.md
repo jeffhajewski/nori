@@ -1,22 +1,6 @@
----
-layout: default
-title: Guard-Based Partitioning
-parent: Design Decisions
-grand_parent: nori-lsm
-nav_order: 1
----
-
 # Guard-Based Partitioning
-{: .no_toc }
 
 Why ATLL uses fixed guard keys for range partitioning instead of dynamic splitting.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

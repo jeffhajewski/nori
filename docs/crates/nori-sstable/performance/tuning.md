@@ -1,22 +1,6 @@
----
-layout: default
-title: Tuning Guide
-parent: Performance
-grand_parent: nori-sstable
-nav_order: 2
----
-
 # Tuning Guide
-{: .no_toc }
 
 Optimize nori-sstable for your specific workload.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

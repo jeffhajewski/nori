@@ -1,11 +1,3 @@
----
-layout: default
-title: Architecture
-parent: Go SDK
-grand_parent: Client SDKs
-nav_order: 2
----
-
 # NoriKV Go Client Architecture
 
 Understanding the internal design and components of the Go client SDK.

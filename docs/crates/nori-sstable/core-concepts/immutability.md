@@ -1,22 +1,6 @@
----
-layout: default
-title: Immutability
-parent: Core Concepts
-grand_parent: nori-sstable
-nav_order: 2
----
-
 # Immutability
-{: .no_toc }
 
 Why SSTables are write-once, immutable files and the profound benefits this provides.
-{: .fs-6 .fw-300 }
-
-## Table of Contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

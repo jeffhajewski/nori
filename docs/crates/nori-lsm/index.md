@@ -1,16 +1,6 @@
----
-layout: default
-title: nori-lsm
-nav_order: 5
-has_children: true
-parent: Crates
----
-
 # nori-lsm
-{: .no_toc }
 
 Embeddable LSM storage engine with ATLL (Adaptive Tiered-Leveled) compaction for heterogeneous workloads.
-{: .fs-6 .fw-300 }
 
 [Core Concepts](core-concepts/){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
 [Design Decisions](design-decisions/){: .btn .fs-5 .mb-4 .mb-md-0 }

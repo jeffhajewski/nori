@@ -1,21 +1,8 @@
----
-layout: default
-title: Hardware Recommendations
-parent: Performance
-nav_order: 3
----
-
 # Hardware Recommendations
-{: .no_toc }
 
 What hardware to use for different performance targets.
-{: .fs-6 .fw-300 }
 
 ## Table of contents
-{: .no_toc .text-delta }
-
-1. TOC
-{:toc}
 
 ---
 

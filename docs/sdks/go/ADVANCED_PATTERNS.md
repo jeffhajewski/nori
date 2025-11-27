@@ -1,11 +1,3 @@
----
-layout: default
-title: Advanced Patterns
-parent: Go SDK
-grand_parent: Client SDKs
-nav_order: 4
----
-
 # NoriKV Go Client Advanced Patterns
 
 Complex real-world usage patterns and design examples.

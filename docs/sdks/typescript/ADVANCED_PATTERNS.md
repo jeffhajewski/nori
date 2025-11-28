@@ -12,6 +12,9 @@ Complex real-world usage patterns and production-ready design examples.
 - [Leader Election](#leader-election)
 - [Event Sourcing](#event-sourcing)
 - [Multi-Tenancy](#multi-tenancy)
+- [Semantic Search](#semantic-search)
+- [Recommendation System](#recommendation-system)
+- [Document Deduplication](#document-deduplication)
 
 ## Distributed Counter
 
@@ -1527,6 +1530,297 @@ try {
 await client.put(key, value, {
   idempotencyKey: `operation-${operationId}`,
 });
+```
+
+## Semantic Search
+
+Build a semantic search engine using vector embeddings:
+
+```typescript
+import { NoriKVClient, VectorSearchResult } from '@norikv/client';
+
+interface SearchResult {
+  id: string;
+  title: string;
+  content: string;
+  score: number;
+}
+
+interface DocumentMeta {
+  title: string;
+  content: string;
+}
+
+class SemanticSearchEngine {
+  private client: NoriKVClient;
+  private embeddingModel: EmbeddingModel;
+  private namespace = 'documents';
+
+  constructor(client: NoriKVClient, embeddingModel: EmbeddingModel) {
+    this.client = client;
+    this.embeddingModel = embeddingModel;
+  }
+
+  async initialize(): Promise<void> {
+    await this.client.vectorCreateIndex(
+      this.namespace,
+      this.embeddingModel.dimensions,
+      'cosine',
+      'hnsw'
+    );
+  }
+
+  async indexDocument(docId: string, title: string, content: string): Promise<void> {
+    // Generate embedding
+    const embedding = await this.embeddingModel.embed(title + ' ' + content);
+
+    // Store embedding
+    await this.client.vectorInsert(this.namespace, docId, embedding);
+
+    // Store metadata
+    const meta: DocumentMeta = { title, content };
+    await this.client.put(`doc:meta:${docId}`, JSON.stringify(meta));
+  }
+
+  async search(query: string, topK: number): Promise<SearchResult[]> {
+    // Generate query embedding
+    const queryEmbedding = await this.embeddingModel.embed(query);
+
+    // Search
+    const result = await this.client.vectorSearch(this.namespace, queryEmbedding, topK);
+
+    // Fetch metadata
+    const results: SearchResult[] = [];
+    for (const match of result.matches) {
+      try {
+        const metaResult = await this.client.get(`doc:meta:${match.id}`);
+        const meta: DocumentMeta = JSON.parse(bytesToString(metaResult.value));
+
+        results.push({
+          id: match.id,
+          title: meta.title,
+          content: meta.content,
+          score: 1.0 - match.distance,
+        });
+      } catch {
+        // Skip if metadata not found
+      }
+    }
+
+    return results;
+  }
+
+  async deleteDocument(docId: string): Promise<void> {
+    await this.client.vectorDelete(this.namespace, docId);
+    await this.client.delete(`doc:meta:${docId}`);
+  }
+}
+
+// Usage
+const engine = new SemanticSearchEngine(client, openAIEmbedding);
+await engine.initialize();
+
+// Index documents
+await engine.indexDocument('doc1', 'Machine Learning',
+  'Machine learning is a subset of AI...');
+await engine.indexDocument('doc2', 'Deep Learning',
+  'Deep learning uses neural networks...');
+
+// Search
+const results = await engine.search('AI neural networks', 5);
+for (const r of results) {
+  console.log(`${r.score.toFixed(2)}: ${r.title}`);
+}
+```
+
+## Recommendation System
+
+Build a product recommendation engine:
+
+```typescript
+interface ProductRecommendation {
+  productId: string;
+  name: string;
+  category: string;
+  score: number;
+}
+
+class RecommendationEngine {
+  private client: NoriKVClient;
+  private embeddingModel: EmbeddingModel;
+
+  constructor(client: NoriKVClient, embeddingModel: EmbeddingModel) {
+    this.client = client;
+    this.embeddingModel = embeddingModel;
+  }
+
+  async initialize(): Promise<void> {
+    // Create product index
+    await this.client.vectorCreateIndex(
+      'products',
+      this.embeddingModel.dimensions,
+      'cosine',
+      'hnsw'
+    );
+
+    // Create user preference index
+    await this.client.vectorCreateIndex(
+      'user_prefs',
+      this.embeddingModel.dimensions,
+      'cosine',
+      'hnsw'
+    );
+  }
+
+  async indexProduct(productId: string, name: string, desc: string, category: string): Promise<void> {
+    const embedding = await this.embeddingModel.embed(`${name} ${desc} ${category}`);
+    await this.client.vectorInsert('products', productId, embedding);
+  }
+
+  async recordInteraction(userId: string, productId: string): Promise<void> {
+    // Get product embedding
+    const productEmbed = await this.client.vectorGet('products', productId);
+    if (!productEmbed) return;
+
+    // Update user preferences (simple moving average)
+    let currentPref = await this.client.vectorGet('user_prefs', userId);
+    if (currentPref) {
+      currentPref = currentPref.map((v, i) => (v + productEmbed[i]) / 2);
+    } else {
+      currentPref = productEmbed;
+    }
+
+    await this.client.vectorInsert('user_prefs', userId, currentPref);
+  }
+
+  async getRecommendations(userId: string, topK: number): Promise<ProductRecommendation[]> {
+    const userPref = await this.client.vectorGet('user_prefs', userId);
+    if (!userPref) return [];
+
+    const result = await this.client.vectorSearch('products', userPref, topK);
+
+    return result.matches.map(match => ({
+      productId: match.id,
+      name: '',
+      category: '',
+      score: 1.0 - match.distance,
+    }));
+  }
+
+  async getSimilarProducts(productId: string, topK: number): Promise<ProductRecommendation[]> {
+    const embedding = await this.client.vectorGet('products', productId);
+    if (!embedding) return [];
+
+    const result = await this.client.vectorSearch('products', embedding, topK + 1);
+
+    return result.matches
+      .filter(m => m.id !== productId)
+      .slice(0, topK)
+      .map(match => ({
+        productId: match.id,
+        name: '',
+        category: '',
+        score: 1.0 - match.distance,
+      }));
+  }
+}
+
+// Usage
+const engine = new RecommendationEngine(client, embeddingModel);
+await engine.initialize();
+
+// Index products
+await engine.indexProduct('prod1', 'Running Shoes', 'Lightweight', 'Footwear');
+await engine.indexProduct('prod2', 'Trail Shoes', 'Durable', 'Footwear');
+
+// Record user interactions
+await engine.recordInteraction('user123', 'prod1');
+
+// Get recommendations
+const recs = await engine.getRecommendations('user123', 5);
+for (const r of recs) {
+  console.log(`${r.score.toFixed(2)}: ${r.productId}`);
+}
+```
+
+## Document Deduplication
+
+Detect near-duplicate documents using vector similarity:
+
+```typescript
+interface DeduplicationResult {
+  isDuplicate: boolean;
+  duplicateOf: string | null;
+  similarity: number;
+}
+
+class DocumentDeduplicator {
+  private client: NoriKVClient;
+  private embeddingModel: EmbeddingModel;
+  private similarityThreshold: number;
+
+  constructor(client: NoriKVClient, embeddingModel: EmbeddingModel, threshold: number) {
+    this.client = client;
+    this.embeddingModel = embeddingModel;
+    this.similarityThreshold = threshold;
+  }
+
+  async initialize(): Promise<void> {
+    await this.client.vectorCreateIndex(
+      'doc_fingerprints',
+      this.embeddingModel.dimensions,
+      'cosine',
+      'hnsw'
+    );
+  }
+
+  async checkAndStore(docId: string, content: string): Promise<DeduplicationResult> {
+    const embedding = await this.embeddingModel.embed(content);
+
+    // Search for similar documents
+    const result = await this.client.vectorSearch('doc_fingerprints', embedding, 5);
+
+    // Check for duplicates
+    for (const match of result.matches) {
+      const similarity = 1.0 - match.distance;
+      if (similarity >= this.similarityThreshold) {
+        return {
+          isDuplicate: true,
+          duplicateOf: match.id,
+          similarity,
+        };
+      }
+    }
+
+    // No duplicate found, store new document
+    await this.client.vectorInsert('doc_fingerprints', docId, embedding);
+
+    return { isDuplicate: false, duplicateOf: null, similarity: 0 };
+  }
+
+  async removeDocument(docId: string): Promise<void> {
+    await this.client.vectorDelete('doc_fingerprints', docId);
+  }
+}
+
+// Usage
+const dedup = new DocumentDeduplicator(client, embeddingModel, 0.95);
+await dedup.initialize();
+
+const doc1 = 'The quick brown fox jumps over the lazy dog.';
+const doc2 = 'A quick brown fox jumped over a lazy dog.';
+const doc3 = 'Machine learning is transforming industries.';
+
+const result1 = await dedup.checkAndStore('doc1', doc1);
+console.log(`doc1 is duplicate: ${result1.isDuplicate}`); // false
+
+const result2 = await dedup.checkAndStore('doc2', doc2);
+console.log(`doc2 is duplicate: ${result2.isDuplicate}`); // true
+console.log(`doc2 duplicate of: ${result2.duplicateOf}`); // doc1
+console.log(`Similarity: ${result2.similarity.toFixed(2)}`); // ~0.96
+
+const result3 = await dedup.checkAndStore('doc3', doc3);
+console.log(`doc3 is duplicate: ${result3.isDuplicate}`); // false
 ```
 
 ## Next Steps

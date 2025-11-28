@@ -12,6 +12,9 @@ Complex real-world usage patterns and design examples.
 - [Leader Election](#leader-election)
 - [Event Sourcing](#event-sourcing)
 - [Multi-Tenancy](#multi-tenancy)
+- [Semantic Search](#semantic-search)
+- [Recommendation System](#recommendation-system)
+- [Document Deduplication](#document-deduplication)
 
 ## Distributed Counter
 
@@ -745,6 +748,329 @@ if !allowed {
 }
 
 // Process request...
+```
+
+## Semantic Search
+
+Build a semantic search engine using vector embeddings:
+
+```go
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+
+    norikv "github.com/norikv/norikv-go"
+)
+
+type SemanticSearchEngine struct {
+    client         *norikv.Client
+    embeddingModel EmbeddingModel
+    namespace      string
+}
+
+type SearchResult struct {
+    ID      string
+    Title   string
+    Content string
+    Score   float32
+}
+
+type DocumentMeta struct {
+    Title   string `json:"title"`
+    Content string `json:"content"`
+}
+
+func NewSemanticSearchEngine(client *norikv.Client, model EmbeddingModel) *SemanticSearchEngine {
+    return &SemanticSearchEngine{
+        client:         client,
+        embeddingModel: model,
+        namespace:      "documents",
+    }
+}
+
+func (s *SemanticSearchEngine) Initialize(ctx context.Context) error {
+    _, err := s.client.VectorCreateIndex(
+        ctx,
+        s.namespace,
+        s.embeddingModel.Dimensions(),
+        norikv.DistanceCosine,
+        norikv.VectorIndexHNSW,
+        nil,
+    )
+    return err
+}
+
+func (s *SemanticSearchEngine) IndexDocument(ctx context.Context, docID, title, content string) error {
+    // Generate embedding
+    embedding := s.embeddingModel.Embed(title + " " + content)
+
+    // Store embedding
+    _, err := s.client.VectorInsert(ctx, s.namespace, docID, embedding, nil)
+    if err != nil {
+        return err
+    }
+
+    // Store metadata
+    meta := DocumentMeta{Title: title, Content: content}
+    metaBytes, _ := json.Marshal(meta)
+    _, err = s.client.Put(ctx, []byte("doc:meta:"+docID), metaBytes, nil)
+    return err
+}
+
+func (s *SemanticSearchEngine) Search(ctx context.Context, query string, topK int) ([]SearchResult, error) {
+    // Generate query embedding
+    queryEmbedding := s.embeddingModel.Embed(query)
+
+    // Search
+    result, err := s.client.VectorSearch(ctx, s.namespace, queryEmbedding, topK, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    // Fetch metadata
+    var results []SearchResult
+    for _, match := range result.Matches {
+        metaResult, err := s.client.Get(ctx, []byte("doc:meta:"+match.ID), nil)
+        if err != nil {
+            continue
+        }
+
+        var meta DocumentMeta
+        json.Unmarshal(metaResult.Value, &meta)
+
+        results = append(results, SearchResult{
+            ID:      match.ID,
+            Title:   meta.Title,
+            Content: meta.Content,
+            Score:   1.0 - match.Distance,
+        })
+    }
+
+    return results, nil
+}
+
+// Usage
+func main() {
+    ctx := context.Background()
+    engine := NewSemanticSearchEngine(client, openAIEmbedding)
+    engine.Initialize(ctx)
+
+    // Index documents
+    engine.IndexDocument(ctx, "doc1", "Machine Learning",
+        "Machine learning is a subset of AI...")
+    engine.IndexDocument(ctx, "doc2", "Deep Learning",
+        "Deep learning uses neural networks...")
+
+    // Search
+    results, _ := engine.Search(ctx, "AI neural networks", 5)
+    for _, r := range results {
+        fmt.Printf("%.2f: %s\n", r.Score, r.Title)
+    }
+}
+```
+
+## Recommendation System
+
+Build a product recommendation engine:
+
+```go
+type RecommendationEngine struct {
+    client         *norikv.Client
+    embeddingModel EmbeddingModel
+}
+
+type ProductRecommendation struct {
+    ProductID string
+    Name      string
+    Category  string
+    Score     float32
+}
+
+func NewRecommendationEngine(client *norikv.Client, model EmbeddingModel) *RecommendationEngine {
+    return &RecommendationEngine{
+        client:         client,
+        embeddingModel: model,
+    }
+}
+
+func (r *RecommendationEngine) Initialize(ctx context.Context) error {
+    // Create product index
+    _, err := r.client.VectorCreateIndex(
+        ctx, "products",
+        r.embeddingModel.Dimensions(),
+        norikv.DistanceCosine,
+        norikv.VectorIndexHNSW,
+        nil,
+    )
+    if err != nil {
+        return err
+    }
+
+    // Create user preference index
+    _, err = r.client.VectorCreateIndex(
+        ctx, "user_prefs",
+        r.embeddingModel.Dimensions(),
+        norikv.DistanceCosine,
+        norikv.VectorIndexHNSW,
+        nil,
+    )
+    return err
+}
+
+func (r *RecommendationEngine) IndexProduct(ctx context.Context, productID, name, desc, category string) error {
+    embedding := r.embeddingModel.Embed(name + " " + desc + " " + category)
+    _, err := r.client.VectorInsert(ctx, "products", productID, embedding, nil)
+    return err
+}
+
+func (r *RecommendationEngine) RecordInteraction(ctx context.Context, userID, productID string) error {
+    // Get product embedding
+    productEmbed, err := r.client.VectorGet(ctx, "products", productID)
+    if err != nil {
+        return err
+    }
+
+    // Update user preferences (simple moving average)
+    currentPref, _ := r.client.VectorGet(ctx, "user_prefs", userID)
+    if currentPref != nil {
+        for i := range currentPref {
+            currentPref[i] = (currentPref[i] + productEmbed[i]) / 2
+        }
+    } else {
+        currentPref = productEmbed
+    }
+
+    _, err = r.client.VectorInsert(ctx, "user_prefs", userID, currentPref, nil)
+    return err
+}
+
+func (r *RecommendationEngine) GetRecommendations(ctx context.Context, userID string, topK int) ([]ProductRecommendation, error) {
+    userPref, err := r.client.VectorGet(ctx, "user_prefs", userID)
+    if err != nil || userPref == nil {
+        return nil, err
+    }
+
+    result, err := r.client.VectorSearch(ctx, "products", userPref, topK, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    var recs []ProductRecommendation
+    for _, match := range result.Matches {
+        recs = append(recs, ProductRecommendation{
+            ProductID: match.ID,
+            Score:     1.0 - match.Distance,
+        })
+    }
+    return recs, nil
+}
+
+// Usage
+func main() {
+    ctx := context.Background()
+    engine := NewRecommendationEngine(client, embeddingModel)
+    engine.Initialize(ctx)
+
+    // Index products
+    engine.IndexProduct(ctx, "prod1", "Running Shoes", "Lightweight", "Footwear")
+    engine.IndexProduct(ctx, "prod2", "Trail Shoes", "Durable", "Footwear")
+
+    // Record user interactions
+    engine.RecordInteraction(ctx, "user123", "prod1")
+
+    // Get recommendations
+    recs, _ := engine.GetRecommendations(ctx, "user123", 5)
+    for _, r := range recs {
+        fmt.Printf("%.2f: %s\n", r.Score, r.ProductID)
+    }
+}
+```
+
+## Document Deduplication
+
+Detect near-duplicate documents using vector similarity:
+
+```go
+type DocumentDeduplicator struct {
+    client              *norikv.Client
+    embeddingModel      EmbeddingModel
+    similarityThreshold float32
+}
+
+type DeduplicationResult struct {
+    IsDuplicate bool
+    DuplicateOf string
+    Similarity  float32
+}
+
+func NewDocumentDeduplicator(client *norikv.Client, model EmbeddingModel, threshold float32) *DocumentDeduplicator {
+    return &DocumentDeduplicator{
+        client:              client,
+        embeddingModel:      model,
+        similarityThreshold: threshold,
+    }
+}
+
+func (d *DocumentDeduplicator) Initialize(ctx context.Context) error {
+    _, err := d.client.VectorCreateIndex(
+        ctx, "doc_fingerprints",
+        d.embeddingModel.Dimensions(),
+        norikv.DistanceCosine,
+        norikv.VectorIndexHNSW,
+        nil,
+    )
+    return err
+}
+
+func (d *DocumentDeduplicator) CheckAndStore(ctx context.Context, docID, content string) (*DeduplicationResult, error) {
+    embedding := d.embeddingModel.Embed(content)
+
+    // Search for similar documents
+    result, err := d.client.VectorSearch(ctx, "doc_fingerprints", embedding, 5, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    // Check for duplicates
+    for _, match := range result.Matches {
+        similarity := 1.0 - match.Distance
+        if similarity >= d.similarityThreshold {
+            return &DeduplicationResult{
+                IsDuplicate: true,
+                DuplicateOf: match.ID,
+                Similarity:  similarity,
+            }, nil
+        }
+    }
+
+    // No duplicate found, store new document
+    _, err = d.client.VectorInsert(ctx, "doc_fingerprints", docID, embedding, nil)
+    if err != nil {
+        return nil, err
+    }
+
+    return &DeduplicationResult{IsDuplicate: false}, nil
+}
+
+// Usage
+func main() {
+    ctx := context.Background()
+    dedup := NewDocumentDeduplicator(client, embeddingModel, 0.95)
+    dedup.Initialize(ctx)
+
+    doc1 := "The quick brown fox jumps over the lazy dog."
+    doc2 := "A quick brown fox jumped over a lazy dog."
+
+    result1, _ := dedup.CheckAndStore(ctx, "doc1", doc1)
+    fmt.Printf("doc1 is duplicate: %v\n", result1.IsDuplicate) // false
+
+    result2, _ := dedup.CheckAndStore(ctx, "doc2", doc2)
+    fmt.Printf("doc2 is duplicate: %v\n", result2.IsDuplicate) // true
+    fmt.Printf("doc2 duplicate of: %s\n", result2.DuplicateOf) // doc1
+}
 ```
 
 ## Next Steps

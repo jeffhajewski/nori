@@ -12,6 +12,9 @@ Complex real-world usage patterns and production-ready design examples with asyn
 - [Leader Election](#leader-election)
 - [Event Sourcing](#event-sourcing)
 - [Multi-Tenancy](#multi-tenancy)
+- [Semantic Search](#semantic-search)
+- [Recommendation System](#recommendation-system)
+- [Document Deduplication](#document-deduplication)
 
 ## Distributed Counter
 
@@ -1423,6 +1426,282 @@ await client.put(
     value,
     PutOptions(idempotency_key=f"operation-{operation_id}"),
 )
+```
+
+## Semantic Search
+
+Build a semantic search engine using vector embeddings:
+
+```python
+from dataclasses import dataclass
+import json
+from norikv import (
+    NoriKVClient,
+    DistanceFunction,
+    VectorIndexType,
+    KeyNotFoundError,
+)
+
+@dataclass
+class SearchResult:
+    id: str
+    title: str
+    content: str
+    score: float
+
+@dataclass
+class DocumentMeta:
+    title: str
+    content: str
+
+class SemanticSearchEngine:
+    def __init__(self, client: NoriKVClient, embedding_model):
+        self.client = client
+        self.embedding_model = embedding_model
+        self.namespace = "documents"
+
+    async def initialize(self) -> None:
+        await self.client.vector_create_index(
+            self.namespace,
+            self.embedding_model.dimensions,
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+        )
+
+    async def index_document(self, doc_id: str, title: str, content: str) -> None:
+        # Generate embedding
+        embedding = await self.embedding_model.embed(f"{title} {content}")
+
+        # Store embedding
+        await self.client.vector_insert(self.namespace, doc_id, embedding)
+
+        # Store metadata
+        meta = {"title": title, "content": content}
+        await self.client.put(f"doc:meta:{doc_id}", json.dumps(meta).encode())
+
+    async def search(self, query: str, top_k: int) -> list[SearchResult]:
+        # Generate query embedding
+        query_embedding = await self.embedding_model.embed(query)
+
+        # Search
+        result = await self.client.vector_search(self.namespace, query_embedding, top_k)
+
+        # Fetch metadata
+        results = []
+        for match in result.matches:
+            try:
+                meta_result = await self.client.get(f"doc:meta:{match.id}")
+                meta = json.loads(meta_result.value.decode())
+
+                results.append(SearchResult(
+                    id=match.id,
+                    title=meta["title"],
+                    content=meta["content"],
+                    score=1.0 - match.distance,
+                ))
+            except KeyNotFoundError:
+                pass  # Skip if metadata not found
+
+        return results
+
+    async def delete_document(self, doc_id: str) -> None:
+        await self.client.vector_delete(self.namespace, doc_id)
+        await self.client.delete(f"doc:meta:{doc_id}")
+
+
+# Usage
+async def main():
+    engine = SemanticSearchEngine(client, openai_embedding)
+    await engine.initialize()
+
+    # Index documents
+    await engine.index_document("doc1", "Machine Learning",
+        "Machine learning is a subset of AI...")
+    await engine.index_document("doc2", "Deep Learning",
+        "Deep learning uses neural networks...")
+
+    # Search
+    results = await engine.search("AI neural networks", 5)
+    for r in results:
+        print(f"{r.score:.2f}: {r.title}")
+```
+
+## Recommendation System
+
+Build a product recommendation engine:
+
+```python
+@dataclass
+class ProductRecommendation:
+    product_id: str
+    name: str
+    category: str
+    score: float
+
+class RecommendationEngine:
+    def __init__(self, client: NoriKVClient, embedding_model):
+        self.client = client
+        self.embedding_model = embedding_model
+
+    async def initialize(self) -> None:
+        # Create product index
+        await self.client.vector_create_index(
+            "products",
+            self.embedding_model.dimensions,
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+        )
+
+        # Create user preference index
+        await self.client.vector_create_index(
+            "user_prefs",
+            self.embedding_model.dimensions,
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+        )
+
+    async def index_product(self, product_id: str, name: str, desc: str, category: str) -> None:
+        embedding = await self.embedding_model.embed(f"{name} {desc} {category}")
+        await self.client.vector_insert("products", product_id, embedding)
+
+    async def record_interaction(self, user_id: str, product_id: str) -> None:
+        # Get product embedding
+        product_embed = await self.client.vector_get("products", product_id)
+        if product_embed is None:
+            return
+
+        # Update user preferences (simple moving average)
+        current_pref = await self.client.vector_get("user_prefs", user_id)
+        if current_pref is not None:
+            current_pref = [(c + p) / 2 for c, p in zip(current_pref, product_embed)]
+        else:
+            current_pref = product_embed
+
+        await self.client.vector_insert("user_prefs", user_id, current_pref)
+
+    async def get_recommendations(self, user_id: str, top_k: int) -> list[ProductRecommendation]:
+        user_pref = await self.client.vector_get("user_prefs", user_id)
+        if user_pref is None:
+            return []
+
+        result = await self.client.vector_search("products", user_pref, top_k)
+
+        return [
+            ProductRecommendation(
+                product_id=match.id,
+                name="",
+                category="",
+                score=1.0 - match.distance,
+            )
+            for match in result.matches
+        ]
+
+    async def get_similar_products(self, product_id: str, top_k: int) -> list[ProductRecommendation]:
+        embedding = await self.client.vector_get("products", product_id)
+        if embedding is None:
+            return []
+
+        result = await self.client.vector_search("products", embedding, top_k + 1)
+
+        return [
+            ProductRecommendation(
+                product_id=match.id,
+                name="",
+                category="",
+                score=1.0 - match.distance,
+            )
+            for match in result.matches
+            if match.id != product_id
+        ][:top_k]
+
+
+# Usage
+async def main():
+    engine = RecommendationEngine(client, embedding_model)
+    await engine.initialize()
+
+    # Index products
+    await engine.index_product("prod1", "Running Shoes", "Lightweight", "Footwear")
+    await engine.index_product("prod2", "Trail Shoes", "Durable", "Footwear")
+
+    # Record user interactions
+    await engine.record_interaction("user123", "prod1")
+
+    # Get recommendations
+    recs = await engine.get_recommendations("user123", 5)
+    for r in recs:
+        print(f"{r.score:.2f}: {r.product_id}")
+```
+
+## Document Deduplication
+
+Detect near-duplicate documents using vector similarity:
+
+```python
+@dataclass
+class DeduplicationResult:
+    is_duplicate: bool
+    duplicate_of: str | None
+    similarity: float
+
+class DocumentDeduplicator:
+    def __init__(self, client: NoriKVClient, embedding_model, threshold: float):
+        self.client = client
+        self.embedding_model = embedding_model
+        self.similarity_threshold = threshold
+
+    async def initialize(self) -> None:
+        await self.client.vector_create_index(
+            "doc_fingerprints",
+            self.embedding_model.dimensions,
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+        )
+
+    async def check_and_store(self, doc_id: str, content: str) -> DeduplicationResult:
+        embedding = await self.embedding_model.embed(content)
+
+        # Search for similar documents
+        result = await self.client.vector_search("doc_fingerprints", embedding, 5)
+
+        # Check for duplicates
+        for match in result.matches:
+            similarity = 1.0 - match.distance
+            if similarity >= self.similarity_threshold:
+                return DeduplicationResult(
+                    is_duplicate=True,
+                    duplicate_of=match.id,
+                    similarity=similarity,
+                )
+
+        # No duplicate found, store new document
+        await self.client.vector_insert("doc_fingerprints", doc_id, embedding)
+
+        return DeduplicationResult(is_duplicate=False, duplicate_of=None, similarity=0.0)
+
+    async def remove_document(self, doc_id: str) -> None:
+        await self.client.vector_delete("doc_fingerprints", doc_id)
+
+
+# Usage
+async def main():
+    dedup = DocumentDeduplicator(client, embedding_model, 0.95)
+    await dedup.initialize()
+
+    doc1 = "The quick brown fox jumps over the lazy dog."
+    doc2 = "A quick brown fox jumped over a lazy dog."
+    doc3 = "Machine learning is transforming industries."
+
+    result1 = await dedup.check_and_store("doc1", doc1)
+    print(f"doc1 is duplicate: {result1.is_duplicate}")  # False
+
+    result2 = await dedup.check_and_store("doc2", doc2)
+    print(f"doc2 is duplicate: {result2.is_duplicate}")  # True
+    print(f"doc2 duplicate of: {result2.duplicate_of}")  # doc1
+    print(f"Similarity: {result2.similarity:.2f}")       # ~0.96
+
+    result3 = await dedup.check_and_store("doc3", doc3)
+    print(f"doc3 is duplicate: {result3.is_duplicate}")  # False
 ```
 
 ## Next Steps

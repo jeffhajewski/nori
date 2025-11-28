@@ -15,6 +15,10 @@ NoriKVError (base)
 ├── AlreadyExistsError
 ├── ConnectionError
 ├── TimeoutError
+├── VectorIndexNotFoundError
+├── VectorDimensionMismatchError
+├── VectorIndexAlreadyExistsError
+├── VectorNotFoundError
 └── (other errors)
 ```
 
@@ -425,7 +429,241 @@ except NoriKVError as err:
 
 ---
 
+## Vector Error Types
+
+The following errors are specific to vector search operations.
+
+### VectorIndexNotFoundError
+
+**Description**: The specified vector index (namespace) does not exist.
+
+**gRPC Status**: `NOT_FOUND` with message containing "vector index"
+
+**When It Occurs**:
+- Vector search on non-existent index
+- Vector insert on non-existent index
+- Vector get/delete on non-existent index
+
+**Retry?**: No - create the index first
+
+#### Java
+```java
+try {
+    VectorSearchResult result = client.vectorSearch(
+        "nonexistent", queryVector, 10, null);
+} catch (VectorIndexNotFoundException e) {
+    // Create the index first
+    client.vectorCreateIndex(
+        "nonexistent", 1536,
+        DistanceFunction.COSINE,
+        VectorIndexType.HNSW, null);
+}
+```
+
+#### Go
+```go
+result, err := client.VectorSearch(ctx, "nonexistent", queryVector, 10, nil)
+if errors.Is(err, norikv.ErrVectorIndexNotFound) {
+    // Create the index first
+    client.VectorCreateIndex(ctx, "nonexistent", 1536,
+        norikv.DistanceCosine, norikv.VectorIndexHNSW, nil)
+}
+```
+
+#### TypeScript
+```typescript
+try {
+    const result = await client.vectorSearch('nonexistent', queryVector, 10);
+} catch (err) {
+    if (err instanceof VectorIndexNotFoundError) {
+        // Create the index first
+        await client.vectorCreateIndex('nonexistent', 1536, 'cosine', 'hnsw');
+    }
+}
+```
+
+#### Python
+```python
+try:
+    result = await client.vector_search("nonexistent", query_vector, 10)
+except VectorIndexNotFoundError:
+    # Create the index first
+    await client.vector_create_index(
+        "nonexistent", 1536,
+        DistanceFunction.COSINE,
+        VectorIndexType.HNSW,
+    )
+```
+
+---
+
+### VectorDimensionMismatchError
+
+**Description**: Vector dimensions don't match the index configuration.
+
+**gRPC Status**: `INVALID_ARGUMENT` with message containing "dimension"
+
+**When It Occurs**:
+- Vector insert with wrong number of dimensions
+- Vector search with wrong query vector dimensions
+
+**Retry?**: No - fix vector dimensions
+
+#### Java
+```java
+try {
+    // Index expects 1536 dimensions, but we provide 768
+    float[] wrongVector = new float[768];
+    client.vectorInsert("embeddings", "doc-1", wrongVector, null);
+} catch (VectorDimensionMismatchException e) {
+    System.out.printf("Expected %d dimensions, got %d%n",
+        e.getExpectedDimensions(), e.getActualDimensions());
+}
+```
+
+#### Go
+```go
+// Index expects 1536 dimensions, but we provide 768
+wrongVector := make([]float32, 768)
+_, err := client.VectorInsert(ctx, "embeddings", "doc-1", wrongVector, nil)
+if errors.Is(err, norikv.ErrVectorDimensionMismatch) {
+    fmt.Println("Vector dimensions don't match index configuration")
+}
+```
+
+#### TypeScript
+```typescript
+try {
+    // Index expects 1536 dimensions, but we provide 768
+    const wrongVector = new Float32Array(768);
+    await client.vectorInsert('embeddings', 'doc-1', wrongVector);
+} catch (err) {
+    if (err instanceof VectorDimensionMismatchError) {
+        console.log(`Expected ${err.expectedDimensions}, got ${err.actualDimensions}`);
+    }
+}
+```
+
+#### Python
+```python
+try:
+    # Index expects 1536 dimensions, but we provide 768
+    wrong_vector = [0.0] * 768
+    await client.vector_insert("embeddings", "doc-1", wrong_vector)
+except VectorDimensionMismatchError as err:
+    print(f"Expected {err.expected_dimensions}, got {err.actual_dimensions}")
+```
+
+---
+
+### VectorIndexAlreadyExistsError
+
+**Description**: Vector index already exists.
+
+**gRPC Status**: `ALREADY_EXISTS` with message containing "vector index"
+
+**When It Occurs**:
+- Creating a vector index that already exists
+
+**Retry?**: No - index already exists
+
+#### Java
+```java
+try {
+    client.vectorCreateIndex("embeddings", 1536,
+        DistanceFunction.COSINE, VectorIndexType.HNSW, null);
+} catch (VectorIndexAlreadyExistsException e) {
+    System.out.println("Index already exists, using existing index");
+}
+```
+
+#### Go
+```go
+created, err := client.VectorCreateIndex(ctx, "embeddings", 1536,
+    norikv.DistanceCosine, norikv.VectorIndexHNSW, nil)
+if errors.Is(err, norikv.ErrVectorIndexAlreadyExists) {
+    fmt.Println("Index already exists, using existing index")
+}
+```
+
+#### TypeScript
+```typescript
+try {
+    await client.vectorCreateIndex('embeddings', 1536, 'cosine', 'hnsw');
+} catch (err) {
+    if (err instanceof VectorIndexAlreadyExistsError) {
+        console.log('Index already exists, using existing index');
+    }
+}
+```
+
+#### Python
+```python
+try:
+    await client.vector_create_index(
+        "embeddings", 1536,
+        DistanceFunction.COSINE,
+        VectorIndexType.HNSW,
+    )
+except VectorIndexAlreadyExistsError:
+    print("Index already exists, using existing index")
+```
+
+---
+
+### VectorNotFoundError
+
+**Description**: The specified vector ID does not exist in the index.
+
+**gRPC Status**: `NOT_FOUND` with message containing "vector"
+
+**When It Occurs**:
+- Vector get on non-existent ID
+- Vector delete on non-existent ID (may succeed without error)
+
+**Retry?**: No - vector doesn't exist
+
+#### Java
+```java
+try {
+    float[] vector = client.vectorGet("embeddings", "nonexistent-doc");
+} catch (VectorNotFoundException e) {
+    System.out.println("Vector not found: " + e.getVectorId());
+}
+```
+
+#### Go
+```go
+vector, err := client.VectorGet(ctx, "embeddings", "nonexistent-doc")
+if errors.Is(err, norikv.ErrVectorNotFound) {
+    fmt.Println("Vector not found")
+}
+```
+
+#### TypeScript
+```typescript
+try {
+    const vector = await client.vectorGet('embeddings', 'nonexistent-doc');
+} catch (err) {
+    if (err instanceof VectorNotFoundError) {
+        console.log('Vector not found');
+    }
+}
+```
+
+#### Python
+```python
+try:
+    vector = await client.vector_get("embeddings", "nonexistent-doc")
+except VectorNotFoundError:
+    print("Vector not found")
+```
+
+---
+
 ## Error Code Mapping
+
+### Key-Value Operations
 
 | gRPC Status | Error Type | Retry? | SDK Error Name |
 |-------------|------------|--------|----------------|
@@ -438,6 +676,15 @@ except NoriKVError as err:
 | RESOURCE_EXHAUSTED | NoriKVError | Yes | NoriKVException (Java), ErrResourceExhausted (Go), NoriKVError (TS/Py) |
 | INVALID_ARGUMENT | NoriKVError | No | NoriKVException (Java), ErrInvalidArgument (Go), NoriKVError (TS/Py) |
 | PERMISSION_DENIED | NoriKVError | No | NoriKVException (Java), ErrPermissionDenied (Go), NoriKVError (TS/Py) |
+
+### Vector Operations
+
+| gRPC Status | Error Type | Retry? | SDK Error Name |
+|-------------|------------|--------|----------------|
+| NOT_FOUND (vector index) | VectorIndexNotFoundError | No | VectorIndexNotFoundException (Java), ErrVectorIndexNotFound (Go), VectorIndexNotFoundError (TS/Py) |
+| NOT_FOUND (vector) | VectorNotFoundError | No | VectorNotFoundException (Java), ErrVectorNotFound (Go), VectorNotFoundError (TS/Py) |
+| ALREADY_EXISTS (vector index) | VectorIndexAlreadyExistsError | No | VectorIndexAlreadyExistsException (Java), ErrVectorIndexAlreadyExists (Go), VectorIndexAlreadyExistsError (TS/Py) |
+| INVALID_ARGUMENT (dimension) | VectorDimensionMismatchError | No | VectorDimensionMismatchException (Java), ErrVectorDimensionMismatch (Go), VectorDimensionMismatchError (TS/Py) |
 
 ## Retry Strategy
 
@@ -457,6 +704,10 @@ These errors should NOT be automatically retried:
 - AlreadyExistsError - key exists, no retry needed
 - InvalidArgumentError - client bug, fix code
 - PermissionDeniedError - credentials issue, fix config
+- VectorIndexNotFoundError - create the index first
+- VectorDimensionMismatchError - fix vector dimensions
+- VectorIndexAlreadyExistsError - index exists, use existing
+- VectorNotFoundError - vector doesn't exist
 
 ### CAS Retry Pattern
 

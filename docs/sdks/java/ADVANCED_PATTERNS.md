@@ -12,6 +12,9 @@ Complex use cases and design patterns for production systems.
 - [Leader Election](#leader-election)
 - [Event Sourcing](#event-sourcing)
 - [Multi-Tenancy](#multi-tenancy)
+- [Semantic Search](#semantic-search)
+- [Recommendation System](#recommendation-system)
+- [Document Deduplication](#document-deduplication)
 
 ## Distributed Counter
 
@@ -830,6 +833,486 @@ MultiTenantClient tenant2 = MultiTenantClient.forTenant(sharedClient, "tenant-2"
 // Data is automatically isolated
 tenant1.put("user:123", data, null); // Stored as "tenant-1:user:123"
 tenant2.put("user:123", data, null); // Stored as "tenant-2:user:123"
+```
+
+## Semantic Search
+
+Build a semantic search engine using vector embeddings:
+
+```java
+public class SemanticSearchEngine {
+    private final NoriKVClient client;
+    private final EmbeddingModel embeddingModel;
+    private final String namespace;
+
+    public SemanticSearchEngine(NoriKVClient client, EmbeddingModel embeddingModel) {
+        this.client = client;
+        this.embeddingModel = embeddingModel;
+        this.namespace = "documents";
+    }
+
+    public void initialize() throws NoriKVException {
+        // Create vector index for document embeddings
+        client.vectorCreateIndex(
+            namespace,
+            embeddingModel.getDimensions(),  // e.g., 1536 for OpenAI
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+            null
+        );
+    }
+
+    public void indexDocument(String docId, String title, String content)
+            throws NoriKVException {
+        // Generate embedding from content
+        float[] embedding = embeddingModel.embed(title + " " + content);
+
+        // Store the embedding
+        client.vectorInsert(namespace, docId, embedding, null);
+
+        // Also store document metadata
+        byte[] key = ("doc:meta:" + docId).getBytes(StandardCharsets.UTF_8);
+        String json = String.format(
+            "{\"title\":\"%s\",\"content\":\"%s\"}",
+            escapeJson(title), escapeJson(content)
+        );
+        client.put(key, json.getBytes(StandardCharsets.UTF_8), null);
+    }
+
+    public List<SearchResult> search(String query, int topK) throws NoriKVException {
+        // Generate query embedding
+        float[] queryEmbedding = embeddingModel.embed(query);
+
+        // Search for similar documents
+        VectorSearchResult result = client.vectorSearch(
+            namespace,
+            queryEmbedding,
+            topK,
+            null
+        );
+
+        // Fetch document metadata for results
+        List<SearchResult> results = new ArrayList<>();
+        for (VectorMatch match : result.getMatches()) {
+            byte[] metaKey = ("doc:meta:" + match.getId()).getBytes(StandardCharsets.UTF_8);
+            try {
+                GetResult meta = client.get(metaKey, null);
+                String json = new String(meta.getValue(), StandardCharsets.UTF_8);
+                DocumentMeta doc = parseDocumentMeta(json);
+
+                results.add(new SearchResult(
+                    match.getId(),
+                    doc.title,
+                    doc.content,
+                    1.0f - match.getDistance()  // Convert distance to similarity
+                ));
+            } catch (KeyNotFoundException e) {
+                // Document metadata not found, skip
+            }
+        }
+
+        return results;
+    }
+
+    public void deleteDocument(String docId) throws NoriKVException {
+        // Delete vector
+        client.vectorDelete(namespace, docId, null);
+
+        // Delete metadata
+        byte[] key = ("doc:meta:" + docId).getBytes(StandardCharsets.UTF_8);
+        client.delete(key, null);
+    }
+
+    private String escapeJson(String s) {
+        return s.replace("\"", "\\\"").replace("\n", "\\n");
+    }
+
+    private DocumentMeta parseDocumentMeta(String json) {
+        // Parse JSON to DocumentMeta
+        return new DocumentMeta("", "");
+    }
+
+    public static class SearchResult {
+        public final String id;
+        public final String title;
+        public final String content;
+        public final float score;
+
+        public SearchResult(String id, String title, String content, float score) {
+            this.id = id;
+            this.title = title;
+            this.content = content;
+            this.score = score;
+        }
+    }
+
+    private static class DocumentMeta {
+        String title;
+        String content;
+
+        DocumentMeta(String title, String content) {
+            this.title = title;
+            this.content = content;
+        }
+    }
+}
+
+// Usage
+SemanticSearchEngine engine = new SemanticSearchEngine(client, openAIEmbedding);
+engine.initialize();
+
+// Index documents
+engine.indexDocument("doc1", "Introduction to Machine Learning",
+    "Machine learning is a subset of artificial intelligence...");
+engine.indexDocument("doc2", "Deep Learning Fundamentals",
+    "Deep learning uses neural networks with many layers...");
+
+// Search
+List<SearchResult> results = engine.search("AI neural networks", 5);
+for (SearchResult result : results) {
+    System.out.printf("%.2f: %s%n", result.score, result.title);
+}
+```
+
+## Recommendation System
+
+Build a product recommendation engine:
+
+```java
+public class RecommendationEngine {
+    private final NoriKVClient client;
+    private final EmbeddingModel embeddingModel;
+    private static final String PRODUCT_NS = "products";
+    private static final String USER_NS = "user_prefs";
+
+    public RecommendationEngine(NoriKVClient client, EmbeddingModel embeddingModel) {
+        this.client = client;
+        this.embeddingModel = embeddingModel;
+    }
+
+    public void initialize() throws NoriKVException {
+        // Create index for product embeddings
+        client.vectorCreateIndex(
+            PRODUCT_NS,
+            embeddingModel.getDimensions(),
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+            null
+        );
+
+        // Create index for user preference embeddings
+        client.vectorCreateIndex(
+            USER_NS,
+            embeddingModel.getDimensions(),
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+            null
+        );
+    }
+
+    public void indexProduct(String productId, String name, String description,
+                            String category) throws NoriKVException {
+        // Generate embedding from product info
+        String text = name + " " + description + " " + category;
+        float[] embedding = embeddingModel.embed(text);
+
+        // Store product embedding
+        client.vectorInsert(PRODUCT_NS, productId, embedding, null);
+
+        // Store product metadata
+        byte[] key = ("product:meta:" + productId).getBytes(StandardCharsets.UTF_8);
+        String json = String.format(
+            "{\"name\":\"%s\",\"description\":\"%s\",\"category\":\"%s\"}",
+            name, description, category
+        );
+        client.put(key, json.getBytes(StandardCharsets.UTF_8), null);
+    }
+
+    public void recordUserInteraction(String userId, String productId)
+            throws NoriKVException {
+        // Get product embedding
+        float[] productEmbedding = client.vectorGet(PRODUCT_NS, productId);
+        if (productEmbedding == null) {
+            return; // Product not found
+        }
+
+        // Update user preference embedding (simple average for demo)
+        float[] currentPref;
+        try {
+            currentPref = client.vectorGet(USER_NS, userId);
+            if (currentPref != null) {
+                // Average with new product embedding
+                for (int i = 0; i < currentPref.length; i++) {
+                    currentPref[i] = (currentPref[i] + productEmbedding[i]) / 2;
+                }
+            } else {
+                currentPref = productEmbedding;
+            }
+        } catch (Exception e) {
+            currentPref = productEmbedding;
+        }
+
+        // Store updated user preference
+        client.vectorInsert(USER_NS, userId, currentPref, null);
+    }
+
+    public List<ProductRecommendation> getRecommendations(String userId, int topK)
+            throws NoriKVException {
+        // Get user preference embedding
+        float[] userPref = client.vectorGet(USER_NS, userId);
+        if (userPref == null) {
+            return Collections.emptyList(); // No preferences yet
+        }
+
+        // Find similar products
+        VectorSearchResult result = client.vectorSearch(
+            PRODUCT_NS,
+            userPref,
+            topK,
+            null
+        );
+
+        // Build recommendations
+        List<ProductRecommendation> recommendations = new ArrayList<>();
+        for (VectorMatch match : result.getMatches()) {
+            byte[] metaKey = ("product:meta:" + match.getId())
+                .getBytes(StandardCharsets.UTF_8);
+            try {
+                GetResult meta = client.get(metaKey, null);
+                ProductMeta product = parseProductMeta(
+                    new String(meta.getValue(), StandardCharsets.UTF_8));
+
+                recommendations.add(new ProductRecommendation(
+                    match.getId(),
+                    product.name,
+                    product.category,
+                    1.0f - match.getDistance()
+                ));
+            } catch (KeyNotFoundException e) {
+                // Skip if metadata not found
+            }
+        }
+
+        return recommendations;
+    }
+
+    public List<ProductRecommendation> getSimilarProducts(String productId, int topK)
+            throws NoriKVException {
+        // Get product embedding
+        float[] embedding = client.vectorGet(PRODUCT_NS, productId);
+        if (embedding == null) {
+            return Collections.emptyList();
+        }
+
+        // Find similar products (excluding the original)
+        VectorSearchResult result = client.vectorSearch(
+            PRODUCT_NS,
+            embedding,
+            topK + 1,  // +1 because the product itself will match
+            null
+        );
+
+        List<ProductRecommendation> similar = new ArrayList<>();
+        for (VectorMatch match : result.getMatches()) {
+            if (match.getId().equals(productId)) {
+                continue; // Skip the product itself
+            }
+
+            byte[] metaKey = ("product:meta:" + match.getId())
+                .getBytes(StandardCharsets.UTF_8);
+            try {
+                GetResult meta = client.get(metaKey, null);
+                ProductMeta product = parseProductMeta(
+                    new String(meta.getValue(), StandardCharsets.UTF_8));
+
+                similar.add(new ProductRecommendation(
+                    match.getId(),
+                    product.name,
+                    product.category,
+                    1.0f - match.getDistance()
+                ));
+            } catch (KeyNotFoundException e) {
+                // Skip
+            }
+
+            if (similar.size() >= topK) break;
+        }
+
+        return similar;
+    }
+
+    private ProductMeta parseProductMeta(String json) {
+        return new ProductMeta("", "", "");
+    }
+
+    public static class ProductRecommendation {
+        public final String productId;
+        public final String name;
+        public final String category;
+        public final float score;
+
+        public ProductRecommendation(String productId, String name,
+                                    String category, float score) {
+            this.productId = productId;
+            this.name = name;
+            this.category = category;
+            this.score = score;
+        }
+    }
+
+    private static class ProductMeta {
+        String name;
+        String description;
+        String category;
+
+        ProductMeta(String name, String description, String category) {
+            this.name = name;
+            this.description = description;
+            this.category = category;
+        }
+    }
+}
+
+// Usage
+RecommendationEngine engine = new RecommendationEngine(client, embeddingModel);
+engine.initialize();
+
+// Index products
+engine.indexProduct("prod1", "Running Shoes", "Lightweight running shoes", "Footwear");
+engine.indexProduct("prod2", "Trail Shoes", "Durable trail running shoes", "Footwear");
+engine.indexProduct("prod3", "Tennis Racket", "Professional tennis racket", "Sports");
+
+// Record user interactions
+engine.recordUserInteraction("user123", "prod1");
+engine.recordUserInteraction("user123", "prod2");
+
+// Get recommendations
+List<ProductRecommendation> recs = engine.getRecommendations("user123", 5);
+for (ProductRecommendation rec : recs) {
+    System.out.printf("%.2f: %s (%s)%n", rec.score, rec.name, rec.category);
+}
+
+// Get similar products
+List<ProductRecommendation> similar = engine.getSimilarProducts("prod1", 3);
+```
+
+## Document Deduplication
+
+Detect near-duplicate documents using vector similarity:
+
+```java
+public class DocumentDeduplicator {
+    private final NoriKVClient client;
+    private final EmbeddingModel embeddingModel;
+    private final float similarityThreshold;
+    private static final String NAMESPACE = "doc_fingerprints";
+
+    public DocumentDeduplicator(NoriKVClient client, EmbeddingModel embeddingModel,
+                                float similarityThreshold) {
+        this.client = client;
+        this.embeddingModel = embeddingModel;
+        this.similarityThreshold = similarityThreshold; // e.g., 0.95
+    }
+
+    public void initialize() throws NoriKVException {
+        client.vectorCreateIndex(
+            NAMESPACE,
+            embeddingModel.getDimensions(),
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+            null
+        );
+    }
+
+    public DeduplicationResult checkAndStore(String docId, String content)
+            throws NoriKVException {
+        // Generate embedding
+        float[] embedding = embeddingModel.embed(content);
+
+        // Search for similar documents
+        VectorSearchResult searchResult = client.vectorSearch(
+            NAMESPACE,
+            embedding,
+            5,  // Check top 5 candidates
+            null
+        );
+
+        // Check for duplicates
+        for (VectorMatch match : searchResult.getMatches()) {
+            float similarity = 1.0f - match.getDistance();
+            if (similarity >= similarityThreshold) {
+                return new DeduplicationResult(
+                    true,
+                    match.getId(),
+                    similarity
+                );
+            }
+        }
+
+        // No duplicate found, store the new document
+        client.vectorInsert(NAMESPACE, docId, embedding, null);
+
+        return new DeduplicationResult(false, null, 0f);
+    }
+
+    public List<DuplicateCluster> findDuplicateClusters() throws NoriKVException {
+        // This would scan all documents and cluster them by similarity
+        // Simplified implementation - in production, use more efficient clustering
+        Map<String, List<String>> clusters = new HashMap<>();
+        Set<String> processed = new HashSet<>();
+
+        // Note: In production, you'd need to iterate through all documents
+        // This is a conceptual example
+        return new ArrayList<>();
+    }
+
+    public void removeDocument(String docId) throws NoriKVException {
+        client.vectorDelete(NAMESPACE, docId, null);
+    }
+
+    public static class DeduplicationResult {
+        public final boolean isDuplicate;
+        public final String duplicateOf;
+        public final float similarity;
+
+        public DeduplicationResult(boolean isDuplicate, String duplicateOf,
+                                   float similarity) {
+            this.isDuplicate = isDuplicate;
+            this.duplicateOf = duplicateOf;
+            this.similarity = similarity;
+        }
+    }
+
+    public static class DuplicateCluster {
+        public final String canonicalId;
+        public final List<String> duplicateIds;
+
+        public DuplicateCluster(String canonicalId, List<String> duplicateIds) {
+            this.canonicalId = canonicalId;
+            this.duplicateIds = duplicateIds;
+        }
+    }
+}
+
+// Usage
+DocumentDeduplicator dedup = new DocumentDeduplicator(client, embeddingModel, 0.95f);
+dedup.initialize();
+
+// Check documents for duplicates before storing
+String doc1 = "The quick brown fox jumps over the lazy dog.";
+String doc2 = "A quick brown fox jumped over a lazy dog.";  // Near-duplicate
+String doc3 = "Machine learning is transforming industries.";  // Different
+
+DeduplicationResult result1 = dedup.checkAndStore("doc1", doc1);
+System.out.println("doc1 is duplicate: " + result1.isDuplicate);  // false
+
+DeduplicationResult result2 = dedup.checkAndStore("doc2", doc2);
+System.out.println("doc2 is duplicate: " + result2.isDuplicate);  // true
+System.out.println("doc2 duplicate of: " + result2.duplicateOf);  // doc1
+System.out.println("Similarity: " + result2.similarity);          // ~0.96
+
+DeduplicationResult result3 = dedup.checkAndStore("doc3", doc3);
+System.out.println("doc3 is duplicate: " + result3.isDuplicate);  // false
 ```
 
 ## See Also

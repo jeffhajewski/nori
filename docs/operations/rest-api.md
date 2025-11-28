@@ -249,7 +249,7 @@ kv_request_duration_ms_count{operation="put",status="success"} 12345
 
 **Metrics Exposed:**
 
-See **[Metrics Reference](metrics)** for complete list.
+See **[Metrics Reference](metrics.md)** for complete list.
 
 **Key Metrics:**
 - `kv_requests_total` - Request counters by operation
@@ -586,6 +586,6 @@ curl http://localhost:8080/metrics
 
 ## Next Steps
 
-- **[Metrics Reference](metrics)** - All metrics explained
-- **[Configuration](configuration)** - Server configuration options
-- **[Deployment](deployment)** - Production deployment patterns
+- **[Metrics Reference](metrics.md)** - All metrics explained
+- **[Configuration](configuration.md)** - Server configuration options
+- **[Deployment](deployment.md)** - Production deployment patterns

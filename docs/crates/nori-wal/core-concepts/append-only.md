@@ -85,8 +85,8 @@ Writing: [Record 1: "user:1=alice"][Record 2: "user:1=bob--"]  ← CRASH!
 After:   [Record 1: "user:1=alice"][partial garbage]
 
 Recovery: Scan log, validate CRCs
-  - Record 1: ✓ Valid CRC → Keep
-  - Record 2: ✗ Invalid CRC → Truncate
+  - Record 1: Yes Valid CRC → Keep
+  - Record 2: No Invalid CRC → Truncate
 
 Final:   [Record 1: "user:1=alice"]
 ```
@@ -322,7 +322,7 @@ This is what LSM-tree databases (RocksDB, Cassandra, nori-lsm) do.
 
 **Important**: nori-wal itself does **not** implement compaction. It provides the primitives (`delete_segments_before()`) but **you** decide when and how to compact.
 
-See [Recipes: Compaction](../recipes/compaction) for implementation examples.
+See [Recipes: Compaction](../recipes/compaction.md) for implementation examples.
 
 ---
 
@@ -555,8 +555,8 @@ After compaction to Level 2:
 
 Now that you understand append-only architecture, explore:
 
-- **[Fsync Policies](fsync-policies)** - How to balance durability and performance
-- **[Recovery Guarantees](recovery-guarantees)** - What happens after a crash
-- **[When to Use a WAL](when-to-use)** - Scenarios where WALs shine
+- **[Fsync Policies](fsync-policies.md)** - How to balance durability and performance
+- **[Recovery Guarantees](recovery-guarantees.md)** - What happens after a crash
+- **[When to Use a WAL](when-to-use.md)** - Scenarios where WALs shine
 
-Or dive into implementation details in [How It Works](../how-it-works/).
+Or dive into implementation details in [How It Works](../how-it-works/index.md).

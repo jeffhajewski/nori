@@ -9,16 +9,16 @@ Everything you need to start using nori-wal in your project.
 <div class="code-example" markdown="1">
 
 **Brand new to WALs?**
-→ Start with [What is a Write-Ahead Log?](../core-concepts/what-is-wal)
+→ Start with [What is a Write-Ahead Log?](../core-concepts/what-is-wal.md)
 
 **Ready to code?**
-→ Follow the [5-Minute Quickstart](quickstart)
+→ Follow the [5-Minute Quickstart](quickstart.md)
 
 **Need to configure?**
-→ Check the [Configuration Guide](configuration)
+→ Check the [Configuration Guide](configuration.md)
 
 **Want deeper understanding?**
-→ Explore [How It Works](../how-it-works/)
+→ Explore [How It Works](../how-it-works/index.md)
 
 </div>
 
@@ -28,22 +28,22 @@ Everything you need to start using nori-wal in your project.
 
 We recommend this order for learning nori-wal:
 
-### 1. [Installation](installation)
+### 1. [Installation](installation.md)
 Add nori-wal to your project and verify it works.
 
-### 2. [5-Minute Quickstart](quickstart)
+### 2. [5-Minute Quickstart](quickstart.md)
 Write your first WAL program and see recovery in action.
 
-### 3. [Configuration Guide](configuration)
+### 3. [Configuration Guide](configuration.md)
 Understand all configuration options and pick the right settings.
 
-### 4. [Core Concepts](../core-concepts/)
+### 4. [Core Concepts](../core-concepts/index.md)
 Learn the fundamentals: what WALs are, how they work, when to use them.
 
-### 5. [How It Works](../how-it-works/)
+### 5. [How It Works](../how-it-works/index.md)
 Deep dive into internals: record format, recovery, concurrency, etc.
 
-### 6. [Recipes](../recipes/)
+### 6. [Recipes](../recipes/index.md)
 Build real applications with nori-wal.
 
 ---
@@ -117,7 +117,7 @@ A: The WAL recovery process scans all segments, validates each record with CRC32
 
 Choose your path:
 
-- **[Start coding](quickstart)** - Get hands-on immediately
-- 📚 **[Learn concepts](../core-concepts/)** - Understand WALs deeply
-- ⚙️ **[Configure](configuration)** - Tune for your workload
-- 🏗️ **[Build something](../recipes/)** - See real-world examples
+- **[Start coding](quickstart.md)** - Get hands-on immediately
+- **[Learn concepts](../core-concepts/index.md)** - Understand WALs deeply
+- **[Configure](configuration.md)** - Tune for your workload
+- **[Build something](../recipes/index.md)** - See real-world examples

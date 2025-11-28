@@ -136,15 +136,15 @@ The Go SDK includes comprehensive documentation:
 
 ## Examples
 
-See the [source repository](https://github.com/j-haj/nori/tree/main/sdks/go/examples) for complete working examples:
+See the [source repository](https://github.com/jeffhajewski/norikv/tree/main/sdks/go/examples) for complete working examples:
 
 - `basic/` - Complete basic usage patterns
 - `ephemeral/` - Testing with in-memory server
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/j-haj/nori/issues)
-- **Source**: [GitHub Repository](https://github.com/j-haj/nori/tree/main/sdks/go)
+- **Issues**: [GitHub Issues](https://github.com/jeffhajewski/norikv/issues)
+- **Source**: [GitHub Repository](https://github.com/jeffhajewski/norikv/tree/main/sdks/go)
 - **pkg.go.dev**: [API Documentation](https://pkg.go.dev/github.com/norikv/norikv-go)
 
 ## License

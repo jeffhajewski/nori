@@ -147,7 +147,7 @@ The Java SDK includes comprehensive documentation:
 
 ## Examples
 
-See the [source repository](https://github.com/j-haj/nori/tree/main/sdks/java/examples) for complete working examples:
+See the [source repository](https://github.com/jeffhajewski/norikv/tree/main/sdks/java/examples) for complete working examples:
 
 - `BasicExample.java` - Simple operations with different options
 - `ConditionalOperationsExample.java` - CAS and version matching
@@ -155,9 +155,9 @@ See the [source repository](https://github.com/j-haj/nori/tree/main/sdks/java/ex
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/j-haj/nori/issues)
-- **Source**: [GitHub Repository](https://github.com/j-haj/nori/tree/main/sdks/java)
-- **API Docs**: [Javadoc](./javadoc/) (if published)
+- **Issues**: [GitHub Issues](https://github.com/jeffhajewski/norikv/issues)
+- **Source**: [GitHub Repository](https://github.com/jeffhajewski/norikv/tree/main/sdks/java)
+- **API Docs**: [Javadoc](./javadoc/index.md) (if published)
 
 ## License
 

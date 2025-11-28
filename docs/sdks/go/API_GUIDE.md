@@ -650,4 +650,4 @@ func main() {
 - [Architecture Guide](ARCHITECTURE.md) - Understanding client internals
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Solving common issues
 - [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
-- [Examples](../examples/) - Working code samples
+- [Examples](../examples/index.md) - Working code samples

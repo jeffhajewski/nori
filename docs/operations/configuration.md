@@ -315,16 +315,16 @@ export NORIKV_SEED_NODES="10.0.1.10:7447,10.0.1.11:7447,10.0.1.12:7447"
 **Trade-offs:**
 
 **More shards:**
-- ✅ Finer-grained load balancing
-- ✅ Easier rebalancing (smaller units)
-- ❌ More Raft overhead (more leaders, more heartbeats)
-- ❌ Higher memory usage
+-  Finer-grained load balancing
+-  Easier rebalancing (smaller units)
+-  More Raft overhead (more leaders, more heartbeats)
+-  Higher memory usage
 
 **Fewer shards:**
-- ✅ Lower overhead
-- ✅ Less memory usage
-- ❌ Coarse-grained balancing
-- ❌ Harder to rebalance
+-  Lower overhead
+-  Less memory usage
+-  Coarse-grained balancing
+-  Harder to rebalance
 
 **Example:**
 
@@ -835,6 +835,6 @@ Error: Cannot create data_dir: permission denied
 
 ## Next Steps
 
-- **[Deployment Guide](deployment)** - Production deployment patterns
-- **[Metrics Reference](metrics)** - Monitor your configuration
-- **[Troubleshooting](troubleshooting)** - Common configuration issues
+- **[Deployment Guide](deployment.md)** - Production deployment patterns
+- **[Metrics Reference](metrics.md)** - Monitor your configuration
+- **[Troubleshooting](troubleshooting.md)** - Common configuration issues

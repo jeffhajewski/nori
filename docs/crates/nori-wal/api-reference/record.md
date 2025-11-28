@@ -18,7 +18,7 @@ A `Record` represents a single key-value operation in the WAL. Records support:
 
 ### Type Definition
 
-[View source in `crates/nori-wal/src/record.rs`](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L64-L72)
+[View source in `crates/nori-wal/src/record.rs`](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L64-L72)
 
 ### Fields
 
@@ -38,7 +38,7 @@ A `Record` represents a single key-value operation in the WAL. Records support:
 
 Creates a new PUT record.
 
-[View source](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L76-L84)
+[View source](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L76-L84)
 
 **Parameters:**
 - `key` - The record's key (accepts `&[u8]`, `Vec<u8>`, `String`, etc.)
@@ -71,7 +71,7 @@ let record = Record::put(key, value);
 
 Creates a new PUT record with a time-to-live.
 
-[View source](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L87-L95)
+[View source](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L87-L95)
 
 **Parameters:**
 - `key` - The record's key
@@ -112,7 +112,7 @@ let record = Record::put_with_ttl(
 
 Creates a DELETE record (tombstone).
 
-[View source](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L98-L106)
+[View source](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L98-L106)
 
 **Parameters:**
 - `key` - The key to delete
@@ -144,7 +144,7 @@ assert_eq!(record.value.len(), 0);
 
 Sets the compression algorithm for the record's value.
 
-[View source](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L109-L112)
+[View source](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L109-L112)
 
 **Parameters:**
 - `compression` - Compression algorithm (`Compression::None`, `Compression::Lz4`, or `Compression::Zstd`)
@@ -210,7 +210,7 @@ let zstd = Record::put(b"k", value.as_bytes())
 
 Encodes the record into bytes with CRC32C checksum.
 
-[View source](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L115-L163)
+[View source](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L115-L163)
 
 **Returns:** Encoded record as immutable `Bytes`.
 
@@ -263,7 +263,7 @@ file.write_all(&encoded).await?;
 
 Decodes a record from bytes, validating the CRC32C checksum.
 
-[View source](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L166-L199)
+[View source](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L166-L199)
 
 **Parameters:**
 - `data` - Byte slice containing the encoded record
@@ -338,7 +338,7 @@ while offset < buffer.len() {
 
 Compression algorithm for record values.
 
-[View source](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L34-L39)
+[View source](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L34-L39)
 
 **Variants:**
 
@@ -365,7 +365,7 @@ assert_eq!(comp as u8, 1);
 
 Errors that can occur during record encoding/decoding.
 
-[View source](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L17-L31)
+[View source](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L17-L31)
 
 **Variants:**
 
@@ -672,8 +672,8 @@ match Record::decode(data) {
 
 ## See Also
 
-- [Wal API](wal) - Main WAL interface
-- [WalConfig API](config) - Configuration options
-- [RecordError](errors) - Error handling
-- [How It Works: Record Format](../how-it-works/record-format) - Deep dive into wire format
-- [Core Concepts: Append-Only](../core-concepts/append-only) - Why records are immutable
+- [Wal API](wal.md) - Main WAL interface
+- [WalConfig API](config.md) - Configuration options
+- [RecordError](errors.md) - Error handling
+- [How It Works: Record Format](../how-it-works/record-format.md) - Deep dive into wire format
+- [Core Concepts: Append-Only](../core-concepts/append-only.md) - Why records are immutable

@@ -13,7 +13,7 @@ hide:
 A **sharded, Raft-replicated, log-structured key-value store** with first-class observability and multi-language SDKs.
 
 [Get Started](sdks/getting-started.md){ .md-button .md-button--primary }
-[View on GitHub](https://github.com/j-haj/nori){ .md-button }
+[View on GitHub](https://github.com/jeffhajewski/norikv){ .md-button }
 
 </div>
 

@@ -10,25 +10,25 @@ Complete API documentation for all public types and methods in nori-wal.
 
 | Type | Purpose | Page |
 |------|---------|------|
-| [`Wal`](wal) | Main WAL interface | [API →](wal) |
-| [`Record`](record) | Key-value record with metadata | [API →](record) |
-| [`WalConfig`](config) | Configuration builder | [API →](config) |
-| [`Position`](position) | Location in the log | [API →](position) |
-| [`RecoveryInfo`](recovery-info) | Recovery statistics | [API →](recovery-info) |
+| [`Wal`](wal.md) | Main WAL interface | [API →](wal.md) |
+| [`Record`](record.md) | Key-value record with metadata | [API →](record.md) |
+| [`WalConfig`](config.md) | Configuration builder | [API →](config.md) |
+| [`Position`](position.md) | Location in the log | [API →](position.md) |
+| [`RecoveryInfo`](recovery-info.md) | Recovery statistics | [API →](recovery-info.md) |
 
 ### Enums
 
 | Type | Purpose | Page |
 |------|---------|------|
-| [`FsyncPolicy`](fsync-policy) | Durability policy | [API →](fsync-policy) |
-| [`Compression`](compression) | Compression algorithm | [API →](compression) |
+| [`FsyncPolicy`](fsync-policy.md) | Durability policy | [API →](fsync-policy.md) |
+| [`Compression`](compression.md) | Compression algorithm | [API →](compression.md) |
 
 ### Error Types
 
 | Type | Purpose | Page |
 |------|---------|------|
-| [`SegmentError`](errors#segmenterror) | Segment-level errors | [API →](errors#segmenterror) |
-| [`RecordError`](errors#recorderror) | Record-level errors | [API →](errors#recorderror) |
+| [`SegmentError`](errors.md#segmenterror) | Segment-level errors | [API →](errors.md#segmenterror) |
+| [`RecordError`](errors.md#recorderror) | Record-level errors | [API →](errors.md#recorderror) |
 
 ---
 
@@ -180,24 +180,24 @@ for _ in 0..4 {
 
 Start here for most use cases:
 
-- [`Wal`](wal) - Open, append, sync, read
-- [`Record`](record) - Create PUT/DELETE records
-- [`WalConfig`](config) - Configure behavior
+- [`Wal`](wal.md) - Open, append, sync, read
+- [`Record`](record.md) - Create PUT/DELETE records
+- [`WalConfig`](config.md) - Configure behavior
 
 ### Advanced API
 
 For fine-grained control:
 
-- [`Position`](position) - Seek to specific locations
-- [`SegmentReader`](segment-reader) - Manual reading
-- [`FsyncPolicy`](fsync-policy) - Custom durability
+- [`Position`](position.md) - Seek to specific locations
+- [`SegmentReader`](segment-reader.md) - Manual reading
+- [`FsyncPolicy`](fsync-policy.md) - Custom durability
 
 ### Observability
 
 For monitoring and debugging:
 
-- [`RecoveryInfo`](recovery-info) - Recovery statistics
-- [`Meter` trait](meter) - Custom metrics (advanced)
+- [`RecoveryInfo`](recovery-info.md) - Recovery statistics
+- [`Meter` trait](meter.md) - Custom metrics (advanced)
 
 ---
 
@@ -301,7 +301,7 @@ WalConfig {
 
 Click through to detailed documentation for each type:
 
-- **[Wal](wal)** - Main WAL API with all methods
-- **[Record](record)** - Record creation, encoding, and compression
-- **[Configuration](config)** - WalConfig and FsyncPolicy options
-- **[Errors & Types](errors)** - Error types, Position, and RecoveryInfo
+- **[Wal](wal.md)** - Main WAL API with all methods
+- **[Record](record.md)** - Record creation, encoding, and compression
+- **[Configuration](config.md)** - WalConfig and FsyncPolicy options
+- **[Errors & Types](errors.md)** - Error types, Position, and RecoveryInfo

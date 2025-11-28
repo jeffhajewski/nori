@@ -668,7 +668,7 @@ client.put(key.getBytes(StandardCharsets.UTF_8), value, null);
 
 If you're still stuck:
 
-1. **Check Examples**: [src/main/java/com/norikv/client/examples/](../src/main/java/com/norikv/client/examples/)
+1. **Check Examples**: [src/main/java/com/norikv/client/examples/](../src/main/java/com/norikv/client/examples/index.md)
 
 2. **Read API Guide**: [API_GUIDE.md](API_GUIDE.md)
 

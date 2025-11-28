@@ -209,8 +209,8 @@ async fn select_runs_for_compaction(&self, slot: &Slot) -> Vec<SortedRun> {
 ```
 L0 SSTables:
   SST-001: [0x00, 0x50) → Overlaps Slot 0, Slot 1 (not Slot 3)
-  SST-002: [0xC0, 0xE0) → Overlaps Slot 3 ✓
-  SST-003: [0xD0, 0xF0) → Overlaps Slot 3 ✓
+  SST-002: [0xC0, 0xE0) → Overlaps Slot 3 Yes
+  SST-003: [0xD0, 0xF0) → Overlaps Slot 3 Yes
 
 Slot 3 existing runs:
   Run-042: [0xC0, 0xFF]
@@ -613,7 +613,7 @@ pub async fn compact_slot(&mut self, slot_id: u32) -> Result<()> {
 - Scheduler overhead: 250ns per selection
 - Write amplification: 8-20x (vs 40-100x for pure leveled)
 
-**Next**: [Snapshot Process](snapshot-process) - Consistent backups
+**Next**: [Snapshot Process](snapshot-process.md) - Consistent backups
 
 ---
 

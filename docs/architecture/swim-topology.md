@@ -303,9 +303,9 @@ async fn update_node_role(&self, node_id: &str, role: &str) -> Result<(), Cluste
 - **Testable:** Can mock SWIM events
 
 **Alternative:** Handle events in Node::start() loop
-- ❌ Blocks server startup
-- ❌ Harder to test
-- ❌ Mixed concerns
+-  Blocks server startup
+-  Harder to test
+-  Mixed concerns
 
 ---
 
@@ -338,9 +338,9 @@ impl ClusterViewManager {
 ```
 
 **Alternative:** Polling current()
-- ❌ High CPU usage
-- ❌ Delayed updates
-- ❌ No event-driven routing
+-  High CPU usage
+-  Delayed updates
+-  No event-driven routing
 
 ---
 
@@ -368,9 +368,9 @@ self.refresh().await?;
 ```
 
 **Alternative:** Periodic refresh only
-- ❌ Delayed routing updates
-- ❌ Clients may route to dead nodes
-- ❌ Longer recovery time
+-  Delayed routing updates
+-  Clients may route to dead nodes
+-  Longer recovery time
 
 ---
 
@@ -424,7 +424,7 @@ self.refresh().await?;
 // This doesn't compile!
 if let Some(node) = view.nodes.iter_mut().find(|n| n.id == node_id) {
     if node.role != role {
-        view.epoch += 1;  // ❌ Error: can't borrow view again
+        view.epoch += 1;  //  Error: can't borrow view again
         node.role = role.to_string();
     }
 }
@@ -718,6 +718,6 @@ async fn test_node_failure_detection() {
 
 ## Next Steps
 
-- **[Multi-Shard Architecture](multi-shard-server)** - How shards are managed
-- **[SWIM Protocol (nori-swim)](../crates/nori-swim/)** - Deep dive into SWIM implementation
-- **[Client Routing](../sdks/)**  - SDK integration with ClusterView
+- **[Multi-Shard Architecture](multi-shard-server.md)** - How shards are managed
+- **[SWIM Protocol (nori-swim)](../crates/nori-swim/index.md)** - Deep dive into SWIM implementation
+- **[Client Routing](../sdks/index.md)**  - SDK integration with ClusterView

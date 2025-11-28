@@ -519,7 +519,7 @@ impl SlotRouter {
 - Range query routing: 80ns
 - Throughput: 25M lookups/sec
 
-**Next**: [Compaction Lifecycle](compaction-lifecycle) - The most complex subsystem
+**Next**: [Compaction Lifecycle](compaction-lifecycle.md) - The most complex subsystem
 
 ---
 

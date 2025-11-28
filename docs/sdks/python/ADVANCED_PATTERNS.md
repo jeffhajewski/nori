@@ -681,7 +681,7 @@ class UserProfile:
     name: str
     email: str
 
-cache = CachedClient[UserProfile](client, ttl_ms=60000, max_size=1000)
+cache = CachedClient[UserProfile](client, ttl_ms=60000, max_size=1000.md)
 
 # Get with automatic caching
 profile = await cache.get(
@@ -1430,4 +1430,4 @@ await client.put(
 - [API Guide](API_GUIDE.md) - Core API reference
 - [Architecture Guide](ARCHITECTURE.md) - Internal design
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
-- [GitHub Examples](https://github.com/j-haj/nori/tree/main/sdks/python/examples) - More code samples
+- [GitHub Examples](https://github.com/jeffhajewski/norikv/tree/main/sdks/python/examples) - More code samples

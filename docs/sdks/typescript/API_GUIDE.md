@@ -613,4 +613,4 @@ main().catch(console.error);
 - [Architecture Guide](ARCHITECTURE.md) - Understanding client internals
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Solving common issues
 - [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
-- [Examples](https://github.com/j-haj/nori/tree/main/sdks/typescript/examples) - Working code samples
+- [Examples](https://github.com/jeffhajewski/norikv/tree/main/sdks/typescript/examples) - Working code samples

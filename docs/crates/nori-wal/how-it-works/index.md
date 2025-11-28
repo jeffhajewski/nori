@@ -20,16 +20,16 @@ This section explains the technical implementation details of nori-wal. If you w
 
 ## Navigation
 
-### [Record Format](record-format)
+### [Record Format](record-format.md)
 The on-disk structure of WAL records: header, CRC32C, compression, flags, and layout.
 
-### [Segment Lifecycle](segment-lifecycle)
+### [Segment Lifecycle](segment-lifecycle.md)
 How segments are created, rotated, and deleted. Pre-allocation strategies across platforms.
 
-### [Recovery Process](recovery)
+### [Recovery Process](recovery.md)
 Detailed walkthrough of the recovery algorithm: scanning, validation, truncation, and rebuild.
 
-### [Concurrency Model](concurrency)
+### [Concurrency Model](concurrency.md)
 How nori-wal handles concurrent reads and writes. Lock-free reading, write serialization.
 
 ---
@@ -43,9 +43,9 @@ How nori-wal handles concurrent reads and writes. Lock-free reading, write seria
 - You want deep technical understanding
 
 **You can skip this section if**:
-- You just want to use nori-wal (see [Getting Started](../getting-started/))
-- You want high-level concepts (see [Core Concepts](../core-concepts/))
-- You want recipes and examples (see [Recipes](../recipes/))
+- You just want to use nori-wal (see [Getting Started](../getting-started/index.md))
+- You want high-level concepts (see [Core Concepts](../core-concepts/index.md))
+- You want recipes and examples (see [Recipes](../recipes/index.md))
 
 ---
 
@@ -53,9 +53,9 @@ How nori-wal handles concurrent reads and writes. Lock-free reading, write seria
 
 Before diving in, make sure you understand:
 
-- **[What is a WAL](../core-concepts/what-is-wal)** - The fundamental concept
-- **[Append-Only Architecture](../core-concepts/append-only)** - Why WALs are append-only
-- **[Fsync Policies](../core-concepts/fsync-policies)** - Durability vs performance trade-offs
+- **[What is a WAL](../core-concepts/what-is-wal.md)** - The fundamental concept
+- **[Append-Only Architecture](../core-concepts/append-only.md)** - Why WALs are append-only
+- **[Fsync Policies](../core-concepts/fsync-policies.md)** - Durability vs performance trade-offs
 
 If you haven't read those yet, start there first!
 
@@ -118,10 +118,10 @@ Each "How It Works" page corresponds to one or more of these modules.
 
 We recommend reading in this order:
 
-1. **[Record Format](record-format)** - Start here to understand the on-disk format
-2. **[Segment Lifecycle](segment-lifecycle)** - How segments are managed
-3. **[Recovery Process](recovery)** - How we recover from crashes
-4. **[Concurrency Model](concurrency)** - How concurrent operations work
+1. **[Record Format](record-format.md)** - Start here to understand the on-disk format
+2. **[Segment Lifecycle](segment-lifecycle.md)** - How segments are managed
+3. **[Recovery Process](recovery.md)** - How we recover from crashes
+4. **[Concurrency Model](concurrency.md)** - How concurrent operations work
 
 You can read them independently, but they build on each other.
 
@@ -144,10 +144,10 @@ If you're a visual learner, you'll love this section!
 
 Ready to dive in? Start with:
 
-- **[Record Format](record-format)** - Learn how data is structured on disk
+- **[Record Format](record-format.md)** - Learn how data is structured on disk
 - Or jump to a specific topic that interests you
 
 If you're looking for something else:
-- **[API Reference](../api-reference/)** - Documentation for all public types
-- **[Recipes](../recipes/)** - Build real applications with nori-wal
-- **[Troubleshooting](../troubleshooting/)** - Debug common issues
+- **[API Reference](../api-reference/index.md)** - Documentation for all public types
+- **[Recipes](../recipes/index.md)** - Build real applications with nori-wal
+- **[Troubleshooting](../troubleshooting/index.md)** - Debug common issues

@@ -290,10 +290,10 @@ See [Performance Tuning](../performance/tuning.md) for detailed guidance.
 ## Next Steps
 
 After completing Core Concepts:
-1. **[Design Decisions](../design-decisions/)** - Dive deeper into ATLL's design rationale
-2. **[How It Works](../how-it-works/)** - Implementation details and algorithms
-3. **[Performance](../performance/)** - Benchmarking, tuning, and optimization
-4. **[Recipes](../recipes/)** - Common use cases and integration patterns
+1. **[Design Decisions](../design-decisions/index.md)** - Dive deeper into ATLL's design rationale
+2. **[How It Works](../how-it-works/index.md)** - Implementation details and algorithms
+3. **[Performance](../performance/index.md)** - Benchmarking, tuning, and optimization
+4. **[Recipes](../recipes/index.md)** - Common use cases and integration patterns
 
 ---
 

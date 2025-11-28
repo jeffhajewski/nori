@@ -327,12 +327,12 @@ SSTableConfig {
 
 **Why 4KB blocks:**
 
-✅ Aligns with OS page size (4KB)
-✅ Good compression ratio (2.5x with LZ4)
-✅ Fast decompression (<1µs)
-✅ Reasonable cache granularity (16K blocks in 64MB)
-✅ Acceptable read amplification (34x, amortized by caching)
-✅ Simple implementation (fixed size)
-✅ Battle-tested (LevelDB, RocksDB use same)
+ Aligns with OS page size (4KB)
+ Good compression ratio (2.5x with LZ4)
+ Fast decompression (<1µs)
+ Reasonable cache granularity (16K blocks in 64MB)
+ Acceptable read amplification (34x, amortized by caching)
+ Simple implementation (fixed size)
+ Battle-tested (LevelDB, RocksDB use same)
 
 **Key insight:** Optimizing for total I/O (compression × read amp) matters more than minimizing read amp alone. 4KB is the sweet spot.

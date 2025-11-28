@@ -10,25 +10,25 @@ This section explains **how** nori-sstable implements SSTables. Each page covers
 
 ## Topics
 
-### [File Format](file-format)
+### [File Format](file-format.md)
 Complete specification of the `.sst` file format with byte-level layout.
 
-### [Block Format](block-format)
+### [Block Format](block-format.md)
 How entries are encoded within 4KB blocks, including prefix compression.
 
-### [Index Structure](index-structure)
+### [Index Structure](index-structure.md)
 The two-level index: block index and restart points within blocks.
 
-### [Bloom Filter](bloom-filter-impl)
+### [Bloom Filter](bloom-filter-impl.md)
 Implementation details of the bloom filter using xxHash64 and double hashing.
 
-### [Compression](compression-impl)
+### [Compression](compression-impl.md)
 How LZ4 and Zstd compression are applied at block granularity.
 
-### [Caching](cache-impl)
+### [Caching](cache-impl.md)
 LRU cache implementation, eviction policy, and integration with compression.
 
-### [Iterator](iterator-impl)
+### [Iterator](iterator-impl.md)
 How range scans work across blocks with efficient buffering.
 
 ---
@@ -36,13 +36,13 @@ How range scans work across blocks with efficient buffering.
 ## Learning Path
 
 **Understand the file:**
-Start with [File Format](file-format) to see the overall structure.
+Start with [File Format](file-format.md) to see the overall structure.
 
 **Dive into blocks:**
-Read [Block Format](block-format) for entry encoding details.
+Read [Block Format](block-format.md) for entry encoding details.
 
 **Optimize reads:**
-Check [Bloom Filter](bloom-filter-impl) and [Caching](cache-impl).
+Check [Bloom Filter](bloom-filter-impl.md) and [Caching](cache-impl.md).
 
 **Advanced topics:**
-Explore [Compression](compression-impl) and [Iterator](iterator-impl).
+Explore [Compression](compression-impl.md) and [Iterator](iterator-impl.md).

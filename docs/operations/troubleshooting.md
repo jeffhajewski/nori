@@ -891,35 +891,35 @@ echo "=== NoriKV Health Check ==="
 
 # 1. Check if server is running
 if ! pgrep norikv-server > /dev/null; then
-  echo "❌ Server not running"
+  echo " Server not running"
   exit 1
 fi
-echo "✅ Server running (PID: $(pgrep norikv-server))"
+echo " Server running (PID: $(pgrep norikv-server))"
 
 # 2. Check HTTP endpoint
 if ! curl -sf http://localhost:8080/health/quick > /dev/null; then
-  echo "❌ Health check failed"
+  echo " Health check failed"
   exit 1
 fi
-echo "✅ Health check OK"
+echo " Health check OK"
 
 # 3. Check cluster size
 cluster_size=$(curl -s http://localhost:8080/metrics | grep '^swim_cluster_size' | awk '{print $2}')
 if [ "$cluster_size" -lt 3 ]; then
-  echo "⚠️  Warning: Cluster size is $cluster_size (expected 3)"
+  echo "  Warning: Cluster size is $cluster_size (expected 3)"
 else
-  echo "✅ Cluster size: $cluster_size"
+  echo " Cluster size: $cluster_size"
 fi
 
 # 4. Check for errors in last 5 minutes
 error_count=$(sudo journalctl -u norikv --since "5 minutes ago" | grep -c ERROR || echo 0)
 if [ "$error_count" -gt 0 ]; then
-  echo "⚠️  Warning: $error_count errors in last 5 minutes"
+  echo "  Warning: $error_count errors in last 5 minutes"
 else
-  echo "✅ No recent errors"
+  echo " No recent errors"
 fi
 
-echo "✅ All checks passed"
+echo " All checks passed"
 ```
 
 ---
@@ -967,6 +967,6 @@ When reporting issues, please include:
 
 ## Next Steps
 
-- **[Configuration Reference](configuration)** - Fine-tune settings
-- **[Metrics Reference](metrics)** - Understand metrics for debugging
-- **[Deployment Guide](deployment)** - Proper deployment prevents issues
+- **[Configuration Reference](configuration.md)** - Fine-tune settings
+- **[Metrics Reference](metrics.md)** - Understand metrics for debugging
+- **[Deployment Guide](deployment.md)** - Proper deployment prevents issues

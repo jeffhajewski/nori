@@ -147,7 +147,7 @@ The LSM engine combines:
 - Memtable (in-memory skip list)
 - Background compaction (leveled strategy)
 
-[Learn more about LSM →](../crates/nori-lsm/)
+[Learn more about LSM →](../crates/nori-lsm/index.md)
 
 ---
 
@@ -161,7 +161,7 @@ Raft provides:
 - Joint consensus for membership changes
 - Snapshot support for log compaction
 
-[Learn more about Raft →](../crates/nori-raft/)
+[Learn more about Raft →](../crates/nori-raft/index.md)
 
 ---
 
@@ -173,7 +173,7 @@ SWIM provides:
 - Eventual consistency for cluster state
 - Integration with Raft for automatic reconfiguration
 
-[Learn more about SWIM →](../crates/nori-swim/)
+[Learn more about SWIM →](../crates/nori-swim/index.md)
 
 ---
 
@@ -199,7 +199,7 @@ fn key_to_shard(key: &[u8], num_shards: u32) -> u32 {
 - Replication factor: 3
 - Replica placement: Hash mod ring + offset
 
-[Learn more about placement →](placement)
+[Learn more about placement →](placement.md)
 
 ---
 
@@ -225,7 +225,7 @@ pub enum VizEvent {
 - OTLP (with trace exemplars)
 - Live dashboard (WebSocket stream)
 
-[Learn more about observability →](../crates/nori-observe/)
+[Learn more about observability →](../crates/nori-observe/index.md)
 
 ---
 
@@ -344,26 +344,26 @@ client.get_with_consistency("key", Consistency::Stale).await?;
 
 ### Server Architecture Deep-Dives
 
-- **[Multi-Shard Server Architecture](multi-shard-server)** - How 1024 virtual shards are managed
-- **[SWIM Topology Tracking](swim-topology)** - Failure detection and cluster membership
+- **[Multi-Shard Server Architecture](multi-shard-server.md)** - How 1024 virtual shards are managed
+- **[SWIM Topology Tracking](swim-topology.md)** - Failure detection and cluster membership
 
 ### Learn About Specific Components
 
-- [Storage Layer (LSM)](../crates/nori-lsm/)
-- [Consensus (Raft)](../crates/nori-raft/)
-- [Membership (SWIM)](../crates/nori-swim/)
-- [Observability](../crates/nori-observe/)
+- [Storage Layer (LSM)](../crates/nori-lsm/index.md)
+- [Consensus (Raft)](../crates/nori-raft/index.md)
+- [Membership (SWIM)](../crates/nori-swim/index.md)
+- [Observability](../crates/nori-observe/index.md)
 
 ### Understand Sharding
 
-- [Placement & Hashing](placement)
+- [Placement & Hashing](placement.md)
 
 ### Operations & Monitoring
 
-- **[REST API Reference](../operations/rest-api)** - HTTP endpoints for health and metrics
-- **[Metrics Reference](../operations/metrics)** - Complete Prometheus metrics guide
-- [Operations Guide](../operations/)
+- **[REST API Reference](../operations/rest-api.md)** - HTTP endpoints for health and metrics
+- **[Metrics Reference](../operations/metrics.md)** - Complete Prometheus metrics guide
+- [Operations Guide](../operations/index.md)
 
 ### Build with NoriKV
 
-- [Client SDKs](../sdks/)
+- [Client SDKs](../sdks/index.md)

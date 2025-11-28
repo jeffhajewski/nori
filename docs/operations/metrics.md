@@ -722,6 +722,6 @@ curl -s http://localhost:8080/metrics | grep kv_requests_total
 
 ## Next Steps
 
-- **[REST API](rest-api)** - HTTP endpoints for metrics export
-- **[Configuration](configuration)** - Tune metric collection
-- **[Deployment](deployment)** - Prometheus/Grafana setup
+- **[REST API](rest-api.md)** - HTTP endpoints for metrics export
+- **[Configuration](configuration.md)** - Tune metric collection
+- **[Deployment](deployment.md)** - Prometheus/Grafana setup

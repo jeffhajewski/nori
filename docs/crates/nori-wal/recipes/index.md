@@ -6,7 +6,7 @@ This section provides complete, working examples for common use cases. Each reci
 
 ## Available Recipes
 
-### [Building a Key-Value Store](key-value-store)
+### [Building a Key-Value Store](key-value-store.md)
 Complete implementation of an in-memory key-value store with WAL durability.
 
 **What you'll learn:**
@@ -15,7 +15,7 @@ Complete implementation of an in-memory key-value store with WAL durability.
 - Handling PUT and DELETE operations
 - Implementing snapshots
 
-### [Event Sourcing](event-sourcing)
+### [Event Sourcing](event-sourcing.md)
 Event-sourced system with command handling and event replay.
 
 **What you'll learn:**
@@ -24,7 +24,7 @@ Event-sourced system with command handling and event replay.
 - Handling event versioning
 - Snapshotting for performance
 
-### [Message Queue](message-queue)
+### [Message Queue](message-queue.md)
 Simple message queue with consumer position tracking.
 
 **What you'll learn:**
@@ -33,7 +33,7 @@ Simple message queue with consumer position tracking.
 - Multiple consumers
 - Retention and cleanup
 
-### [Replication](replication)
+### [Replication](replication.md)
 Replicating WAL to followers for high availability.
 
 **What you'll learn:**
@@ -42,7 +42,7 @@ Replicating WAL to followers for high availability.
 - Catchup after disconnection
 - Consistency guarantees
 
-### [Custom Serialization](custom-serialization)
+### [Custom Serialization](custom-serialization.md)
 Using different serialization formats with WAL.
 
 **What you'll learn:**
@@ -51,7 +51,7 @@ Using different serialization formats with WAL.
 - MessagePack for efficiency
 - Schema evolution
 
-### [Performance Tuning](performance-tuning)
+### [Performance Tuning](performance-tuning.md)
 Optimizing WAL for your workload.
 
 **What you'll learn:**
@@ -84,7 +84,7 @@ All examples use:
 
 ```bash
 # Clone the examples
-git clone https://github.com/j-haj/nori
+git clone https://github.com/jeffhajewski/norikv
 cd nori/examples
 
 # Run a recipe
@@ -104,4 +104,4 @@ Have a useful pattern? Contribute it!
 3. Follow the recipe template
 4. Submit a pull request
 
-See [Contributing Guide](https://github.com/j-haj/nori/blob/main/CONTRIBUTING.md) for details.
+See [Contributing Guide](https://github.com/jeffhajewski/norikv/blob/main/CONTRIBUTING.md) for details.

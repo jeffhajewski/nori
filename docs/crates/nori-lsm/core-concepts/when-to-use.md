@@ -542,22 +542,22 @@ Result:
 ## Summary
 
 **Use ATLL when**:
-- ✅ Skewed access patterns (hot/cold data)
-- ✅ Mixed workload (40-60% reads/writes)
-- ✅ Large dataset (>100 GB)
-- ✅ Need adaptive performance (no manual tuning)
-- ✅ SSD wear concerns (lower WA than pure leveled)
+-  Skewed access patterns (hot/cold data)
+-  Mixed workload (40-60% reads/writes)
+-  Large dataset (>100 GB)
+-  Need adaptive performance (no manual tuning)
+-  SSD wear concerns (lower WA than pure leveled)
 
 **Avoid ATLL when**:
-- ❌ Uniform access (all keys equally hot)
-- ❌ Pure scans (no point queries)
-- ❌ Tiny dataset (<100 MB, fits in memory)
-- ❌ Need transactions (use SQL database instead)
-- ❌ Append-only writes (use log instead)
+-  Uniform access (all keys equally hot)
+-  Pure scans (no point queries)
+-  Tiny dataset (<100 MB, fits in memory)
+-  Need transactions (use SQL database instead)
+-  Append-only writes (use log instead)
 
 **Key insight**: ATLL optimizes for **heterogeneous workloads** where different key ranges have different access patterns.
 
-**Next steps**: See [Recipes](../recipes/) for implementation patterns and [Performance](../performance/) for tuning guidance.
+**Next steps**: See [Recipes](../recipes/index.md) for implementation patterns and [Performance](../performance/index.md) for tuning guidance.
 
 ---
 

@@ -226,7 +226,7 @@ No locks, no coordination, no reader-writer conflicts.
 ### 2. Easy Caching
 
 ```
-Block 15 in cache? ✓
+Block 15 in cache? Yes
 ├─ It will NEVER change
 └─ Cache it forever (until evicted)
 ```
@@ -235,8 +235,8 @@ Block 15 in cache? ✓
 
 ```
 SSTable file exists?
-├─ ✓ Footer checksum valid → File is good
-└─ ✗ Checksum invalid → Discard (write failed mid-creation)
+├─ Yes Footer checksum valid → File is good
+└─ No Checksum invalid → Discard (write failed mid-creation)
 ```
 
 ### 4. Snapshot Isolation
@@ -252,15 +252,15 @@ Snapshot = "Read from SSTable set at time T"
 
 ## Common Misconceptions
 
-### ❌ "SSTables are slow for reads"
+###  "SSTables are slow for reads"
 
 **Reality:** With bloom filters and caching, SSTables can achieve **< 10µs** reads for hot data. Bloom filters skip 99%+ of unnecessary disk reads.
 
-### ❌ "SSTables waste space with duplicates"
+###  "SSTables waste space with duplicates"
 
 **Reality:** Compaction merges SSTables and removes old versions. Space amplification is typically only **1.1-1.5x**.
 
-### ❌ "Compaction causes unpredictable latency"
+###  "Compaction causes unpredictable latency"
 
 **Reality:** Modern LSM engines use **rate limiting** and **tiered compaction** to keep p99 latency under SLO.
 
@@ -268,7 +268,7 @@ Snapshot = "Read from SSTable set at time T"
 
 ## When to Use SSTables
 
-### ✅ Great Fit
+###  Great Fit
 
 - **Write-heavy workloads** (logging, time-series, events)
 - **Append-mostly data** (few updates/deletes)
@@ -276,7 +276,7 @@ Snapshot = "Read from SSTable set at time T"
 - **Hot key patterns** (caching helps a lot)
 - **Large datasets** that don't fit in memory
 
-### ❌ Not the Right Tool
+###  Not the Right Tool
 
 - **Ultra-low latency** (< 1µs) requirements
 - **Random updates** to same keys (causes many tombstones)
@@ -288,13 +288,13 @@ Snapshot = "Read from SSTable set at time T"
 ## Next Steps
 
 **Understand immutability:**
-Read about [Immutability](immutability) and why it's central to SSTable design.
+Read about [Immutability](immutability.md) and why it's central to SSTable design.
 
 **Learn about organization:**
-See [Block-Based Storage](block-based-storage) for how data is structured.
+See [Block-Based Storage](block-based-storage.md) for how data is structured.
 
 **Optimize reads:**
-Check out [Bloom Filters](bloom-filters) to understand how we avoid disk I/O.
+Check out [Bloom Filters](bloom-filters.md) to understand how we avoid disk I/O.
 
 **Dive into implementation:**
-Jump to [How It Works](../how-it-works/) for file format details.
+Jump to [How It Works](../how-it-works/index.md) for file format details.

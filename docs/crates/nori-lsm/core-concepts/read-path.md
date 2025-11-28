@@ -586,14 +586,14 @@ Decision: 10 bits/key (default)
 **Trade-off**:
 ```
 Small blocks (2 KB):
-  ✅ Lower read amplification (read less data)
-  ❌ More index overhead (more blocks)
-  ❌ Worse compression (less context)
+   Lower read amplification (read less data)
+   More index overhead (more blocks)
+   Worse compression (less context)
 
 Large blocks (16 KB):
-  ✅ Better compression (more context)
-  ✅ Less index overhead
-  ❌ Higher read amplification (read more data)
+   Better compression (more context)
+   Less index overhead
+   Higher read amplification (read more data)
 
 Default: 4 KB
   → Good balance for SSD page size

@@ -21,19 +21,19 @@ This section explains the technical implementation details of nori-lsm's ATLL ar
 
 ## Navigation
 
-### [Memtable Management](memtable-management)
+### [Memtable Management](memtable-management.md)
 The in-memory skiplist: writes, rotation triggers, concurrent access, and memory accounting.
 
-### [Flush Process](flush-process)
+### [Flush Process](flush-process.md)
 How memtables are flushed to L0 SSTables. Sorting, serialization, bloom filter generation, and atomic swaps.
 
-### [Slot Routing](slot-routing)
+### [Slot Routing](slot-routing.md)
 How keys are mapped to slots using binary search on guard keys. Range queries and slot overlap detection.
 
-### [Compaction Lifecycle](compaction-lifecycle)
+### [Compaction Lifecycle](compaction-lifecycle.md)
 The full compaction process: slot selection via bandit scheduler, K-way merge, heat updates, and metrics.
 
-### [Snapshot Process](snapshot-process)
+### [Snapshot Process](snapshot-process.md)
 Creating consistent point-in-time snapshots for backups, replication, and disaster recovery.
 
 ---
@@ -49,8 +49,8 @@ Creating consistent point-in-time snapshots for backups, replication, and disast
 
 **You can skip this section if**:
 - You just want to use nori-lsm (see Getting Started - coming soon)
-- You want high-level concepts (see [Core Concepts](../core-concepts/))
-- You want design rationale (see [Design Decisions](../design-decisions/))
+- You want high-level concepts (see [Core Concepts](../core-concepts/index.md))
+- You want design rationale (see [Design Decisions](../design-decisions/index.md))
 
 ---
 
@@ -58,10 +58,10 @@ Creating consistent point-in-time snapshots for backups, replication, and disast
 
 Before diving in, make sure you understand:
 
-- **[What is LSM](../core-concepts/what-is-lsm)** - The fundamental concept
-- **[ATLL Architecture](../core-concepts/atll-architecture)** - Guard keys, K-way fanout, heat tracking
-- **[Write Path](../core-concepts/write-path)** - High-level flow: WAL → memtable → L0 → compaction
-- **[Read Path](../core-concepts/read-path)** - High-level flow: memtable → L0 → slot
+- **[What is LSM](../core-concepts/what-is-lsm.md)** - The fundamental concept
+- **[ATLL Architecture](../core-concepts/atll-architecture.md)** - Guard keys, K-way fanout, heat tracking
+- **[Write Path](../core-concepts/write-path.md)** - High-level flow: WAL → memtable → L0 → compaction
+- **[Read Path](../core-concepts/read-path.md)** - High-level flow: memtable → L0 → slot
 
 If you haven't read those yet, start there first!
 
@@ -155,11 +155,11 @@ Each "How It Works" page corresponds to one or more of these modules.
 
 We recommend reading in this order:
 
-1. **[Memtable Management](memtable-management)** - Start here to understand the write buffer
-2. **[Flush Process](flush-process)** - How memtables become SSTables
-3. **[Slot Routing](slot-routing)** - How guard-based partitioning works
-4. **[Compaction Lifecycle](compaction-lifecycle)** - The most complex subsystem
-5. **[Snapshot Process](snapshot-process)** - Backups and consistency
+1. **[Memtable Management](memtable-management.md)** - Start here to understand the write buffer
+2. **[Flush Process](flush-process.md)** - How memtables become SSTables
+3. **[Slot Routing](slot-routing.md)** - How guard-based partitioning works
+4. **[Compaction Lifecycle](compaction-lifecycle.md)** - The most complex subsystem
+5. **[Snapshot Process](snapshot-process.md)** - Backups and consistency
 
 You can read them independently, but they build on each other.
 
@@ -266,7 +266,7 @@ Thread 4: compaction     → Slot 0 mutex (doesn't block Slot 1-15)
 
 ## Performance Characteristics
 
-From benchmarks (see [Performance](../performance/) for details):
+From benchmarks (see [Performance](../performance/index.md) for details):
 
 **Write latency**:
 - Memtable insert: 50ns (in-memory skiplist)
@@ -294,10 +294,10 @@ From benchmarks (see [Performance](../performance/) for details):
 
 Ready to dive in? Start with:
 
-- **[Memtable Management](memtable-management)** - Learn how the write buffer works
+- **[Memtable Management](memtable-management.md)** - Learn how the write buffer works
 - Or jump to a specific topic that interests you
 
 If you're looking for something else:
-- **[Core Concepts](../core-concepts/)** - High-level architecture and theory
-- **[Design Decisions](../design-decisions/)** - Why ATLL is built this way
-- **[Performance](../performance/)** - Benchmarks and tuning guides (coming soon)
+- **[Core Concepts](../core-concepts/index.md)** - High-level architecture and theory
+- **[Design Decisions](../design-decisions/index.md)** - Why ATLL is built this way
+- **[Performance](../performance/index.md)** - Benchmarks and tuning guides (coming soon)

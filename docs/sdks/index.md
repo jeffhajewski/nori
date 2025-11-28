@@ -8,10 +8,10 @@ All SDKs provide the same core functionality with language-specific idioms and o
 
 | SDK | Status | Tests | Documentation | Best For |
 |-----|--------|-------|---------------|----------|
-| [Java](./java/) |  Production Ready | 123/123 (100%) | Excellent | Enterprise apps, Android |
-| [Go](./go/) |  Production Ready | 102+ passing | Excellent | High-performance services |
-| [TypeScript](./typescript/) |  Production Ready | 100+ passing | Good | Node.js, web apps |
-| [Python](./python/) |  Production Ready | 40 passing | Good | Data science, scripting |
+| [Java](./java/index.md) |  Production Ready | 123/123 (100%) | Excellent | Enterprise apps, Android |
+| [Go](./go/index.md) |  Production Ready | 102+ passing | Excellent | High-performance services |
+| [TypeScript](./typescript/index.md) |  Production Ready | 100+ passing | Good | Node.js, web apps |
+| [Python](./python/index.md) |  Production Ready | 40 passing | Good | Data science, scripting |
 
 ## Quick Start by Language
 
@@ -32,7 +32,7 @@ try (NoriKVClient client = new NoriKVClient(config)) {
 - Maven Central distribution
 - 4 comprehensive guides (API, Architecture, Troubleshooting, Advanced Patterns)
 
-[→ Java SDK Documentation](./java/)
+[→ Java SDK Documentation](./java/index.md)
 
 ### Go
 
@@ -52,7 +52,7 @@ result, _ := client.Get(ctx, key, nil)
 - Single-flight leader discovery
 - 4 comprehensive guides (API, Architecture, Troubleshooting, Advanced Patterns)
 
-[→ Go SDK Documentation](./go/)
+[→ Go SDK Documentation](./go/index.md)
 
 ### TypeScript
 
@@ -72,7 +72,7 @@ const result = await client.get(key);
 - Browser compatible
 - Comprehensive inline documentation
 
-[→ TypeScript SDK Documentation](./typescript/)
+[→ TypeScript SDK Documentation](./typescript/index.md)
 
 ### Python
 
@@ -90,7 +90,7 @@ async with NoriKVClient(config) as client:
 - Pythonic API
 - Works with Python 3.9+
 
-[→ Python SDK Documentation](./python/)
+[→ Python SDK Documentation](./python/index.md)
 
 ## Common Features
 
@@ -160,15 +160,15 @@ This means you can:
 
 Each SDK has detailed installation instructions:
 
-- [Java SDK Installation](./java/#installation)
-- [Go SDK Installation](./go/#installation)
-- [TypeScript SDK Installation](./typescript/#installation)
-- [Python SDK Installation](./python/#installation)
+- [Java SDK Installation](./java/index.md#installation)
+- [Go SDK Installation](./go/index.md#installation)
+- [TypeScript SDK Installation](./typescript/index.md#installation)
+- [Python SDK Installation](./python/index.md#installation)
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/j-haj/nori/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/j-haj/nori/discussions)
+- **Issues**: [GitHub Issues](https://github.com/jeffhajewski/norikv/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/jeffhajewski/norikv/discussions)
 - **Documentation**: This site and SDK-specific guides
 
 ## Contributing
@@ -180,7 +180,7 @@ Each SDK welcomes contributions:
 - Documentation improvements
 - Test coverage expansion
 
-See the main [CONTRIBUTING.md](https://github.com/j-haj/nori/blob/main/CONTRIBUTING.md) for guidelines.
+See the main [CONTRIBUTING.md](https://github.com/jeffhajewski/norikv/blob/main/CONTRIBUTING.md) for guidelines.
 
 ---
 

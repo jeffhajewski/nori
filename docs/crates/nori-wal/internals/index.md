@@ -11,7 +11,7 @@ This section documents the internal implementation of nori-wal for contributors,
 - **Advanced Users** - Curious about implementation details
 - **Library Authors** - Building similar systems
 
-If you're just using nori-wal, start with [Getting Started](../getting-started/) and [API Reference](../api-reference/) instead.
+If you're just using nori-wal, start with [Getting Started](../getting-started/index.md) and [API Reference](../api-reference/index.md) instead.
 
 ## Module Structure
 
@@ -31,27 +31,27 @@ crates/nori-wal/src/
 
 | Module | Purpose | Key Types |
 |--------|---------|-----------|
-| [wal.rs](wal-module) | Public API, lifecycle | `Wal`, `WalConfig` |
-| [segment.rs](segment-module) | File I/O, rotation | `SegmentManager`, `SegmentFile` |
-| [record.rs](record-module) | Serialization format | `Record`, `Compression` |
-| [recovery.rs](recovery-module) | Crash recovery | `RecoveryInfo` |
-| [prealloc.rs](prealloc-module) | File preallocation | Platform-specific code |
+| [wal.rs](wal-module.md) | Public API, lifecycle | `Wal`, `WalConfig` |
+| [segment.rs](segment-module.md) | File I/O, rotation | `SegmentManager`, `SegmentFile` |
+| [record.rs](record-module.md) | Serialization format | `Record`, `Compression` |
+| [recovery.rs](recovery-module.md) | Crash recovery | `RecoveryInfo` |
+| [prealloc.rs](prealloc-module.md) | File preallocation | Platform-specific code |
 
 ## Key Internal Concepts
 
-### [Segment Lifecycle](segment-lifecycle)
+### [Segment Lifecycle](segment-lifecycle.md)
 How segments are created, written to, and closed.
 
-### [Locking Strategy](locking)
+### [Locking Strategy](locking.md)
 Where locks are used and how we avoid contention.
 
-### [Buffer Management](buffers)
+### [Buffer Management](buffers.md)
 How we minimize allocations and copies.
 
-### [Fsync Coordination](fsync-coordination)
+### [Fsync Coordination](fsync-coordination.md)
 How batched fsync works internally.
 
-### [Error Handling](error-handling)
+### [Error Handling](error-handling.md)
 How errors propagate through the system.
 
 ## Code Walkthrough
@@ -285,10 +285,10 @@ cargo bench --bench wal_bench
 
 Each subsection goes deep on a specific internal component:
 
-- **[Wal Module](wal-module)** - High-level API implementation
-- **[Segment Module](segment-module)** - File management and I/O
-- **[Record Module](record-module)** - Serialization format
-- **[Recovery Module](recovery-module)** - Crash recovery logic
-- **[Preallocation](prealloc-module)** - Platform-specific optimizations
+- **[Wal Module](wal-module.md)** - High-level API implementation
+- **[Segment Module](segment-module.md)** - File management and I/O
+- **[Record Module](record-module.md)** - Serialization format
+- **[Recovery Module](recovery-module.md)** - Crash recovery logic
+- **[Preallocation](prealloc-module.md)** - Platform-specific optimizations
 
 These documents assume familiarity with Rust and systems programming.

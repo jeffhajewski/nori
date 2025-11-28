@@ -252,9 +252,9 @@ L0-003.sst: [m..t]  (overlaps with both)
 **Read Amplification**:
 ```
 get("m"):
-  Check L0-003 ✓ (might contain "m")
-  Check L0-002 ✓ (might contain "m")
-  Check L0-001 ✓ (might contain "m")
+  Check L0-003 Yes (might contain "m")
+  Check L0-002 Yes (might contain "m")
+  Check L0-001 Yes (might contain "m")
   → Read 3 files for 1 key
 ```
 
@@ -615,15 +615,15 @@ for entry in wal_entries {
 
 **Trade-off**:
 - **Larger** (128 MB, 256 MB):
-  - ✅ Fewer L0 flushes (lower WA)
-  - ✅ Better sequential write batching
-  - ❌ Higher memory usage
-  - ❌ Slower crash recovery (larger WAL replay)
+  -  Fewer L0 flushes (lower WA)
+  -  Better sequential write batching
+  -  Higher memory usage
+  -  Slower crash recovery (larger WAL replay)
 
 - **Smaller** (32 MB, 64 MB):
-  - ✅ Lower memory footprint
-  - ✅ Faster recovery
-  - ❌ More L0 flushes (higher WA)
+  -  Lower memory footprint
+  -  Faster recovery
+  -  More L0 flushes (higher WA)
 
 **Recommendation**: 64 MB (default)
 
@@ -631,15 +631,15 @@ for entry in wal_entries {
 
 **Trade-off**:
 - **Higher max_files** (16, 20):
-  - ✅ Less write throttling
-  - ✅ Higher sustained write throughput
-  - ❌ Higher read amplification
-  - ❌ Longer L0 compaction times
+  -  Less write throttling
+  -  Higher sustained write throughput
+  -  Higher read amplification
+  -  Longer L0 compaction times
 
 - **Lower max_files** (8, 10):
-  - ✅ Lower read amplification
-  - ✅ Faster L0 compactions
-  - ❌ More frequent write throttling
+  -  Lower read amplification
+  -  Faster L0 compactions
+  -  More frequent write throttling
 
 **Recommendation**: 12 files (default)
 

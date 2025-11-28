@@ -468,7 +468,7 @@ If you need to change the number of shards:
 
 - [XXHash Algorithm](https://cyan4973.github.io/xxHash/)
 - [Jump Consistent Hash Paper](https://arxiv.org/abs/1406.2294)
-- [Test Vector Source Code](https://github.com/j-haj/nori/tree/main/tests/hash_compatibility)
+- [Test Vector Source Code](https://github.com/jeffhajewski/norikv/tree/main/tests/hash_compatibility)
 
 ## Next Steps
 

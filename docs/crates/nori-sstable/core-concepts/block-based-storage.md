@@ -207,7 +207,7 @@ Read amplification: 4096 / 120 = 34x
 cache.insert(block_id, decompressed_block);
 
 // Bad: Cache individual entries
-cache.insert(key, value);  // ❌
+cache.insert(key, value);  // 
 ```
 
 **Reasons:**
@@ -322,7 +322,7 @@ Alternative: Index every key
 Block-level index:
   - 100K entries / 50 per block = 2000 blocks
   - Index size: ~200KB
-  - Memory overhead: 2% of data size ✓
+  - Memory overhead: 2% of data size Yes
 ```
 
 ---
@@ -520,11 +520,11 @@ if hit_rate < 0.8 {
 
 **Block-based storage is fundamental to SSTable design:**
 
-✅ **Efficient I/O** - 4KB aligned with OS pages
-✅ **Good compression** - Compress ~50-200 entries together
-✅ **Practical caching** - Cache at block granularity
-✅ **Fast lookups** - Small block index (O(log B))
-✅ **Simple design** - Fixed size, no complex logic
+ **Efficient I/O** - 4KB aligned with OS pages
+ **Good compression** - Compress ~50-200 entries together
+ **Practical caching** - Cache at block granularity
+ **Fast lookups** - Small block index (O(log B))
+ **Simple design** - Fixed size, no complex logic
 
 **Key insight:** Blocks are the **quantum of I/O**. Choose block size to balance compression ratio, cache efficiency, and read amplification.
 
@@ -533,13 +533,13 @@ if hit_rate < 0.8 {
 ## Next Steps
 
 **Understand prefix compression:**
-See [How It Works: Block Format](../how-it-works/block-format) for entry encoding details.
+See [How It Works: Block Format](../how-it-works/block-format.md) for entry encoding details.
 
 **Learn about caching:**
-Check [Caching](../caching) for how the LRU cache works with blocks.
+Check [Caching](../caching.md) for how the LRU cache works with blocks.
 
 **Optimize compression:**
-Read [Compression](../compression) for how blocks are compressed.
+Read [Compression](../compression.md) for how blocks are compressed.
 
 **See the index:**
-Explore [How It Works: Index Structure](../how-it-works/index-structure) for block indexing details.
+Explore [How It Works: Index Structure](../how-it-works/index-structure.md) for block indexing details.

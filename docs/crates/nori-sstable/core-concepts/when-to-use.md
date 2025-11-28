@@ -6,7 +6,7 @@ Practical guidance on when SSTables are the right choice for your storage needs.
 
 ## Decision Matrix
 
-### ✅ Great Fit
+###  Great Fit
 
 | Use Case | Why SSTables Excel |
 |----------|-------------------|
@@ -18,7 +18,7 @@ Practical guidance on when SSTables are the right choice for your storage needs.
 | **Batch writes** | Amortize flush cost over many entries |
 | **Large datasets** | Scales to TB without in-memory index |
 
-### ❌ Not the Right Tool
+###  Not the Right Tool
 
 | Use Case | Why Not |
 |----------|---------|
@@ -306,7 +306,7 @@ SSTableConfig {
 
 ## Anti-Patterns
 
-### ❌ Using SSTables for Mutable Counters
+###  Using SSTables for Mutable Counters
 
 ```rust
 // BAD: Frequent updates to same key
@@ -320,7 +320,7 @@ for _ in 0..1_000_000 {
 
 ---
 
-### ❌ No Compaction Strategy
+###  No Compaction Strategy
 
 ```rust
 // BAD: Write SSTables, never compact
@@ -334,7 +334,7 @@ for batch in batches {
 
 ---
 
-### ❌ Tiny SSTable Files
+###  Tiny SSTable Files
 
 ```rust
 // BAD: Flush every 100 entries
@@ -367,13 +367,13 @@ Considering SSTables for your project? Check these:
 ## Next Steps
 
 **Understand the design:**
-Read [Design Decisions](../design-decisions/) to see why nori-sstable makes specific choices.
+Read [Design Decisions](../design-decisions/index.md) to see why nori-sstable makes specific choices.
 
 **Learn the internals:**
-Check [How It Works](../how-it-works/) for file format and implementation details.
+Check [How It Works](../how-it-works/index.md) for file format and implementation details.
 
 **Optimize performance:**
-See [Performance](../performance/) for tuning guides and benchmarks.
+See [Performance](../performance/index.md) for tuning guides and benchmarks.
 
 **Get started:**
-Jump to [Getting Started](../getting-started) to build your first SSTable.
+Jump to [Getting Started](../getting-started.md) to build your first SSTable.

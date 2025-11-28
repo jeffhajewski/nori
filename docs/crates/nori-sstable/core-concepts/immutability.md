@@ -292,7 +292,7 @@ Time 0: Write "user:42" = "alice" → SST1
 Time 1: Write "user:42" = "bob"   → SST2
 
 Read "user:42":
-  Check SST2 (newer) → "bob" ✓ (return this)
+  Check SST2 (newer) → "bob" Yes (return this)
   Check SST1 (older) → "alice" (ignored)
 ```
 
@@ -325,7 +325,7 @@ Space amplification = (data_on_disk / live_data)
 
 ## Trade-Offs
 
-### Advantages ✅
+### Advantages 
 
 - **Write throughput:** 10-100x faster than random writes
 - **Concurrency:** Lock-free, scales to many readers
@@ -333,7 +333,7 @@ Space amplification = (data_on_disk / live_data)
 - **Snapshots:** Zero-cost MVCC
 - **Caching:** Aggressive caching with no invalidation
 
-### Disadvantages ❌
+### Disadvantages 
 
 - **Space amplification:** Old versions accumulate until compaction
 - **Read amplification:** Must check multiple files
@@ -399,13 +399,13 @@ Think of **version control** (like Git):
 ## Next Steps
 
 **Learn about organization:**
-See [Block-Based Storage](block-based-storage) for how immutable data is structured.
+See [Block-Based Storage](block-based-storage.md) for how immutable data is structured.
 
 **Understand deletion:**
-Read about [Tombstones](../design-decisions/tombstones) in the design decisions.
+Read about [Tombstones](../design-decisions/tombstones.md) in the design decisions.
 
 **See compaction details:**
-Check out [Compaction Strategy](../how-it-works/compaction) for how we manage immutability at scale.
+Check out [Compaction Strategy](../how-it-works/compaction.md) for how we manage immutability at scale.
 
 **Explore implementation:**
-Jump to [File Format](../how-it-works/file-format) to see how immutability is enforced.
+Jump to [File Format](../how-it-works/file-format.md) to see how immutability is enforced.

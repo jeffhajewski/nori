@@ -556,7 +556,7 @@ compact_segments(0..10, 100).await?;
 wal.delete_segments_before(Position { segment_id: 10, offset: 0 }).await?;
 ```
 
-See [Recipes: Compaction](../recipes/compaction) for details.
+See [Recipes: Compaction](../recipes/compaction.md) for details.
 
 ---
 
@@ -739,7 +739,7 @@ VizEvent::Wal(WalEvt {
 })
 ```
 
-See [Observability](../observability/) for how to consume these events.
+See [Observability](../observability/index.md) for how to consume these events.
 
 ---
 
@@ -771,7 +771,7 @@ meter.gauge("wal_segment_count", &[("node", "0")])
 - Deletion rate depends on memtable flush frequency and WAL age policy
 - Segment count should stabilize based on write throughput and GC interval
 
-See [Performance Benchmarks](../performance/benchmarks#garbage-collection) for detailed measurements.
+See [Performance Benchmarks](../performance/benchmarks.md#garbage-collection) for detailed measurements.
 
 ---
 
@@ -808,8 +808,8 @@ See [Performance Benchmarks](../performance/benchmarks#garbage-collection) for d
 
 Now that you understand segments, explore:
 
-- **[Recovery Process](recovery)** - How segments are scanned and validated
-- **[Concurrency Model](concurrency)** - How concurrent access to segments works
-- **[Record Format](record-format)** - What's inside each segment
+- **[Recovery Process](recovery.md)** - How segments are scanned and validated
+- **[Concurrency Model](concurrency.md)** - How concurrent access to segments works
+- **[Record Format](record-format.md)** - What's inside each segment
 
-Or see real-world usage in [Recipes](../recipes/).
+Or see real-world usage in [Recipes](../recipes/index.md).

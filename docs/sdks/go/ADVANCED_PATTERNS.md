@@ -752,4 +752,4 @@ if !allowed {
 - [API Guide](API_GUIDE.md) - Complete API reference
 - [Architecture Guide](ARCHITECTURE.md) - Internal design
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
-- [Examples](../examples/) - Working code samples
+- [Examples](../examples/index.md) - Working code samples

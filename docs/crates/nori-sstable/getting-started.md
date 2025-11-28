@@ -70,7 +70,7 @@ builder.add(&Entry::delete("durian")).await?;
 // Finalize the SSTable (writes index, bloom filter, footer)
 let metadata = builder.finish().await?;
 
-println!("✅ Created SSTable:");
+println!(" Created SSTable:");
 println!("   Path: {:?}", metadata.path);
 println!("   Entries: {}", metadata.entry_count);
 println!("   Size: {} bytes", metadata.file_size);
@@ -100,7 +100,7 @@ async fn main() -> nori_sstable::Result<()> {
 
     // Finish
     let metadata = builder.finish().await?;
-    println!("✅ Created SSTable with {} entries", metadata.entry_count);
+    println!(" Created SSTable with {} entries", metadata.entry_count);
 
     Ok(())
 }
@@ -260,7 +260,7 @@ let config = SSTableConfig {
 };
 ```
 
-[Learn more about compression →](compression)
+[Learn more about compression →](compression.md)
 
 ---
 
@@ -301,7 +301,7 @@ let config = SSTableConfig {
 };
 ```
 
-[Learn more about caching →](caching)
+[Learn more about caching →](caching.md)
 
 ---
 
@@ -477,10 +477,10 @@ for i in 0..4 {
 ### Builders are NOT Thread-Safe
 
 ```rust
-// ❌ Wrong - don't share builders
+//  Wrong - don't share builders
 let builder = Arc::new(Mutex::new(builder));
 
-// ✅ Correct - one builder per SSTable
+//  Correct - one builder per SSTable
 let mut builder = SSTableBuilder::new(config).await?;
 ```
 
@@ -488,7 +488,7 @@ let mut builder = SSTableBuilder::new(config).await?;
 
 ## Best Practices
 
-### ✅ Do
+###  Do
 
 - **Sort keys before adding** - use a BTreeMap or sort your data first
 - **Estimate entries accurately** - improves bloom filter sizing
@@ -497,7 +497,7 @@ let mut builder = SSTableBuilder::new(config).await?;
 - **Wrap readers in Arc** - share across threads
 - **Use `?` for error handling** - simplifies code
 
-### ❌ Don't
+###  Don't
 
 - Don't add keys out of order (will error)
 - Don't forget to call `finish()` on builder
@@ -511,21 +511,21 @@ let mut builder = SSTableBuilder::new(config).await?;
 
 ### Learn More
 
-- **[Compression Guide](compression)** - Deep dive into LZ4/Zstd
-- **[Caching Guide](caching)** - Optimize for hot workloads
-- **[Architecture](architecture)** - Understand the file format
-- **[API Reference](api-reference/)** - Complete API documentation
+- **[Compression Guide](compression.md)** - Deep dive into LZ4/Zstd
+- **[Caching Guide](caching.md)** - Optimize for hot workloads
+- **[Architecture](architecture.md)** - Understand the file format
+- **[API Reference](api-reference/index.md)** - Complete API documentation
 
 ### Examples
 
-- **[Basic Usage](recipes/basic-usage)** - More complete examples
-- **[Hot Workloads](recipes/hot-workloads)** - Cache tuning
-- **[Cold Storage](recipes/cold-storage)** - Archival patterns
+- **[Basic Usage](recipes/basic-usage.md)** - More complete examples
+- **[Hot Workloads](recipes/hot-workloads.md)** - Cache tuning
+- **[Cold Storage](recipes/cold-storage.md)** - Archival patterns
 
 ### Performance
 
-- **[Benchmarks](performance/benchmarks)** - See performance numbers
-- **[Tuning Guide](performance/tuning)** - Optimize for your workload
+- **[Benchmarks](performance/benchmarks.md)** - See performance numbers
+- **[Tuning Guide](performance/tuning.md)** - Optimize for your workload
 
 ---
 
@@ -561,7 +561,7 @@ async fn main() -> nori_sstable::Result<()> {
     }
 
     let metadata = builder.finish().await?;
-    println!("✅ Built SSTable: {} entries, {} bytes",
+    println!(" Built SSTable: {} entries, {} bytes",
         metadata.entry_count, metadata.file_size);
 
     // Read SSTable
@@ -601,14 +601,14 @@ cargo run --example build_and_read
 
 You've learned how to:
 
-- ✅ Install nori-sstable
-- ✅ Build an SSTable with sorted entries
-- ✅ Read data with point lookups and range scans
-- ✅ Enable LZ4/Zstd compression
-- ✅ Configure the LRU cache
-- ✅ Handle errors properly
-- ✅ Share readers across threads
+-  Install nori-sstable
+-  Build an SSTable with sorted entries
+-  Read data with point lookups and range scans
+-  Enable LZ4/Zstd compression
+-  Configure the LRU cache
+-  Handle errors properly
+-  Share readers across threads
 
-**Next:** Explore [compression](compression) and [caching](caching) to optimize performance, or dive into the [API reference](api-reference/) for complete documentation.
+**Next:** Explore [compression](compression.md) and [caching](caching.md) to optimize performance, or dive into the [API reference](api-reference/index.md) for complete documentation.
 
-Happy coding! 🚀
+Happy coding! 

@@ -42,14 +42,14 @@ wal.sync().await?;  // All 5 records now durable
 **On disk after sync**:
 ```
 Segment 000000.wal:
-  [Record 1: key:1=value] ✓ CRC valid
-  [Record 2: key:2=value] ✓ CRC valid
-  [Record 3: key:3=value] ✓ CRC valid
-  [Record 4: key:4=value] ✓ CRC valid
-  [Record 5: key:5=value] ✓ CRC valid
+  [Record 1: key:1=value] Yes CRC valid
+  [Record 2: key:2=value] Yes CRC valid
+  [Record 3: key:3=value] Yes CRC valid
+  [Record 4: key:4=value] Yes CRC valid
+  [Record 5: key:5=value] Yes CRC valid
 ```
 
-**After recovery**: All 5 records restored. ✅
+**After recovery**: All 5 records restored. 
 
 ---
 
@@ -74,19 +74,19 @@ It depends on your `FsyncPolicy`:
 
 **With `FsyncPolicy::Always`**:
 ```
-[Record 1: key:1=value] ✓ CRC valid (auto-synced)
-[Record 2: key:2=value] ✓ CRC valid (auto-synced)
-[Record 3: key:3=value] ✓ CRC valid (auto-synced)
-[Record 4: key:4=value] ✓ CRC valid (auto-synced)
-[Record 5: key:5=value] ✓ CRC valid (auto-synced)
+[Record 1: key:1=value] Yes CRC valid (auto-synced)
+[Record 2: key:2=value] Yes CRC valid (auto-synced)
+[Record 3: key:3=value] Yes CRC valid (auto-synced)
+[Record 4: key:4=value] Yes CRC valid (auto-synced)
+[Record 5: key:5=value] Yes CRC valid (auto-synced)
 ```
-**After recovery**: All 5 records restored. ✅
+**After recovery**: All 5 records restored. 
 
 **With `FsyncPolicy::Batch(5ms)` or `FsyncPolicy::Os`**:
 ```
 [Random garbage or empty space]
 ```
-**After recovery**: 0 records restored. ❌
+**After recovery**: 0 records restored. 
 
 **Key insight**: Without `sync()`, you have no durability guarantee unless using `FsyncPolicy::Always`.
 
@@ -120,7 +120,7 @@ if computed_crc != stored_crc {
 }
 ```
 
-**After recovery**: Partial record discarded. ✅
+**After recovery**: Partial record discarded. 
 
 ---
 
@@ -142,11 +142,11 @@ wal.append(&record5).await?;
 
 **On disk**:
 ```
-[Record 1] ✓ CRC valid, synced
-[Record 2] ✓ CRC valid, synced
-[Record 3] ✓ CRC valid, synced
-[Record 4] ✗ CRC invalid (partial write)
-[Record 5] ✗ CRC invalid (partial write)
+[Record 1] Yes CRC valid, synced
+[Record 2] Yes CRC valid, synced
+[Record 3] Yes CRC valid, synced
+[Record 4] No CRC invalid (partial write)
+[Record 5] No CRC invalid (partial write)
 ```
 
 **During recovery**:
@@ -157,7 +157,7 @@ Scan record 3: CRC valid → Keep
 Scan record 4: CRC INVALID → Truncate here
 ```
 
-**After recovery**: Records 1-3 restored, records 4-5 discarded. ✅
+**After recovery**: Records 1-3 restored, records 4-5 discarded. 
 
 ---
 
@@ -291,7 +291,7 @@ wal.append(&record1).await?;  // Returns → record1 is durable
 wal.append(&record2).await?;  // Returns → record2 is durable
 // Crash here
 ```
-**Recovery**: Both record1 and record2 are recovered. ✅
+**Recovery**: Both record1 and record2 are recovered. 
 
 ---
 
@@ -316,7 +316,7 @@ wal.append(&record2).await?;  // No fsync (within 5ms)
 wal.append(&record3).await?;  // No fsync (within 5ms)
 // Crash here
 ```
-**Recovery**: Only record1 is guaranteed. Records 2-3 may be lost. ⚠️
+**Recovery**: Only record1 is guaranteed. Records 2-3 may be lost. 
 
 ---
 
@@ -342,7 +342,7 @@ for i in 1..=100 {
 }
 // Power failure here
 ```
-**Recovery**: All 100 records likely lost. ❌
+**Recovery**: All 100 records likely lost. 
 
 **But**:
 ```rust
@@ -355,7 +355,7 @@ wal.sync().await?;
 
 // Power failure here
 ```
-**Recovery**: All 100 records recovered. ✅
+**Recovery**: All 100 records recovered. 
 
 ---
 
@@ -409,9 +409,9 @@ wal.append(&record2).await?;
 ```
 
 **Recovery**:
-- `FsyncPolicy::Always`: Both records recovered ✅
-- `FsyncPolicy::Batch`: Maybe both, maybe neither ⚠️
-- `FsyncPolicy::Os`: Both likely lost ❌
+- `FsyncPolicy::Always`: Both records recovered 
+- `FsyncPolicy::Batch`: Maybe both, maybe neither 
+- `FsyncPolicy::Os`: Both likely lost 
 
 ---
 
@@ -661,8 +661,8 @@ async fn test_corruption_recovery() {
 
 Now that you understand recovery, explore:
 
-- **[When to Use a WAL](when-to-use)** - Scenarios where WALs shine
-- **[How Recovery Works Internally](../how-it-works/recovery)** - Deep dive into the algorithm
-- **[Recipes: Crash Testing](../recipes/crash-testing)** - Property-based testing for recovery
+- **[When to Use a WAL](when-to-use.md)** - Scenarios where WALs shine
+- **[How Recovery Works Internally](../how-it-works/recovery.md)** - Deep dive into the algorithm
+- **[Recipes: Crash Testing](../recipes/crash-testing.md)** - Property-based testing for recovery
 
-Or jump to [Performance Tuning](../performance/tuning) to optimize your WAL.
+Or jump to [Performance Tuning](../performance/tuning.md) to optimize your WAL.

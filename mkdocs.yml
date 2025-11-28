@@ -2,8 +2,8 @@
 site_name: NoriKV
 site_description: A sharded, Raft-replicated, log-structured key-value store with first-class observability
 site_url: https://norikv.dev
-repo_url: https://github.com/j-haj/nori
-repo_name: j-haj/nori
+repo_url: https://github.com/jeffhajewski/norikv
+repo_name: jeffhajewski/norikv
 edit_uri: edit/main/docs/
 
 theme:
@@ -39,7 +39,7 @@ theme:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/j-haj/nori
+      link: https://github.com/jeffhajewski/norikv
   generator: false
 
 extra_css:

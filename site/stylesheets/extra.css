@@ -1,0 +1,95 @@
+/* NoriKV Documentation - Custom Styles */
+
+:root {
+    --md-primary-fg-color: #009688;
+    --md-accent-fg-color: #ffc107;
+}
+
+/* Hero section */
+.hero {
+    text-align: center;
+    padding: 2rem 0 3rem;
+}
+
+.hero h2 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, #009688 0%, #ffc107 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.hero p {
+    font-size: 1.25rem;
+    color: var(--md-default-fg-color--light);
+    max-width: 600px;
+    margin: 0 auto 2rem;
+}
+
+/* Button spacing */
+.hero .md-button {
+    margin: 0.5rem;
+}
+
+/* Grid cards enhancement */
+.md-typeset .grid.cards > ul > li {
+    border: 1px solid var(--md-default-fg-color--lightest);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.md-typeset .grid.cards > ul > li:hover {
+    border-color: var(--md-accent-fg-color);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* Code blocks */
+.md-typeset pre > code {
+    font-size: 0.85rem;
+}
+
+/* Tables */
+.md-typeset table:not([class]) th {
+    background-color: var(--md-default-fg-color--lightest);
+    font-weight: 600;
+}
+
+/* Architecture diagram */
+.md-typeset pre:has(code:not([class])) {
+    background: transparent;
+    border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Admonitions in grid */
+.md-typeset .grid > .admonition {
+    margin: 0;
+}
+
+/* Tab labels */
+.md-typeset .tabbed-labels > label {
+    font-weight: 500;
+}
+
+/* Footer */
+.md-footer {
+    margin-top: 3rem;
+}
+
+/* Mobile adjustments */
+@media screen and (max-width: 76.1875em) {
+    .hero h2 {
+        font-size: 2rem;
+    }
+
+    .hero p {
+        font-size: 1.1rem;
+    }
+}
+
+/* Print styles */
+@media print {
+    .hero {
+        padding: 1rem 0;
+    }
+}

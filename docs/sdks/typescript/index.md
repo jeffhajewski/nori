@@ -87,8 +87,8 @@ await client.close();
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/j-haj/nori/issues)
-- **Source**: [GitHub Repository](https://github.com/j-haj/nori/tree/main/sdks/typescript)
+- **Issues**: [GitHub Issues](https://github.com/jeffhajewski/norikv/issues)
+- **Source**: [GitHub Repository](https://github.com/jeffhajewski/norikv/tree/main/sdks/typescript)
 - **npm**: [@norikv/client](https://www.npmjs.com/package/@norikv/client)
 
 ## License

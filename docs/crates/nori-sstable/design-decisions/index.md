@@ -10,13 +10,13 @@ This section explains **why** nori-sstable works the way it does. Each design de
 
 ## Key Decisions
 
-### [Block-Based Organization](block-based)
+### [Block-Based Organization](block-based.md)
 Why we use fixed-size 4KB blocks: OS page alignment, compression sweet spot, cache efficiency, and performance validation.
 
-### [Compression Strategy](compression-strategy)
+### [Compression Strategy](compression-strategy.md)
 Why block-level compression with LZ4 default: decompression speed, cache interaction, and cold storage with Zstd.
 
-### [Bloom Filter Strategy](bloom-strategy)
+### [Bloom Filter Strategy](bloom-strategy.md)
 Why 10 bits/key with xxHash64 double hashing: false positive rate analysis, whole-file bloom, and loaded-on-open design.
 
 ---

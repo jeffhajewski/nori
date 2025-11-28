@@ -60,13 +60,13 @@ Bit array after adding "alice":
       bit5      bit89    bit120
 
 Query "alice":
-  hash1("alice") = 5   → check bit 5: SET ✓
-  hash2("alice") = 89  → check bit 89: SET ✓
-  hash3("alice") = 120 → check bit 120: SET ✓
+  hash1("alice") = 5   → check bit 5: SET Yes
+  hash2("alice") = 89  → check bit 89: SET Yes
+  hash3("alice") = 120 → check bit 120: SET Yes
   Result: MAYBE PRESENT (all bits set)
 
 Query "bob":
-  hash1("bob") = 12 → check bit 12: NOT SET ✗
+  hash1("bob") = 12 → check bit 12: NOT SET No
   Result: DEFINITELY NOT PRESENT (stop here!)
 ```
 
@@ -559,11 +559,11 @@ Cost: 12.5 MB memory (negligible)
 
 **Bloom filters are essential for SSTables:**
 
-✅ **Fast negative lookups** - 67ns to confirm absence
-✅ **Massive I/O savings** - Skip 99%+ of unnecessary disk reads
-✅ **Space-efficient** - 10 bits per key for 0.9% FP rate
-✅ **Simple** - Single global bloom, no complex logic
-✅ **Battle-tested** - Used in LevelDB, RocksDB, Cassandra
+ **Fast negative lookups** - 67ns to confirm absence
+ **Massive I/O savings** - Skip 99%+ of unnecessary disk reads
+ **Space-efficient** - 10 bits per key for 0.9% FP rate
+ **Simple** - Single global bloom, no complex logic
+ **Battle-tested** - Used in LevelDB, RocksDB, Cassandra
 
 **Key insight:** Trading ~1% false positives for 100x speedup on absent keys is an excellent trade-off.
 
@@ -572,13 +572,13 @@ Cost: 12.5 MB memory (negligible)
 ## Next Steps
 
 **Understand the implementation:**
-See [How It Works: Bloom Filter](../how-it-works/bloom-filter-impl) for implementation details.
+See [How It Works: Bloom Filter](../how-it-works/bloom-filter-impl.md) for implementation details.
 
 **Learn about indexing:**
-Read [How It Works: Index Structure](../how-it-works/index-structure) for how bloom works with block index.
+Read [How It Works: Index Structure](../how-it-works/index-structure.md) for how bloom works with block index.
 
 **Optimize reads:**
-Check [Performance: Tuning](../performance/tuning) for bloom filter configuration guidance.
+Check [Performance: Tuning](../performance/tuning.md) for bloom filter configuration guidance.
 
 **See the full read path:**
-Explore [What is an SSTable?](what-is-sstable#read-path) for how bloom fits into lookups.
+Explore [What is an SSTable?](what-is-sstable.md#read-path) for how bloom fits into lookups.

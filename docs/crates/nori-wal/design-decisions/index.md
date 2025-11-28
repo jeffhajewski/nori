@@ -16,31 +16,31 @@ nori-wal was designed with several core principles:
 
 ## Key Decisions
 
-### [Append-Only Architecture](append-only)
+### [Append-Only Architecture](append-only.md)
 Why the WAL is strictly append-only and never modifies existing data.
 
-### [Prefix-Valid Recovery](recovery-strategy)
+### [Prefix-Valid Recovery](recovery-strategy.md)
 Why we truncate at the first corruption rather than trying to recover more data.
 
-### [Segment-Based Storage](segmentation)
+### [Segment-Based Storage](segmentation.md)
 Why the WAL is split into multiple files instead of one large file.
 
-### [CRC32C Checksums](checksums)
+### [CRC32C Checksums](checksums.md)
 Why we use CRC32C for data integrity and where it's computed.
 
-### [Varint Encoding](varint-encoding)
+### [Varint Encoding](varint-encoding.md)
 Why record lengths use variable-length encoding instead of fixed sizes.
 
-### [Fsync Policies](fsync-policies)
+### [Fsync Policies](fsync-policies.md)
 How we balance durability and performance with configurable fsync behavior.
 
-### [Compression Support](compression)
+### [Compression Support](compression.md)
 Why compression is optional and how it's integrated into the record format.
 
-### [Zero-Copy Design](zero-copy)
+### [Zero-Copy Design](zero-copy.md)
 Where we use zero-copy techniques and where we don't.
 
-### [Observability First](observability)
+### [Observability First](observability.md)
 Why metrics and events are built into the core rather than added later.
 
 ## Decision-Making Framework

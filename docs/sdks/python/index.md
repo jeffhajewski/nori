@@ -82,8 +82,8 @@ asyncio.run(main())
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/j-haj/nori/issues)
-- **Source**: [GitHub Repository](https://github.com/j-haj/nori/tree/main/sdks/python)
+- **Issues**: [GitHub Issues](https://github.com/jeffhajewski/norikv/issues)
+- **Source**: [GitHub Repository](https://github.com/jeffhajewski/norikv/tree/main/sdks/python)
 - **PyPI**: [norikv](https://pypi.org/project/norikv/)
 
 ## License

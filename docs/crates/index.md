@@ -12,22 +12,22 @@ Each crate solves a specific problem and can be used standalone in your Rust pro
 
 | Crate | Purpose | Status |
 |-------|---------|--------|
-| **[nori-wal](nori-wal/)** | Write-ahead log with recovery | ✅ Production-ready |
-| **[nori-sstable](nori-sstable/)** | Immutable sorted string tables | ✅ Production-ready |
-| **[nori-lsm](nori-lsm/)** | LSM storage engine | 🚧 In development |
+| **[nori-wal](nori-wal/index.md)** | Write-ahead log with recovery |  Production-ready |
+| **[nori-sstable](nori-sstable/index.md)** | Immutable sorted string tables |  Production-ready |
+| **[nori-lsm](nori-lsm/index.md)** | LSM storage engine | 🚧 In development |
 
 ### Consensus & Membership
 
 | Crate | Purpose | Status |
 |-------|---------|--------|
-| **[nori-raft](nori-raft/)** | Raft consensus algorithm | 🚧 In development |
-| **[nori-swim](nori-swim/)** | SWIM membership protocol | 🚧 In development |
+| **[nori-raft](nori-raft/index.md)** | Raft consensus algorithm | 🚧 In development |
+| **[nori-swim](nori-swim/index.md)** | SWIM membership protocol | 🚧 In development |
 
 ### Observability
 
 | Crate | Purpose | Status |
 |-------|---------|--------|
-| **[nori-observe](nori-observe/)** | Vendor-neutral observability ABI | ✅ Ready |
+| **[nori-observe](nori-observe/index.md)** | Vendor-neutral observability ABI |  Ready |
 | **nori-observe-prom** | Prometheus exporter | 🚧 Planned |
 | **nori-observe-otlp** | OTLP exporter | 🚧 Planned |
 
@@ -103,10 +103,10 @@ Click on any crate above to see its complete documentation:
 ## Next Steps
 
 **New to NoriKV?**
-Start with [nori-wal](nori-wal/) to understand the foundation, then explore [nori-sstable](nori-sstable/) for immutable storage.
+Start with [nori-wal](nori-wal/index.md) to understand the foundation, then explore [nori-sstable](nori-sstable/index.md) for immutable storage.
 
 **Building a storage engine?**
-Check out the [Architecture](../architecture/) section to see how components fit together.
+Check out the [Architecture](../architecture/index.md) section to see how components fit together.
 
 **Need observability?**
-See [nori-observe](nori-observe/) for vendor-neutral metrics and events.
+See [nori-observe](nori-observe/index.md) for vendor-neutral metrics and events.

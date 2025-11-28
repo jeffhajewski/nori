@@ -543,7 +543,7 @@ impl FlushTask {
 - Throughput: 320 MB/sec
 - Non-blocking: Writes continue during flush
 
-**Next**: [Slot Routing](slot-routing) - How keys are mapped to slots
+**Next**: [Slot Routing](slot-routing.md) - How keys are mapped to slots
 
 ---
 

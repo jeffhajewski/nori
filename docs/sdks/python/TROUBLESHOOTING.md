@@ -693,6 +693,6 @@ except Exception as err:
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/j-haj/nori/issues)
+- **Issues**: [GitHub Issues](https://github.com/jeffhajewski/norikv/issues)
 - **Documentation**: [API Guide](API_GUIDE.md), [Architecture Guide](ARCHITECTURE.md)
-- **Examples**: [GitHub Examples](https://github.com/j-haj/nori/tree/main/sdks/python/examples)
+- **Examples**: [GitHub Examples](https://github.com/jeffhajewski/norikv/tree/main/sdks/python/examples)

@@ -1534,4 +1534,4 @@ await client.put(key, value, {
 - [API Guide](API_GUIDE.md) - Core API reference
 - [Architecture Guide](ARCHITECTURE.md) - Internal design
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
-- [GitHub Examples](https://github.com/j-haj/nori/tree/main/sdks/typescript/examples) - More code samples
+- [GitHub Examples](https://github.com/jeffhajewski/norikv/tree/main/sdks/typescript/examples) - More code samples

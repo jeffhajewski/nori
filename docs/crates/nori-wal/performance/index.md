@@ -18,16 +18,16 @@ This section helps you understand nori-wal's performance characteristics and opt
 
 ## Sections
 
-### [Benchmarks](benchmarks)
+### [Benchmarks](benchmarks.md)
 Complete benchmark results with methodology and hardware details.
 
-### [Tuning Guide](tuning)
+### [Tuning Guide](tuning.md)
 How to optimize nori-wal for your specific workload.
 
-### [Hardware Recommendations](hardware)
+### [Hardware Recommendations](hardware.md)
 What hardware to use for different performance targets.
 
-### [Profiling](profiling)
+### [Profiling](profiling.md)
 How to measure and analyze performance in your application.
 
 ## Performance Philosophy
@@ -76,7 +76,7 @@ Check these first:
 3. **Segment size** - Too small segments cause frequent rotation
 4. **Disk** - Is your disk actually fast? (check `iostat`)
 
-See [Troubleshooting Performance](../troubleshooting/performance) for details.
+See [Troubleshooting Performance](../troubleshooting/performance.md) for details.
 
 ### "Why does latency spike?"
 
@@ -87,7 +87,7 @@ Common causes:
 3. **OS page cache flush** - Background disk sync
 4. **CPU steal** - Virtualized environments
 
-See [Profiling](profiling) for how to diagnose.
+See [Profiling](profiling.md) for how to diagnose.
 
 ### "Can I make it faster?"
 
@@ -99,7 +99,7 @@ Options:
 4. **Use faster storage** - NVMe >> SATA >> HDD
 5. **Tune fsync policy** - Trade durability for speed
 
-See [Tuning Guide](tuning) for strategies.
+See [Tuning Guide](tuning.md) for strategies.
 
 ## Benchmark Methodology
 
@@ -141,7 +141,7 @@ Your results will vary based on hardware.
 
 ## Further Reading
 
-- **[Benchmarks](benchmarks)** - Detailed performance measurements
-- **[Tuning Guide](tuning)** - Optimization strategies
-- **[Hardware](hardware)** - Hardware selection guide
-- **[Profiling](profiling)** - Measurement and analysis
+- **[Benchmarks](benchmarks.md)** - Detailed performance measurements
+- **[Tuning Guide](tuning.md)** - Optimization strategies
+- **[Hardware](hardware.md)** - Hardware selection guide
+- **[Profiling](profiling.md)** - Measurement and analysis

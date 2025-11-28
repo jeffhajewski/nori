@@ -536,7 +536,7 @@ tokio::spawn(async move {
 - Reads don't block writes (and vice versa)
 - Multiple readers can run concurrently
 
-See [Concurrency Model](../how-it-works/concurrency) for details.
+See [Concurrency Model](../how-it-works/concurrency.md) for details.
 
 ---
 
@@ -551,14 +551,14 @@ See [Concurrency Model](../how-it-works/concurrency) for details.
 | `sync()` | 1-5ms | - |
 | `read_from() + iterate` | ~5μs per record | ~200K records/sec |
 
-See [Performance Tuning](../performance/tuning) for optimization tips.
+See [Performance Tuning](../performance/tuning.md) for optimization tips.
 
 ---
 
 ## See Also
 
-- [WalConfig](config) - Configuration options
-- [Record](record) - Record types
-- [Position](position) - Position in the log
-- [RecoveryInfo](recovery-info) - Recovery statistics
-- [Errors](errors) - Error types
+- [WalConfig](config.md) - Configuration options
+- [Record](record.md) - Record types
+- [Position](position.md) - Position in the log
+- [RecoveryInfo](recovery-info.md) - Recovery statistics
+- [Errors](errors.md) - Error types

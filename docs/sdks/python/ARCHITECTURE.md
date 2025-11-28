@@ -639,4 +639,4 @@ print(f"Active connections: {stats.pool.active_connections}")
 - [API Guide](API_GUIDE.md) - Public API documentation
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
 - [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
-- [Source Code](https://github.com/j-haj/nori/tree/main/sdks/python) - Implementation
+- [Source Code](https://github.com/jeffhajewski/norikv/tree/main/sdks/python) - Implementation

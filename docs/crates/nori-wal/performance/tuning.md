@@ -129,7 +129,7 @@ wal.sync().await?;  // Single fsync for 1000 records
 
 WAL is optimized for writes, not reads. For fast reads:
 
-1. Build an in-memory index (see [Key-Value Store recipe](../recipes/key-value-store))
+1. Build an in-memory index (see [Key-Value Store recipe](../recipes/key-value-store.md))
 2. Use snapshots to avoid scanning entire WAL
 3. Keep frequently accessed data in memory
 
@@ -451,7 +451,7 @@ for record in records {
 }
 ```
 
-**Solution:** Batch syncs (see [Batched Writes benchmark](benchmarks#batched-writes)).
+**Solution:** Batch syncs (see [Batched Writes benchmark](benchmarks.md#batched-writes)).
 
 ### 2. Segments Too Small
 

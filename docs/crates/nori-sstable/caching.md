@@ -271,10 +271,10 @@ hit_rate = hits / (hits + misses) = 8500 / 10000 = 85%
 
 | Hit Rate | Status | Action |
 |----------|--------|--------|
-| **>80%** | 🟢 Excellent | Cache is sized well |
-| **50-80%** | 🟡 Good | Consider increasing cache |
+| **>80%** |  Excellent | Cache is sized well |
+| **50-80%** |  Good | Consider increasing cache |
 | **20-50%** | 🟠 Fair | Increase cache or optimize access pattern |
-| **<20%** | 🔴 Poor | Cache too small or uniform access pattern |
+| **<20%** |  Poor | Cache too small or uniform access pattern |
 
 ### Example: Monitoring in Production
 
@@ -422,7 +422,7 @@ for _ in 0..4 {
 
 ## Best Practices
 
-### ✅ Do
+###  Do
 
 - **Enable caching by default** (64MB is reasonable for most workloads)
 - **Monitor hit rates** to validate cache effectiveness
@@ -431,7 +431,7 @@ for _ in 0..4 {
 - **Use `Arc<SSTableReader>`** to share cache across threads
 - **Size based on hot data** (not total data size)
 
-### ❌ Don't
+###  Don't
 
 - Don't disable cache unless memory is extremely limited
 - Don't over-provision cache (diminishing returns beyond hot set size)
@@ -546,7 +546,7 @@ let reader2 = Arc::new(SSTableReader::open("cold.sst").await?);
    sstable_block_cache_hits / (sstable_block_cache_hits + sstable_block_cache_misses)
    ```
 3. **Analyze hit rate:**
-   - **>80%:** Cache is sized well ✅
+   - **>80%:** Cache is sized well 
    - **50-80%:** Consider increasing cache
    - **<50%:** Increase cache or investigate access pattern
 4. **Tune cache size:**
@@ -559,22 +559,22 @@ let reader2 = Arc::new(SSTableReader::open("cold.sst").await?);
 
 ## Related Documentation
 
-- **[Compression Guide](compression)** - Learn how compression works with caching
-- **[Performance Benchmarks](performance/benchmarks)** - See cache benchmark results
-- **[API Reference](api-reference/reader)** - SSTableReader cache methods
-- **[Tuning Guide](performance/tuning)** - General performance tuning
+- **[Compression Guide](compression.md)** - Learn how compression works with caching
+- **[Performance Benchmarks](performance/benchmarks.md)** - See cache benchmark results
+- **[API Reference](api-reference/reader.md)** - SSTableReader cache methods
+- **[Tuning Guide](performance/tuning.md)** - General performance tuning
 
 ---
 
 ## Summary
 
 **LRU Block Cache in nori-sstable:**
-- ✅ **18x faster reads** for hot key workloads
-- ✅ Caches **decompressed blocks** (avoid repeated decompression)
-- ✅ **LRU eviction** - automatic management
-- ✅ **Thread-safe** - share via `Arc`
-- ✅ **Configurable** - default 64MB, tune to workload
-- ✅ **Works with compression** - best of both worlds
+-  **18x faster reads** for hot key workloads
+-  Caches **decompressed blocks** (avoid repeated decompression)
+-  **LRU eviction** - automatic management
+-  **Thread-safe** - share via `Arc`
+-  **Configurable** - default 64MB, tune to workload
+-  **Works with compression** - best of both worlds
 
 **Recommended configuration:**
 ```rust
@@ -590,4 +590,4 @@ SSTableConfig {
 cache_hit_rate = sstable_block_cache_hits / (hits + misses)
 ```
 
-🚀 **Result:** Dramatically faster reads for hot data + storage savings!
+ **Result:** Dramatically faster reads for hot data + storage savings!

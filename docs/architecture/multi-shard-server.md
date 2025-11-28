@@ -332,22 +332,22 @@ fn jump_consistent_hash(mut key: u64, num_buckets: u32) -> u32 {
 
 | Feature | Jump Hash | Ring Hash |
 |---------|-----------|-----------|
-| **Deterministic** | ✅ Yes | ✅ Yes |
-| **Minimal movement** | ✅ K/N keys move | ✅ K/N keys move |
-| **Routing table** | ❌ None (computed) | ✅ Required (O(N)) |
+| **Deterministic** |  Yes |  Yes |
+| **Minimal movement** |  K/N keys move |  K/N keys move |
+| **Routing table** |  None (computed) |  Required (O(N)) |
 | **Latency** | ~20ns | ~100ns (binary search) |
 | **Code complexity** | ~10 lines | ~100 lines |
 | **Memory** | 0 bytes | 100KB (1024 vnodes) |
 
 **Trade-offs:**
 
-✅ **Pros:**
+ **Pros:**
 - Zero memory overhead (no routing table)
 - Lock-free (pure function)
 - Fast (<20ns per lookup)
 - Simple implementation
 
-❌ **Cons:**
+ **Cons:**
 - Can't skip buckets (all N buckets must exist)
 - Adding/removing buckets affects distribution
 - Not suitable for heterogeneous node capacities
@@ -475,9 +475,9 @@ for (shard_id, shard) in shards.iter() {
 - **Memory:** 1024 shards × 10MB memtable = 10GB worst case (acceptable)
 
 **Alternative:** Dynamic shard count
-- ❌ Complicates Jump Hash (need consistent rehashing)
-- ❌ Client routing complexity (need to know current shard count)
-- ❌ Rebalancing: All keys rehash
+-  Complicates Jump Hash (need consistent rehashing)
+-  Client routing complexity (need to know current shard count)
+-  Rebalancing: All keys rehash
 
 **Trade-off:**
 - More shards = more Raft overhead (more leaders, more heartbeats)
@@ -504,9 +504,9 @@ for (shard_id, shard) in shards.iter() {
 - Subsequent PUTs to "user:*": Reuse existing shards (~0ms creation)
 
 **Alternative:** Create all shards at startup
-- ❌ 102-second startup time
-- ❌ 10GB memory (1024 × 10MB memtables)
-- ❌ Unnecessary for small workloads
+-  102-second startup time
+-  10GB memory (1024 × 10MB memtables)
+-  Unnecessary for small workloads
 
 **Trade-off:**
 - First request to each shard is slower (~100ms)
@@ -529,9 +529,9 @@ for (shard_id, shard) in shards.iter() {
 - Debugging (inspect specific shard's WAL/SSTables)
 
 **Alternative:** Per-shard config
-- ❌ Complex: 1024 different configs
-- ❌ Hard to tune: Which shard is slow?
-- ❌ No clear benefit
+-  Complex: 1024 different configs
+-  Hard to tune: Which shard is slow?
+-  No clear benefit
 
 ---
 
@@ -549,12 +549,12 @@ for (shard_id, shard) in shards.iter() {
 - Write lock: ~50ns (rare)
 
 **Alternative:** DashMap (lock-free concurrent HashMap)
-- ✅ Better write performance
-- ❌ Larger dependency
-- ❌ Overkill for 1024-entry map with rare writes
+-  Better write performance
+-  Larger dependency
+-  Overkill for 1024-entry map with rare writes
 
 **Alternative:** Mutex
-- ❌ Serializes all reads (slower)
+-  Serializes all reads (slower)
 
 ---
 
@@ -568,14 +568,14 @@ for (shard_id, shard) in shards.iter() {
 - **Fault isolation:** Failure in shard 0 doesn't affect shard 1
 
 **Alternative:** Shared LSM, separate Raft
-- ❌ LSM global lock (serializes all writes)
-- ❌ Compaction blocks all shards
-- ❌ No clear benefit
+-  LSM global lock (serializes all writes)
+-  Compaction blocks all shards
+-  No clear benefit
 
 **Alternative:** Shared Raft, separate LSM
-- ❌ Single Raft leader (bottleneck)
-- ❌ Large Raft log (all shards mixed)
-- ❌ No clear benefit
+-  Single Raft leader (bottleneck)
+-  Large Raft log (all shards mixed)
+-  No clear benefit
 
 ---
 
@@ -816,6 +816,6 @@ norikv-admin move-shard --shard-id 42 --from node0 --to node1
 
 ## Next Steps
 
-- **[SWIM Topology Tracking](swim-topology)** - How cluster membership is tracked
-- **[Placement & Hashing](placement)** - Deep dive into Jump Consistent Hash
-- **[Operations Guide](../operations/)** - Production deployment
+- **[SWIM Topology Tracking](swim-topology.md)** - How cluster membership is tracked
+- **[Placement & Hashing](placement.md)** - Deep dive into Jump Consistent Hash
+- **[Operations Guide](../operations/index.md)** - Production deployment

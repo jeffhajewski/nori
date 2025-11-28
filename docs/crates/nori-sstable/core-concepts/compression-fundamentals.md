@@ -543,11 +543,11 @@ if ratio < 1.5 {
 
 **Compression is essential for SSTables:**
 
-✅ **Storage savings** - 2-5x reduction in disk usage
-✅ **Faster I/O** - Read less from disk (if decompression faster than disk)
-✅ **Block-granular** - Decompress only needed blocks
-✅ **Cache-friendly** - Cache decompressed blocks for speed
-✅ **Configurable** - LZ4 for hot, Zstd for cold, None for development
+ **Storage savings** - 2-5x reduction in disk usage
+ **Faster I/O** - Read less from disk (if decompression faster than disk)
+ **Block-granular** - Decompress only needed blocks
+ **Cache-friendly** - Cache decompressed blocks for speed
+ **Configurable** - LZ4 for hot, Zstd for cold, None for development
 
 **Key insight:** Modern compression (especially LZ4) is so fast that it often speeds up reads by reducing I/O, not just saving storage.
 
@@ -556,13 +556,13 @@ if ratio < 1.5 {
 ## Next Steps
 
 **Deep dive on algorithms:**
-See [Compression Guide](../compression) for detailed LZ4/Zstd comparison and configuration.
+See [Compression Guide](../compression.md) for detailed LZ4/Zstd comparison and configuration.
 
 **Understand implementation:**
-Check [How It Works: Compression](../how-it-works/compression-impl) for implementation details.
+Check [How It Works: Compression](../how-it-works/compression-impl.md) for implementation details.
 
 **Learn caching interaction:**
-Read [Caching](../caching) for how compression + cache work together.
+Read [Caching](../caching.md) for how compression + cache work together.
 
 **Optimize for your workload:**
-Explore [Performance: Tuning](../performance/tuning) for compression configuration guidance.
+Explore [Performance: Tuning](../performance/tuning.md) for compression configuration guidance.

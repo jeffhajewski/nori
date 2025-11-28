@@ -61,7 +61,7 @@ Verdict: Not worth 20% more memory for 60ms
 | Hash | Speed | Quality | Choice |
 |------|-------|---------|--------|
 | CRC32 | 10 GB/s | Medium | Too simple |
-| **xxHash64** | **10 GB/s** | **Excellent** | ✅ **Chosen** |
+| **xxHash64** | **10 GB/s** | **Excellent** |  **Chosen** |
 | SipHash | 3 GB/s | Excellent | Too slow |
 | SHA-256 | 0.5 GB/s | Excellent | Overkill |
 
@@ -73,7 +73,7 @@ Verdict: Not worth 20% more memory for 60ms
 
 **Problem:** Need k=7 hashes per key.
 
-**Naive:** Compute 7 independent hashes ❌ (slow)
+**Naive:** Compute 7 independent hashes  (slow)
 
 **Double hashing:** Generate k hashes from 2:
 
@@ -155,7 +155,7 @@ impl SSTableReader {
 
 **Cost:** Initial load time (~1ms per MB of bloom)
 
-**Alternative:** Lazy load bloom on first get() ❌
+**Alternative:** Lazy load bloom on first get() 
 - More complex
 - Unpredictable first-query latency
 - Bloom small enough to always load
@@ -166,10 +166,10 @@ impl SSTableReader {
 
 **Design choices:**
 
-✅ 10 bits/key (0.9% FP, 125KB per 100K keys)
-✅ xxHash64 (10 GB/s, excellent distribution)
-✅ Double hashing (2 hashes → 7 positions)
-✅ Whole-file bloom (simple, low FP rate)
-✅ Loaded on open (always in RAM, ~67ns checks)
+ 10 bits/key (0.9% FP, 125KB per 100K keys)
+ xxHash64 (10 GB/s, excellent distribution)
+ Double hashing (2 hashes → 7 positions)
+ Whole-file bloom (simple, low FP rate)
+ Loaded on open (always in RAM, ~67ns checks)
 
 **Result:** ~67ns checks prevent 100µs disk reads with <1% false positives.

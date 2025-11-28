@@ -18,21 +18,21 @@ Why nori-sstable compresses at block granularity with LZ4/Zstd.
 ### File-Level: Too Coarse
 ```
 Compressed file (1GB → 400MB)
-To read 1 key: Decompress entire 1GB ❌
+To read 1 key: Decompress entire 1GB 
 ```
 
 ### Entry-Level: Too Fine
 ```
 Each entry compressed individually
-Poor ratio (no cross-entry patterns) ❌
-High overhead (header per entry) ❌
+Poor ratio (no cross-entry patterns) 
+High overhead (header per entry) 
 ```
 
 ### Block-Level: Just Right
 ```
 4KB block (~50 entries) → compress together
-Good ratio (patterns across entries) ✓
-Fast decompression (1µs for 4KB) ✓
+Good ratio (patterns across entries) Yes
+Fast decompression (1µs for 4KB) Yes
 ```
 
 ---
@@ -105,7 +105,7 @@ Users get cached data at 100ns
 
 **Alternative (compressed cache):**
 - Save memory (2.5x less cache size)
-- But decompress on every cache hit! ❌
+- But decompress on every cache hit! 
 - 1µs * millions of requests = seconds wasted
 
 ---
@@ -146,9 +146,9 @@ Zstd (L9): 950 bytes (4.3x) - 3.3µs decompress
 
 ## Summary
 
-✅ Block-level compression (4KB granularity)
-✅ LZ4 default (speed matters for hot data)
-✅ Zstd for cold (ratio matters, speed doesn't)
-✅ Cache decompressed (decompress once, serve many)
+ Block-level compression (4KB granularity)
+ LZ4 default (speed matters for hot data)
+ Zstd for cold (ratio matters, speed doesn't)
+ Cache decompressed (decompress once, serve many)
 
 **Key trade-off:** LZ4 gives 70% of Zstd's compression at 3x the speed.

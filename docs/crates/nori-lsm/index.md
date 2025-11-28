@@ -2,8 +2,8 @@
 
 Embeddable LSM storage engine with ATLL (Adaptive Tiered-Leveled) compaction for heterogeneous workloads.
 
-[Core Concepts](core-concepts/){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
-[Design Decisions](design-decisions/){: .btn .fs-5 .mb-4 .mb-md-0 }
+[Core Concepts](core-concepts/index.md){: .btn .btn-primary .fs-5 .mb-4 .mb-md-0 .mr-2 }
+[Design Decisions](design-decisions/index.md){: .btn .fs-5 .mb-4 .mb-md-0 }
 
 ---
 
@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Core Concepts
 Learn the fundamentals of LSM trees and ATLL's innovations.
 
-[Core Concepts →](core-concepts/)
+[Core Concepts →](core-concepts/index.md)
 
 **Start here** if you're new to LSM trees. Topics include:
 - What is an LSM Tree? (history, math, RUM conjecture)
@@ -110,7 +110,7 @@ Learn the fundamentals of LSM trees and ATLL's innovations.
 ### Design Decisions
 Deep dives into ATLL's design rationale and trade-offs.
 
-[Design Decisions →](design-decisions/)
+[Design Decisions →](design-decisions/index.md)
 
 Topics include:
 - Guard-Based Partitioning (why fixed boundaries?)
@@ -122,7 +122,7 @@ Topics include:
 ### How It Works
 Implementation details, algorithms, and internals.
 
-[How It Works →](how-it-works/)
+[How It Works →](how-it-works/index.md)
 
 Topics include:
 - L0 Admission Control (backpressure, soft throttling)
@@ -134,7 +134,7 @@ Topics include:
 ### Performance
 Benchmarks, optimization techniques, and tuning guides.
 
-[Performance →](performance/)
+[Performance →](performance/index.md)
 
 Topics include:
 - Write Amplification Analysis (per-slot WA, weighted average)
@@ -145,7 +145,7 @@ Topics include:
 ### Recipes
 Common usage patterns and integration examples.
 
-[Recipes →](recipes/)
+[Recipes →](recipes/index.md)
 
 Topics include:
 - Time-Series Data (recent-heavy reads, TTL integration)
@@ -159,21 +159,21 @@ Topics include:
 
 ### Great Fit
 
-- ✅ **Skewed access patterns** (80/20 rule, Zipfian distribution)
-- ✅ **Mixed workloads** (40-60% reads/writes)
-- ✅ **Time-series with recent-heavy reads** (metrics, logs)
-- ✅ **Multi-tenant systems** (active + dormant tenants)
-- ✅ **Large datasets** (>100 GB)
-- ✅ **SSD wear concerns** (lower WA than pure leveled)
-- ✅ **Need automatic adaptation** (no manual tuning)
+-  **Skewed access patterns** (80/20 rule, Zipfian distribution)
+-  **Mixed workloads** (40-60% reads/writes)
+-  **Time-series with recent-heavy reads** (metrics, logs)
+-  **Multi-tenant systems** (active + dormant tenants)
+-  **Large datasets** (>100 GB)
+-  **SSD wear concerns** (lower WA than pure leveled)
+-  **Need automatic adaptation** (no manual tuning)
 
 ### Not the Right Tool
 
-- ❌ **Uniform access** (all keys equally hot → use pure leveled)
-- ❌ **Pure scans** (no point queries → use columnar storage)
-- ❌ **Tiny datasets** (<100 MB → use in-memory hash table)
-- ❌ **Need transactions** (use SQL database with ACID)
-- ❌ **Append-only writes** (use log, not LSM)
+-  **Uniform access** (all keys equally hot → use pure leveled)
+-  **Pure scans** (no point queries → use columnar storage)
+-  **Tiny datasets** (<100 MB → use in-memory hash table)
+-  **Need transactions** (use SQL database with ACID)
+-  **Append-only writes** (use log, not LSM)
 
 ---
 
@@ -243,9 +243,9 @@ get(key)
 ## Dependencies
 
 nori-lsm is built on:
-- **[nori-wal](../nori-wal/)** - Write-ahead log for durability
-- **[nori-sstable](../nori-sstable/)** - Immutable sorted tables
-- **[nori-observe](../nori-observe/)** - Vendor-neutral observability
+- **[nori-wal](../nori-wal/index.md)** - Write-ahead log for durability
+- **[nori-sstable](../nori-sstable/index.md)** - Immutable sorted tables
+- **[nori-observe](../nori-observe/index.md)** - Vendor-neutral observability
 
 All dependencies are production-ready.
 
@@ -297,16 +297,16 @@ let engine = LsmEngine::open(config).await?;
 nori-lsm is **production-ready** (as of 2025-10-31).
 
 **Completed features:**
-- ✅ ATLL compaction with guard-based partitioning
-- ✅ EWMA heat tracking and dynamic K-way fanout
-- ✅ Bandit-based compaction scheduler (epsilon-greedy UCB)
-- ✅ Bloom filters (10 bits/key, xxHash64, double hashing)
-- ✅ Memory pressure system with 4-zone backpressure
-- ✅ WAL integration for durability
-- ✅ Snapshot support
-- ✅ Range scans and iterators
-- ✅ Comprehensive test suite (108 tests passing)
-- ✅ Benchmarks (Zipfian workloads, sustained writes)
+-  ATLL compaction with guard-based partitioning
+-  EWMA heat tracking and dynamic K-way fanout
+-  Bandit-based compaction scheduler (epsilon-greedy UCB)
+-  Bloom filters (10 bits/key, xxHash64, double hashing)
+-  Memory pressure system with 4-zone backpressure
+-  WAL integration for durability
+-  Snapshot support
+-  Range scans and iterators
+-  Comprehensive test suite (108 tests passing)
+-  Benchmarks (Zipfian workloads, sustained writes)
 
 **Planned features:**
 - 🚧 Dynamic guard key adjustment (adaptive rebalancing)
@@ -377,7 +377,7 @@ Start with [What is an LSM Tree?](core-concepts/what-is-lsm.md) to build foundat
 Read [ATLL Architecture](core-concepts/atll-architecture.md) for the full design.
 
 **Ready to use nori-lsm?**
-Check out [Recipes](recipes/) for common patterns and integration examples.
+Check out [Recipes](recipes/index.md) for common patterns and integration examples.
 
 **Migrating from another LSM?**
 See [When to Use ATLL](core-concepts/when-to-use.md) for migration checklists.

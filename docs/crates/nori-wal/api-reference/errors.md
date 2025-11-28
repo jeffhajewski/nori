@@ -26,7 +26,7 @@ Main error type for WAL operations.
 
 ### Type Definition
 
-[View source in `crates/nori-wal/src/segment.rs`](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/segment.rs#L20-L30)
+[View source in `crates/nori-wal/src/segment.rs`](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/segment.rs#L20-L30)
 
 ### Variants
 
@@ -205,7 +205,7 @@ Errors related to record encoding and decoding.
 
 ### Type Definition
 
-[View source in `crates/nori-wal/src/record.rs`](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/record.rs#L17-L31)
+[View source in `crates/nori-wal/src/record.rs`](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/record.rs#L17-L31)
 
 ### Variants
 
@@ -420,7 +420,7 @@ Location within the WAL (segment ID + byte offset).
 
 ### Type Definition
 
-[View source in `crates/nori-wal/src/segment.rs`](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/segment.rs#L32-L37)
+[View source in `crates/nori-wal/src/segment.rs`](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/segment.rs#L32-L37)
 
 ### Fields
 
@@ -478,7 +478,7 @@ Statistics about WAL recovery operation.
 
 ### Type Definition
 
-[View source in `crates/nori-wal/src/recovery.rs`](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/recovery.rs#L17-L30)
+[View source in `crates/nori-wal/src/recovery.rs`](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/recovery.rs#L17-L30)
 
 ### Fields
 
@@ -643,8 +643,8 @@ wal.append(&record).await.map_err(|e| AppError::WalError {
 
 ## See Also
 
-- [Wal API](wal) - Main WAL interface
-- [Record API](record) - Record operations
-- [Configuration](config) - Configuration options
-- [Recovery Guarantees](../core-concepts/recovery-guarantees) - Recovery behavior
-- [Troubleshooting](../troubleshooting/) - Common issues and solutions
+- [Wal API](wal.md) - Main WAL interface
+- [Record API](record.md) - Record operations
+- [Configuration](config.md) - Configuration options
+- [Recovery Guarantees](../core-concepts/recovery-guarantees.md) - Recovery behavior
+- [Troubleshooting](../troubleshooting/index.md) - Common issues and solutions

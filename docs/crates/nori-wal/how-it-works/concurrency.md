@@ -639,8 +639,8 @@ wal.append(&record).await?;  // Lock acquired and released internally
 
 You've completed the "How It Works" section! Now explore:
 
-- **[API Reference](../api-reference/)** - Documentation for all public types
-- **[Recipes](../recipes/)** - Build real applications with nori-wal
-- **[Performance Tuning](../performance/tuning)** - Optimize for your workload
+- **[API Reference](../api-reference/index.md)** - Documentation for all public types
+- **[Recipes](../recipes/index.md)** - Build real applications with nori-wal
+- **[Performance Tuning](../performance/tuning.md)** - Optimize for your workload
 
 Or dive into the implementation in `crates/nori-wal/src/` on GitHub.

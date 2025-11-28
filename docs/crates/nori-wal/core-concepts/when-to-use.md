@@ -77,7 +77,7 @@ impl KvStore {
 - Durable (WAL survives crashes)
 - Simple recovery (replay WAL)
 
-See [Recipes: Key-Value Store](../recipes/key-value-store) for a complete implementation.
+See [Recipes: Key-Value Store](../recipes/key-value-store.md) for a complete implementation.
 
 ---
 
@@ -143,7 +143,7 @@ impl OrderService {
 - Time-travel debugging (replay to any point)
 - Easy to add new projections (replay events differently)
 
-See [Recipes: Event Sourcing](../recipes/event-sourcing) for details.
+See [Recipes: Event Sourcing](../recipes/event-sourcing.md) for details.
 
 ---
 
@@ -627,7 +627,7 @@ Writes → WAL (durability) + Memtable (fast writes)
 - Durable (WAL)
 - Compact (SSTables deduplicate versions)
 
-See [Recipes: LSM-Tree](../recipes/lsm-tree) for implementation.
+See [Recipes: LSM-Tree](../recipes/lsm-tree.md) for implementation.
 
 ---
 
@@ -646,7 +646,7 @@ Time 3: Truncate WAL (keep only records after snapshot)
 - Fast recovery (load snapshot + replay small WAL)
 - Bounded disk usage (old WAL segments deleted)
 
-See [Recipes: Snapshotting](../recipes/snapshotting) for details.
+See [Recipes: Snapshotting](../recipes/snapshotting.md) for details.
 
 ---
 
@@ -712,8 +712,8 @@ Consider alternatives if you answer **Yes** to any:
 
 Now that you know when to use a WAL, dive deeper:
 
-- **[How It Works](../how-it-works/)** - Understand the internals
-- **[Recipes](../recipes/)** - Build real applications
-- **[Performance Tuning](../performance/tuning)** - Optimize for your workload
+- **[How It Works](../how-it-works/index.md)** - Understand the internals
+- **[Recipes](../recipes/index.md)** - Build real applications
+- **[Performance Tuning](../performance/tuning.md)** - Optimize for your workload
 
-Or start coding with the [Quickstart Guide](../getting-started/quickstart)!
+Or start coding with the [Quickstart Guide](../getting-started/quickstart.md)!

@@ -701,8 +701,8 @@ Atomic rename ensures **either old file or new file exists**, never a partial st
 
 Now that you understand recovery, explore:
 
-- **[Concurrency Model](concurrency)** - How concurrent access is handled
-- **[Recovery Guarantees](../core-concepts/recovery-guarantees)** - High-level guarantees
-- **[Recipes: Crash Testing](../recipes/crash-testing)** - Property-based testing for recovery
+- **[Concurrency Model](concurrency.md)** - How concurrent access is handled
+- **[Recovery Guarantees](../core-concepts/recovery-guarantees.md)** - High-level guarantees
+- **[Recipes: Crash Testing](../recipes/crash-testing.md)** - Property-based testing for recovery
 
 Or dive into the implementation in `crates/nori-wal/src/recovery.rs` on GitHub.

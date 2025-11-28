@@ -168,7 +168,7 @@ WAL doesn't support random reads efficiently. You must scan from a position:
 // This is O(n), not O(1)
 ```
 
-For random access, build an index on top of WAL (see [Key-Value Store recipe](../recipes/key-value-store)).
+For random access, build an index on top of WAL (see [Key-Value Store recipe](../recipes/key-value-store.md)).
 
 ## Recovery Performance
 
@@ -371,4 +371,4 @@ Performance is similar across well-designed WAL implementations.
 - Concurrent writes: Limited by single writer lock
 - Random reads: Not supported (by design)
 
-See [Tuning Guide](tuning) for optimization strategies.
+See [Tuning Guide](tuning.md) for optimization strategies.

@@ -187,7 +187,7 @@ Consumers read from offsets (positions in log)
 
 ```
 Leader: [Entry 1] [Entry 2] [Entry 3] [Entry 4]
-          ✓         ✓         ✓        (uncommitted)
+          Yes         Yes         Yes        (uncommitted)
 
 Replicate entries to followers →
 When majority has entry → Commit it
@@ -357,7 +357,7 @@ There are many WAL implementations out there. Why build another one?
 
 **Tested**: 37 tests including property tests for crash scenarios
 
-**Fast**: 110K writes/sec with batched fsync (see [benchmarks](../performance/benchmarks))
+**Fast**: 110K writes/sec with batched fsync (see [benchmarks](../performance/benchmarks.md))
 
 ---
 
@@ -401,7 +401,7 @@ impl KvStore {
 }
 ```
 
-See [Recipes: Key-Value Store](../recipes/key-value-store) for a complete example.
+See [Recipes: Key-Value Store](../recipes/key-value-store.md) for a complete example.
 
 ---
 
@@ -438,7 +438,7 @@ impl EventStore {
 }
 ```
 
-See [Recipes: Event Sourcing](../recipes/event-sourcing) for details.
+See [Recipes: Event Sourcing](../recipes/event-sourcing.md) for details.
 
 ---
 
@@ -497,9 +497,9 @@ Before moving on, make sure you understand these core points:
 
 Now that you understand *what* a WAL is, let's explore the key design decisions:
 
-- **[Append-Only Architecture](append-only)** - Why WALs are append-only and what that means
-- **[Fsync Policies](fsync-policies)** - How to balance durability and performance
-- **[Recovery Guarantees](recovery-guarantees)** - What happens after a crash
-- **[When to Use a WAL](when-to-use)** - Scenarios where WALs shine
+- **[Append-Only Architecture](append-only.md)** - Why WALs are append-only and what that means
+- **[Fsync Policies](fsync-policies.md)** - How to balance durability and performance
+- **[Recovery Guarantees](recovery-guarantees.md)** - What happens after a crash
+- **[When to Use a WAL](when-to-use.md)** - Scenarios where WALs shine
 
-Or jump ahead to see how nori-wal works internally in [How It Works](../how-it-works/).
+Or jump ahead to see how nori-wal works internally in [How It Works](../how-it-works/index.md).

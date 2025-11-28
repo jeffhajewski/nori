@@ -8,19 +8,19 @@ Fundamental concepts you need to understand to use nori-wal effectively.
 
 This section covers the essential concepts behind write-ahead logs:
 
-### [What is a Write-Ahead Log?](what-is-wal)
+### [What is a Write-Ahead Log?](what-is-wal.md)
 The fundamental concept of WALs, why they exist, and how they're used in modern systems.
 
-### [Append-Only Architecture](append-only)
+### [Append-Only Architecture](append-only.md)
 Why WALs are append-only and what that means for your application.
 
-### [Durability & Fsync Policies](fsync-policies)
+### [Durability & Fsync Policies](fsync-policies.md)
 How to balance durability and performance with different fsync strategies.
 
-### [Recovery Guarantees](recovery-guarantees)
+### [Recovery Guarantees](recovery-guarantees.md)
 What happens after a crash and what guarantees you can rely on.
 
-### [When to Use a WAL](when-to-use)
+### [When to Use a WAL](when-to-use.md)
 Scenarios where WALs shine and where they don't.
 
 ---
@@ -31,7 +31,7 @@ Before diving into these concepts, you should:
 
 - Know basic Rust (async/await, Result types)
 - Understand what "durability" means in databases
-- Have completed the [Quickstart](../getting-started/quickstart)
+- Have completed the [Quickstart](../getting-started/quickstart.md)
 
 ---
 
@@ -72,10 +72,10 @@ Only `fsync()` guarantees durability.
 
 Recommended order:
 
-1. **Start here**: [What is a WAL?](what-is-wal)
-2. Understand [Append-Only Architecture](append-only)
-3. Learn about [Durability & Fsync](fsync-policies)
-4. Grasp [Recovery Guarantees](recovery-guarantees)
-5. Apply knowledge: [When to Use a WAL](when-to-use)
+1. **Start here**: [What is a WAL?](what-is-wal.md)
+2. Understand [Append-Only Architecture](append-only.md)
+3. Learn about [Durability & Fsync](fsync-policies.md)
+4. Grasp [Recovery Guarantees](recovery-guarantees.md)
+5. Apply knowledge: [When to Use a WAL](when-to-use.md)
 
-Then move on to [How It Works](../how-it-works/) for deeper technical details.
+Then move on to [How It Works](../how-it-works/index.md) for deeper technical details.

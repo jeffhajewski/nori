@@ -73,8 +73,8 @@ L3:  [────────────── Single Run ──────�
 
 ```
 Before compaction:
-L1: [A-D][E-H][I-L]  (30 MB total, threshold: 100 MB ✓)
-L2: [A-F][G-M][N-Z]  (300 MB total, threshold: 1 GB ✓)
+L1: [A-D][E-H][I-L]  (30 MB total, threshold: 100 MB Yes)
+L2: [A-F][G-M][N-Z]  (300 MB total, threshold: 1 GB Yes)
 
 L1 grows to 120 MB (exceeds threshold!)
 
@@ -191,14 +191,14 @@ Explanation:
 
 ### Pros and Cons
 
-**✅ Advantages:**
+** Advantages:**
 
 1. **Lowest read amplification** (RA = L0 + L)
 2. **Predictable query latency** (bounded fan-in)
 3. **Best space efficiency** (SA ≈ 1.1x)
 4. **Simple reasoning** (one run per level)
 
-**❌ Disadvantages:**
+** Disadvantages:**
 
 1. **Highest write amplification** (WA = T * L, typically 40-100x)
 2. **Compaction overhead** (continuous background I/O)
@@ -209,13 +209,13 @@ Explanation:
 
 ### When to Use Leveled Compaction
 
-**✅ Use when:**
+** Use when:**
 - Read-dominated workload (read:write > 10:1)
 - Strict read latency SLOs (p99 < 10ms)
 - Large dataset (> 1 TB) where read amp matters
 - Point queries dominate (vs range scans)
 
-**❌ Avoid when:**
+** Avoid when:**
 - Write-heavy workload (write:read > 1:1)
 - SSD endurance critical (limited P/E cycles)
 - Compaction CPU overhead intolerable
@@ -380,14 +380,14 @@ Example (T=10):
 
 ### Pros and Cons
 
-**✅ Advantages:**
+** Advantages:**
 
 1. **Lowest write amplification** (WA ≈ 6-8x vs Leveled 40-100x)
 2. **Minimal compaction overhead** (less frequent merges)
 3. **Longer SSD lifespan** (lower write volume)
 4. **Excellent for write-heavy workloads**
 
-**❌ Disadvantages:**
+** Disadvantages:**
 
 1. **Higher read amplification** (RA ≈ 10-15 vs Leveled 5-10)
 2. **Unpredictable query latency** (variable run count)
@@ -398,13 +398,13 @@ Example (T=10):
 
 ### When to Use Tiered Compaction
 
-**✅ Use when:**
+** Use when:**
 - Write-dominated workload (write:read > 5:1)
 - Append-only or time-series data
 - SSD endurance critical (extend lifespan)
 - Eventual consistency tolerable (async reads)
 
-**❌ Avoid when:**
+** Avoid when:**
 - Read latency sensitive (strict p99 SLOs)
 - Point queries dominate (vs range scans)
 - Space-constrained (need minimal SA)
@@ -533,14 +533,14 @@ Example (R=10):
 
 ### Pros and Cons
 
-**✅ Advantages:**
+** Advantages:**
 
 1. **Tunable trade-off** (adjust R for workload)
 2. **Better than tiered for reads** (bounded run count)
 3. **Better than leveled for writes** (fewer merges)
 4. **Adaptive behavior** (multiple trigger conditions)
 
-**❌ Disadvantages:**
+** Disadvantages:**
 
 1. **Complex to tune** (many parameters: R, SA threshold, max runs)
 2. **Unpredictable behavior** (heuristic-driven)
@@ -551,13 +551,13 @@ Example (R=10):
 
 ### When to Use Universal Compaction
 
-**✅ Use when:**
+** Use when:**
 - Workload characteristics change over time
 - Need flexibility to tune WA/RA trade-off
 - Willing to experiment with parameters
 - Running RocksDB (well-tested implementation)
 
-**❌ Avoid when:**
+** Avoid when:**
 - Predictability critical (SLAs, latency guarantees)
 - Simple operations preferred (fewer knobs to turn)
 - Small engineering team (tuning complexity)
@@ -643,15 +643,15 @@ graph TD
     B -->|< 1:1| E[Read-Heavy]
 
     C --> F{SSD Endurance Critical?}
-    F -->|Yes| G[Tiered ✓]
+    F -->|Yes| G[Tiered Yes]
     F -->|No| H[Universal or ATLL]
 
     D --> I{Workload Changes?}
-    I -->|Yes| J[Universal or ATLL ✓]
+    I -->|Yes| J[Universal or ATLL Yes]
     I -->|No| K[Leveled with tuning]
 
     E --> L{Strict Latency SLOs?}
-    L -->|Yes| M[Leveled ✓]
+    L -->|Yes| M[Leveled Yes]
     L -->|No| N[Leveled or ATLL]
 ```
 
@@ -699,7 +699,7 @@ Savings: 50% write amplification reduction
 
 ### ATLL (Adaptive Tiered-Leveled)
 
-**Our approach:** Covered in depth in [ATLL Architecture](atll-architecture).
+**Our approach:** Covered in depth in [ATLL Architecture](atll-architecture.md).
 
 **Key innovation:** Per-slot K value (number of runs):
 - Hot slots: K=1 (leveled, low RA)
@@ -799,10 +799,10 @@ L0 count > 12: Write stall imminent
 
 ## What's Next?
 
-- **[ATLL Architecture](atll-architecture)** - Our guard-based partitioning and dynamic K approach
-- **[Write Path](write-path)** - How writes flow through memtable → L0 → compaction
-- **[Read Path](read-path)** - How reads traverse levels with Bloom filters
-- **[Amplification Trade-offs](../design-decisions/amplification-tradeoffs)** - Deep math on RUM conjecture
+- **[ATLL Architecture](atll-architecture.md)** - Our guard-based partitioning and dynamic K approach
+- **[Write Path](write-path.md)** - How writes flow through memtable → L0 → compaction
+- **[Read Path](read-path.md)** - How reads traverse levels with Bloom filters
+- **[Amplification Trade-offs](../design-decisions/amplification-tradeoffs.md)** - Deep math on RUM conjecture
 
 ---
 

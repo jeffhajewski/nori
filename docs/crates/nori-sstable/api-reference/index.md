@@ -8,10 +8,10 @@ Complete API documentation for nori-sstable.
 
 ## Overview
 
-This section provides complete API documentation for all public types, methods, and traits in nori-sstable. For usage examples and guides, see [Getting Started](../getting-started).
+This section provides complete API documentation for all public types, methods, and traits in nori-sstable. For usage examples and guides, see [Getting Started](../getting-started.md).
 
 {: .note }
-> **Auto-generated API docs:** For exhaustive rustdoc documentation with all method signatures and examples, see the [rustdoc →](../rustdoc/)
+> **Auto-generated API docs:** For exhaustive rustdoc documentation with all method signatures and examples, see the [rustdoc →](../rustdoc/index.md)
 
 ---
 
@@ -21,11 +21,11 @@ This section provides complete API documentation for all public types, methods, 
 
 | Type | Purpose | Page |
 |------|---------|------|
-| [`SSTableBuilder`](#sstablebuilder) | Builds immutable SSTables | [Builder API →](builder) |
-| [`SSTableReader`](#sstablereader) | Reads from SSTables | [Reader API →](reader) |
-| [`SSTableConfig`](#sstableconfig) | Configuration for building | [Config API →](config) |
-| [`Entry`](#entry) | Key-value entry with tombstone | [Entry API →](entry) |
-| [`SSTableIterator`](#sstableiterator) | Sequential iteration | [Iterator API →](iterator) |
+| [`SSTableBuilder`](#sstablebuilder) | Builds immutable SSTables | [Builder API →](builder.md) |
+| [`SSTableReader`](#sstablereader) | Reads from SSTables | [Reader API →](reader.md) |
+| [`SSTableConfig`](#sstableconfig) | Configuration for building | [Config API →](config.md) |
+| [`Entry`](#entry) | Key-value entry with tombstone | [Entry API →](entry.md) |
+| [`SSTableIterator`](#sstableiterator) | Sequential iteration | [Iterator API →](iterator.md) |
 
 ### Enums
 
@@ -37,7 +37,7 @@ This section provides complete API documentation for all public types, methods, 
 
 | Type | Purpose | Page |
 |------|---------|------|
-| [`SSTableMetadata`](#sstablemetadata) | Build result information | [Builder API →](builder) |
+| [`SSTableMetadata`](#sstablemetadata) | Build result information | [Builder API →](builder.md) |
 | [`Footer`](#footer) | SSTable file footer | [Internal] |
 | [`Index`](#index) | Block index | [Internal] |
 | [`BloomFilter`](#bloomfilter) | Bloom filter | [Internal] |
@@ -457,7 +457,7 @@ SSTableConfig {
 }
 ```
 
-[See full configuration guide →](config)
+[See full configuration guide →](config.md)
 
 ---
 
@@ -514,7 +514,7 @@ let entry = Entry::delete("key_to_delete");
 
 ---
 
-[See full entry API →](entry)
+[See full entry API →](entry.md)
 
 ---
 
@@ -566,7 +566,7 @@ while let Some(entry) = iter.try_next().await? {
 
 ---
 
-[See full iterator API →](iterator)
+[See full iterator API →](iterator.md)
 
 ---
 
@@ -592,7 +592,7 @@ pub enum Compression {
 | **Lz4** | 750 MB/s | 3,900 MB/s | 2-3x | **Production (recommended)** |
 | **Zstd** | 400 MB/s | 1,200 MB/s | 3-5x | Archival, cold storage |
 
-[See compression guide →](../compression)
+[See compression guide →](../compression.md)
 
 ---
 
@@ -759,22 +759,22 @@ for handle in handles {
 
 ## Related Documentation
 
-- **[Getting Started](../getting-started)** - Quick tutorial
-- **[Compression](../compression)** - Compression deep dive
-- **[Caching](../caching)** - Cache tuning guide
-- **[Architecture](../architecture)** - File format details
-- **[Performance](../performance/benchmarks)** - Benchmark results
+- **[Getting Started](../getting-started.md)** - Quick tutorial
+- **[Compression](../compression.md)** - Compression deep dive
+- **[Caching](../caching.md)** - Cache tuning guide
+- **[Architecture](../architecture.md)** - File format details
+- **[Performance](../performance/benchmarks.md)** - Benchmark results
 
 ---
 
 ## Summary
 
 **nori-sstable API:**
-- ✅ **Simple:** 5 core types cover 95% of use cases
-- ✅ **Async:** All I/O is async via Tokio
-- ✅ **Type-safe:** No unsafe code in public API
-- ✅ **Thread-safe:** Share readers via `Arc`
-- ✅ **Documented:** 108 tests + comprehensive docs
+-  **Simple:** 5 core types cover 95% of use cases
+-  **Async:** All I/O is async via Tokio
+-  **Type-safe:** No unsafe code in public API
+-  **Thread-safe:** Share readers via `Arc`
+-  **Documented:** 108 tests + comprehensive docs
 
 **Most common API:**
 ```rust
@@ -788,4 +788,4 @@ let reader = Arc::new(SSTableReader::open(path).await?);
 let entry = reader.get(b"key").await?;
 ```
 
-For detailed method documentation, see the individual API pages or [rustdoc →](../rustdoc/)
+For detailed method documentation, see the individual API pages or [rustdoc →](../rustdoc/index.md)

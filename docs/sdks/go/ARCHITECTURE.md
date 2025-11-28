@@ -536,4 +536,4 @@ Go SDK performance is excellent:
 - [API Guide](API_GUIDE.md) - Public API documentation
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
 - [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
-- [Source Code](../) - Implementation
+- [Source Code](../index.md) - Implementation

@@ -556,6 +556,6 @@ Use profiling tools to identify bottlenecks:
 - **Application:** Prometheus + Grafana
 
 For more details, see:
-- [Benchmarks](benchmarks) - Performance measurements
-- [Tuning Guide](tuning) - Optimization strategies
-- [Hardware](hardware) - Hardware selection
+- [Benchmarks](benchmarks.md) - Performance measurements
+- [Tuning Guide](tuning.md) - Optimization strategies
+- [Hardware](hardware.md) - Hardware selection

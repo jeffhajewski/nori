@@ -603,4 +603,4 @@ public class CompleteExample {
 - [Architecture Guide](ARCHITECTURE.md) - Understanding client internals
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Solving common issues
 - [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
-- [Examples](../src/main/java/com/norikv/client/examples/) - Working code samples
+- [Examples](../src/main/java/com/norikv/client/examples/index.md) - Working code samples

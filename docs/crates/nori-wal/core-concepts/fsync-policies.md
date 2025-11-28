@@ -587,8 +587,8 @@ If barriers are disabled (`barrier=0`), `fsync()` may not be durable!
 
 Now that you understand fsync policies, explore:
 
-- **[Recovery Guarantees](recovery-guarantees)** - What happens after a crash
-- **[When to Use a WAL](when-to-use)** - Scenarios where WALs shine
-- **[Performance Tuning](../performance/tuning)** - Optimize for your workload
+- **[Recovery Guarantees](recovery-guarantees.md)** - What happens after a crash
+- **[When to Use a WAL](when-to-use.md)** - Scenarios where WALs shine
+- **[Performance Tuning](../performance/tuning.md)** - Optimize for your workload
 
-Or see real-world examples in [Recipes](../recipes/).
+Or see real-world examples in [Recipes](../recipes/index.md).

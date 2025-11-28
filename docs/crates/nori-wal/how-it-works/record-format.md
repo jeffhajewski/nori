@@ -580,8 +580,8 @@ Current format can read all records written by older versions (there are none ye
 
 Now that you understand the record format, explore:
 
-- **[Segment Lifecycle](segment-lifecycle)** - How segments manage records
-- **[Recovery Process](recovery)** - How records are validated during recovery
-- **[Concurrency Model](concurrency)** - How concurrent writes are handled
+- **[Segment Lifecycle](segment-lifecycle.md)** - How segments manage records
+- **[Recovery Process](recovery.md)** - How records are validated during recovery
+- **[Concurrency Model](concurrency.md)** - How concurrent writes are handled
 
 Or dive into the actual implementation in `crates/nori-wal/src/record.rs` on GitHub.

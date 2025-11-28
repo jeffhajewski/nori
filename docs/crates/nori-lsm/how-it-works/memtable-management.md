@@ -52,16 +52,16 @@ nori-lsm uses `crossbeam-skiplist`, a lock-free concurrent skiplist.
 
 | Data Structure | Write Complexity | Read Complexity | Sorted? | Concurrent? | Chosen? |
 |----------------|------------------|-----------------|---------|-------------|---------|
-| **Skiplist**   | O(log n)         | O(log n)        | ✅ Yes   | ✅ Lock-free | ✅ Yes   |
-| HashMap        | O(1)             | O(1)            | ❌ No    | ⚠️  Sharded  | ❌ No    |
-| BTreeMap       | O(log n)         | O(log n)        | ✅ Yes   | ❌ Mutex     | ❌ No    |
-| RBTree         | O(log n)         | O(log n)        | ✅ Yes   | ❌ Mutex     | ❌ No    |
+| **Skiplist**   | O(log n)         | O(log n)        |  Yes   |  Lock-free |  Yes   |
+| HashMap        | O(1)             | O(1)            |  No    |   Sharded  |  No    |
+| BTreeMap       | O(log n)         | O(log n)        |  Yes   |  Mutex     |  No    |
+| RBTree         | O(log n)         | O(log n)        |  Yes   |  Mutex     |  No    |
 
 **Why skiplist won**:
-- ✅ **Lock-free**: No contention on reads (critical for LSMs)
-- ✅ **Sorted**: Enables efficient range scans
-- ✅ **Fast iteration**: O(n) scan for flush (no rebalancing needed)
-- ✅ **Predictable**: Probabilistic balancing, no worst-case rotations
+-  **Lock-free**: No contention on reads (critical for LSMs)
+-  **Sorted**: Enables efficient range scans
+-  **Fast iteration**: O(n) scan for flush (no rebalancing needed)
+-  **Predictable**: Probabilistic balancing, no worst-case rotations
 
 ### Skiplist Structure
 
@@ -581,7 +581,7 @@ impl Memtable {
 4. **Atomic counters** - Accurate memory tracking with minimal overhead
 5. **Backpressure** - Prevents OOM by rejecting writes when memory exhausted
 
-**Next**: [Flush Process](flush-process) - How memtables become SSTables
+**Next**: [Flush Process](flush-process.md) - How memtables become SSTables
 
 ---
 

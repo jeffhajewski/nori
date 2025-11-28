@@ -496,4 +496,4 @@ This recipe demonstrates:
 - Write-ahead logging pattern
 - Testing crash recovery
 
-The KV store is production-ready for single-node use cases. For distributed systems, add replication using the [Replication recipe](replication).
+The KV store is production-ready for single-node use cases. For distributed systems, add replication using the [Replication recipe](replication.md).

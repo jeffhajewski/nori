@@ -281,12 +281,12 @@ Why only 3? Because we didn't call `sync()` after records 4 and 5. They were in 
 
 Now that you've written your first WAL program, you can:
 
-- **[Understand configuration options](configuration)** - Tune for your workload
-- **[Learn about fsync policies](../core-concepts/fsync-policies)** - Balance durability vs performance
-- **[Explore record types](../core-concepts/records)** - TTL, compression, tombstones
-- **[Dive into recovery](../how-it-works/recovery)** - How crash recovery really works
+- **[Understand configuration options](configuration.md)** - Tune for your workload
+- **[Learn about fsync policies](../core-concepts/fsync-policies.md)** - Balance durability vs performance
+- **[Explore record types](../core-concepts/records.md)** - TTL, compression, tombstones
+- **[Dive into recovery](../how-it-works/recovery.md)** - How crash recovery really works
 
-Or jump straight into building something real with our [Recipes](../recipes/) section!
+Or jump straight into building something real with our [Recipes](../recipes/index.md) section!
 
 ---
 
@@ -364,4 +364,4 @@ let config = WalConfig {
 
 ---
 
-Congrats! You now understand the basics of nori-wal. Ready to dive deeper? Check out [Core Concepts](../core-concepts/what-is-wal) next.
+Congrats! You now understand the basics of nori-wal. Ready to dive deeper? Check out [Core Concepts](../core-concepts/what-is-wal.md) next.

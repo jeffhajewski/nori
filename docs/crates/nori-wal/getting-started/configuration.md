@@ -471,9 +471,9 @@ Once your WAL is running, monitor these metrics to see if your configuration is 
 
 Now that you understand configuration:
 
-- **[Learn about Fsync Policies](../core-concepts/fsync-policies)** in depth
-- **[Understand Performance Trade-offs](../performance/tuning)**
-- **[See Real-World Examples](../recipes/)** using different configurations
+- **[Learn about Fsync Policies](../core-concepts/fsync-policies.md)** in depth
+- **[Understand Performance Trade-offs](../performance/tuning.md)**
+- **[See Real-World Examples](../recipes/index.md)** using different configurations
 
 ---
 

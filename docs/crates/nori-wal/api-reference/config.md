@@ -23,7 +23,7 @@ Configuration for the Write-Ahead Log.
 
 ### Type Definition
 
-[View source in `crates/nori-wal/src/wal.rs`](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/wal.rs#L14-L30)
+[View source in `crates/nori-wal/src/wal.rs`](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/wal.rs#L14-L30)
 
 ### Fields
 
@@ -385,7 +385,7 @@ Fsync policy controlling durability vs performance trade-offs.
 
 ### Type Definition
 
-[View source in `crates/nori-wal/src/segment.rs`](https://github.com/j-haj/nori/blob/main/crates/nori-wal/src/segment.rs#L39-L49)
+[View source in `crates/nori-wal/src/segment.rs`](https://github.com/jeffhajewski/norikv/blob/main/crates/nori-wal/src/segment.rs#L39-L49)
 
 ### Variants
 
@@ -816,8 +816,8 @@ let config = WalConfig {
 
 ## See Also
 
-- [Wal API](wal) - Main WAL interface
-- [Record API](record) - Record format
-- [Errors](errors) - Error handling
-- [Core Concepts: Fsync Policies](../core-concepts/fsync-policies) - Deep dive into durability trade-offs
-- [Performance Benchmarks](../performance/benchmarks) - Performance comparison of fsync policies
+- [Wal API](wal.md) - Main WAL interface
+- [Record API](record.md) - Record format
+- [Errors](errors.md) - Error handling
+- [Core Concepts: Fsync Policies](../core-concepts/fsync-policies.md) - Deep dive into durability trade-offs
+- [Performance Benchmarks](../performance/benchmarks.md) - Performance comparison of fsync policies

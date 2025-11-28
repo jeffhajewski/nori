@@ -10,22 +10,22 @@ This section provides practical, copy-paste-ready examples for common SSTable us
 
 ## Recipes
 
-### [Basic Usage](basic-usage)
+### [Basic Usage](basic-usage.md)
 Building and reading your first SSTable with complete error handling.
 
-### [Hot Workloads](hot-workloads)
+### [Hot Workloads](hot-workloads.md)
 Optimizing for high-throughput, cache-friendly workloads.
 
-### [Cold Storage](cold-storage)
+### [Cold Storage](cold-storage.md)
 Configuring SSTables for archival data with maximum compression.
 
-### [Iterator Patterns](iterator-patterns)
+### [Iterator Patterns](iterator-patterns.md)
 Efficient range scans, filtering, and merge patterns.
 
-### [Batch Building](batch-building)
+### [Batch Building](batch-building.md)
 Building multiple SSTables efficiently from large datasets.
 
-### [Integration with LSM](lsm-integration)
+### [Integration with LSM](lsm-integration.md)
 Using nori-sstable as part of an LSM-tree storage engine.
 
 ---

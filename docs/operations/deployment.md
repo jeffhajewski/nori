@@ -927,6 +927,6 @@ volumeBindingMode: WaitForFirstConsumer
 
 ## Next Steps
 
-- **[Configuration Reference](configuration)** - Tune server settings
-- **[Metrics](metrics)** - Set up monitoring
-- **[Troubleshooting](troubleshooting)** - Common deployment issues
+- **[Configuration Reference](configuration.md)** - Tune server settings
+- **[Metrics](metrics.md)** - Set up monitoring
+- **[Troubleshooting](troubleshooting.md)** - Common deployment issues

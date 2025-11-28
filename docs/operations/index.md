@@ -10,11 +10,11 @@ Production deployment, monitoring, and maintenance of NoriKV clusters.
 
 This section covers operational aspects of running NoriKV in production:
 
-- **[REST API](rest-api)** - HTTP endpoints for health checks and metrics
-- **[Metrics](metrics)** - Prometheus metrics reference and monitoring
-- **[Configuration](configuration)** - Server configuration options
-- **[Deployment](deployment)** - Deployment topologies and best practices
-- **[Troubleshooting](troubleshooting)** - Common issues and solutions
+- **[REST API](rest-api.md)** - HTTP endpoints for health checks and metrics
+- **[Metrics](metrics.md)** - Prometheus metrics reference and monitoring
+- **[Configuration](configuration.md)** - Server configuration options
+- **[Deployment](deployment.md)** - Deployment topologies and best practices
+- **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
 
 ---
 
@@ -137,7 +137,7 @@ curl http://localhost:8080/metrics
 
 ## Next Steps
 
-- **[REST API Reference](rest-api)** - HTTP endpoints and usage
-- **[Metrics Guide](metrics)** - All metrics explained
-- **[Configuration](configuration)** - Tuning parameters
-- **[Deployment](deployment)** - Production deployment patterns
+- **[REST API Reference](rest-api.md)** - HTTP endpoints and usage
+- **[Metrics Guide](metrics.md)** - All metrics explained
+- **[Configuration](configuration.md)** - Tuning parameters
+- **[Deployment](deployment.md)** - Production deployment patterns

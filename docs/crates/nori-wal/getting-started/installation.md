@@ -129,9 +129,9 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 
 Now that nori-wal is installed:
 
-1. **[Follow the Quickstart](quickstart)** to write your first WAL program
-2. **[Learn about Configuration](configuration)** to tune for your use case
-3. **[Understand Core Concepts](../core-concepts/what-is-wal)** to use it effectively
+1. **[Follow the Quickstart](quickstart.md)** to write your first WAL program
+2. **[Learn about Configuration](configuration.md)** to tune for your use case
+3. **[Understand Core Concepts](../core-concepts/what-is-wal.md)** to use it effectively
 
 ---
 
@@ -196,7 +196,7 @@ error: no matching package named `nori-wal` found
 
 ```toml
 [dependencies]
-nori-wal = { git = "https://github.com/j-haj/nori", branch = "main" }
+nori-wal = { git = "https://github.com/jeffhajewski/norikv", branch = "main" }
 ```
 
 Or use a local path during development:
@@ -208,4 +208,4 @@ nori-wal = { path = "../norikv/crates/nori-wal" }
 
 ---
 
-Need help? Check the [Troubleshooting Guide](../troubleshooting/) or [open an issue on GitHub](https://github.com/j-haj/nori/issues).
+Need help? Check the [Troubleshooting Guide](../troubleshooting/index.md) or [open an issue on GitHub](https://github.com/jeffhajewski/norikv/issues).

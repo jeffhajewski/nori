@@ -14,19 +14,19 @@ Unlike traditional LSMs that force a global choice between leveled (high WA) or 
 
 ## Key Decisions
 
-### [Guard-Based Partitioning](guard-based-partitioning)
+### [Guard-Based Partitioning](guard-based-partitioning.md)
 Why we use fixed guard keys for range partitioning instead of dynamic splitting: predictable behavior, simple recovery, and stable boundaries for learning.
 
-### [Adaptive K-Way Fanout](adaptive-k-fanout)
+### [Adaptive K-Way Fanout](adaptive-k-fanout.md)
 Why each slot chooses its own K (max runs) based on heat: RUM optimization per range, not global compromise.
 
-### [Heat Tracking (EWMA)](heat-tracking)
+### [Heat Tracking (EWMA)](heat-tracking.md)
 Why we use exponential weighted moving average (α=0.1) for access pattern detection: recency bias, convergence properties, low overhead.
 
-### [Bandit Scheduler](bandit-scheduler)
+### [Bandit Scheduler](bandit-scheduler.md)
 Why epsilon-greedy multi-armed bandits with UCB for compaction scheduling: balances exploration vs exploitation with proven regret bounds.
 
-### [Memory Pressure System](memory-pressure)
+### [Memory Pressure System](memory-pressure.md)
 Why 4-zone adaptive backpressure (Green/Yellow/Orange/Red) with composite scoring: progressive degradation, not cliff-edge failures.
 
 ---
@@ -290,11 +290,11 @@ All design decisions were validated through:
 
 Each subsection dives deep into a specific design decision. Read them in order to build understanding, or jump to specific topics:
 
-1. **[Guard-Based Partitioning](guard-based-partitioning)** - Foundation of ATLL's range-level adaptation
-2. **[Adaptive K-Way Fanout](adaptive-k-fanout)** - How K-max is computed per slot
-3. **[Heat Tracking](heat-tracking)** - EWMA algorithm and convergence analysis
-4. **[Bandit Scheduler](bandit-scheduler)** - Epsilon-greedy UCB and reward function
-5. **[Memory Pressure](memory-pressure)** - 4-zone backpressure system
+1. **[Guard-Based Partitioning](guard-based-partitioning.md)** - Foundation of ATLL's range-level adaptation
+2. **[Adaptive K-Way Fanout](adaptive-k-fanout.md)** - How K-max is computed per slot
+3. **[Heat Tracking](heat-tracking.md)** - EWMA algorithm and convergence analysis
+4. **[Bandit Scheduler](bandit-scheduler.md)** - Epsilon-greedy UCB and reward function
+5. **[Memory Pressure](memory-pressure.md)** - 4-zone backpressure system
 
 ---
 

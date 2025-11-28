@@ -837,4 +837,4 @@ tenant2.put("user:123", data, null); // Stored as "tenant-2:user:123"
 - [API Guide](API_GUIDE.md) - Complete API reference
 - [Architecture Guide](ARCHITECTURE.md) - Internal design
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
-- [Examples](../src/main/java/com/norikv/client/examples/) - Working code samples
+- [Examples](../src/main/java/com/norikv/client/examples/index.md) - Working code samples

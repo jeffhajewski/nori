@@ -295,7 +295,7 @@ Larger blocks generally compress better, but increase memory usage:
 | Block Size | Compression Ratio | Memory per Block | Random Access |
 |------------|-------------------|------------------|---------------|
 | 1 KB | ~1.8x | Low | Excellent |
-| **4 KB** | **~2.5x** | **Balanced** | **Good** ✅ |
+| **4 KB** | **~2.5x** | **Balanced** | **Good**  |
 | 16 KB | ~3.2x | High | Fair |
 | 64 KB | ~3.8x | Very high | Poor |
 
@@ -372,7 +372,7 @@ sstable_compression_ratio    // Higher = better compression
 
 ### Changing Compression on Existing Data
 
-⚠️ **Important:** You cannot change compression on existing SSTable files. Compression is set at build time and stored in the footer.
+ **Important:** You cannot change compression on existing SSTable files. Compression is set at build time and stored in the footer.
 
 **To change compression:**
 1. Build new SSTables with desired compression setting
@@ -405,7 +405,7 @@ builder.finish().await?;
 
 ## Best Practices
 
-### ✅ Do
+###  Do
 
 - **Use LZ4 by default** for production workloads
 - **Enable caching** with compression (64MB+ cache)
@@ -414,7 +414,7 @@ builder.finish().await?;
 - **Keep default 4KB blocks** unless you have specific needs
 - **Test with your data** to measure actual compression ratios
 
-### ❌ Don't
+###  Don't
 
 - Don't compress already-compressed data (images, videos)
 - Don't use Zstd for hot, latency-sensitive workloads
@@ -506,22 +506,22 @@ pub struct Footer {
 
 ## Related Documentation
 
-- **[Caching Guide](caching)** - Learn how caching works with compression
-- **[Performance Benchmarks](performance/benchmarks)** - See compression benchmark results
-- **[API Reference](api-reference/config)** - SSTableConfig compression field
-- **[Compression Ratios](performance/compression-ratios)** - Detailed ratio analysis
+- **[Caching Guide](caching.md)** - Learn how caching works with compression
+- **[Performance Benchmarks](performance/benchmarks.md)** - See compression benchmark results
+- **[API Reference](api-reference/config.md)** - SSTableConfig compression field
+- **[Compression Ratios](performance/compression-ratios.md)** - Detailed ratio analysis
 
 ---
 
 ## Summary
 
 **Compression in nori-sstable:**
-- ✅ Block-level compression (4KB blocks)
-- ✅ LZ4 (fast, 2-3x) and Zstd (higher, 3-5x) support
-- ✅ Production-ready with 108 tests passing
-- ✅ Works seamlessly with LRU cache (decompress once, cache decompressed)
-- ✅ Minimal performance overhead (<10% writes, ~0% reads with cache)
-- ✅ 2-14x storage savings on typical workloads
+-  Block-level compression (4KB blocks)
+-  LZ4 (fast, 2-3x) and Zstd (higher, 3-5x) support
+-  Production-ready with 108 tests passing
+-  Works seamlessly with LRU cache (decompress once, cache decompressed)
+-  Minimal performance overhead (<10% writes, ~0% reads with cache)
+-  2-14x storage savings on typical workloads
 
 **Recommended configuration:**
 ```rust
@@ -532,4 +532,4 @@ SSTableConfig {
 }
 ```
 
-🚀 **Result:** Storage savings + fast reads = production-ready performance!
+ **Result:** Storage savings + fast reads = production-ready performance!

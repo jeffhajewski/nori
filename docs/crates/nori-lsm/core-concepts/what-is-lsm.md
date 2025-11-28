@@ -364,9 +364,9 @@ SA: 1.17x
 - **M**emory (space) overhead
 
 **Implication:** LSM-trees make a specific trade-off position:
-- ✅ **Low Update overhead** (sequential writes)
-- ✅ **Low Memory overhead** (compact storage)
-- ❌ **Higher Read overhead** (multiple levels to check)
+-  **Low Update overhead** (sequential writes)
+-  **Low Memory overhead** (compact storage)
+-  **Higher Read overhead** (multiple levels to check)
 
 **Pareto frontier:**
 
@@ -487,7 +487,7 @@ LSM with Zstd uses 3.5x less space than B-tree
 
 ## When LSM Trees Excel
 
-### ✅ Write-Heavy Workloads
+###  Write-Heavy Workloads
 
 ```
 Write:Read ratio > 1:1
@@ -502,7 +502,7 @@ Examples:
 
 ---
 
-### ✅ Large Datasets (> 1 TB)
+###  Large Datasets (> 1 TB)
 
 ```
 Memory: 64 GB
@@ -522,7 +522,7 @@ LSM is 100x faster for point queries on large datasets!
 
 ---
 
-### ✅ SSD-Optimized Systems
+###  SSD-Optimized Systems
 
 ```
 SSD wear leveling:
@@ -538,7 +538,7 @@ Cost savings:
 
 ---
 
-### ✅ High Compression Requirements
+###  High Compression Requirements
 
 ```
 Compressed size:
@@ -559,7 +559,7 @@ LSM saves $240/year per TB
 
 ## When LSM Trees Struggle
 
-### ❌ Read-Heavy Workloads
+###  Read-Heavy Workloads
 
 ```
 Write:Read ratio < 1:10
@@ -573,7 +573,7 @@ Examples:
 
 ---
 
-### ❌ Small Datasets (< 100 GB)
+###  Small Datasets (< 100 GB)
 
 ```
 Dataset: 10 GB
@@ -590,7 +590,7 @@ B-tree is 10x faster for in-memory workloads
 
 ---
 
-### ❌ Random Access Patterns
+###  Random Access Patterns
 
 ```
 Workload: Random point queries (no locality)
@@ -605,7 +605,7 @@ If no bloom filters:
 
 ---
 
-### ❌ Strict Latency SLOs
+###  Strict Latency SLOs
 
 ```
 SLO: p99 < 1ms for all operations
@@ -671,10 +671,10 @@ B-tree: More predictable latency (no background compaction)
 
 Now that you understand LSM fundamentals, explore:
 
-- **[LSM Variants](lsm-variants)** - Leveled, Tiered, Universal compaction strategies
-- **[ATLL Architecture](atll-architecture)** - Our adaptive approach (guard partitioning, dynamic K)
-- **[Write Path](write-path)** - How writes flow through memtable → L0 → L1+
-- **[Read Path](read-path)** - How reads check memtable → L0 → levels with Bloom filters
+- **[LSM Variants](lsm-variants.md)** - Leveled, Tiered, Universal compaction strategies
+- **[ATLL Architecture](atll-architecture.md)** - Our adaptive approach (guard partitioning, dynamic K)
+- **[Write Path](write-path.md)** - How writes flow through memtable → L0 → L1+
+- **[Read Path](read-path.md)** - How reads check memtable → L0 → levels with Bloom filters
 
 ---
 

@@ -9,6 +9,7 @@ Complete reference for the NoriKV Python Client SDK with async/await support.
 - [Client Configuration](#client-configuration)
 - [Core Operations](#core-operations)
 - [Advanced Features](#advanced-features)
+- [Vector Operations](#vector-operations)
 - [Error Handling](#error-handling)
 - [Best Practices](#best-practices)
 
@@ -285,6 +286,225 @@ stats = client.get_stats()
 print(f"Active connections: {stats.pool.active_connections}")
 print(f"Total nodes: {stats.router.total_nodes}")
 print(f"Cached leaders: {stats.topology.cached_leaders}")
+```
+
+## Vector Operations
+
+NoriKV supports vector similarity search for building AI/ML applications, recommendation systems, and semantic search.
+
+### Creating a Vector Index
+
+Before inserting vectors, create an index with your configuration:
+
+```python
+from norikv import DistanceFunction, VectorIndexType
+
+created = await client.vector_create_index(
+    "embeddings",                    # namespace
+    1536,                            # dimensions
+    DistanceFunction.COSINE,         # distance function
+    VectorIndexType.HNSW,            # index type
+)
+
+if created:
+    print("Index created")
+else:
+    print("Index already exists")
+```
+
+#### With Options
+
+```python
+from norikv import CreateVectorIndexOptions
+
+options = CreateVectorIndexOptions(
+    idempotency_key="create-embeddings-index",
+)
+
+created = await client.vector_create_index(
+    "embeddings",
+    1536,
+    DistanceFunction.COSINE,
+    VectorIndexType.HNSW,
+    options,
+)
+```
+
+### Distance Functions
+
+| Enum Value | Description | Use Case |
+|------------|-------------|----------|
+| `DistanceFunction.EUCLIDEAN` | L2 distance | General purpose |
+| `DistanceFunction.COSINE` | Cosine similarity (1 - cos) | Text embeddings, normalized vectors |
+| `DistanceFunction.INNER_PRODUCT` | Negative inner product | Maximum inner product search |
+
+### Index Types
+
+| Enum Value | Description | Trade-off |
+|------------|-------------|-----------|
+| `VectorIndexType.BRUTE_FORCE` | Exact linear scan | Exact results, O(n) complexity |
+| `VectorIndexType.HNSW` | Hierarchical Navigable Small World | Approximate, O(log n) complexity |
+
+### Inserting Vectors
+
+```python
+embedding = await get_embedding("Hello world")
+
+version = await client.vector_insert(
+    "embeddings",    # namespace
+    "doc-123",       # unique ID
+    embedding,       # list[float]
+)
+
+print(f"Inserted at version: {version}")
+```
+
+#### With Options
+
+```python
+from norikv import VectorInsertOptions
+
+options = VectorInsertOptions(
+    idempotency_key="insert-doc-123",
+)
+
+version = await client.vector_insert("embeddings", "doc-123", embedding, options)
+```
+
+### Searching for Similar Vectors
+
+```python
+query = await get_embedding("Find similar documents")
+
+result = await client.vector_search(
+    "embeddings",    # namespace
+    query,           # query vector
+    10,              # k nearest neighbors
+)
+
+print(f"Search took {result.search_time_us}us")
+
+for match in result.matches:
+    print(f"ID: {match.id}, Distance: {match.distance}")
+```
+
+#### With Options
+
+```python
+from norikv import VectorSearchOptions, VectorSearchResult
+
+options = VectorSearchOptions(
+    include_vectors=True,  # include vector data in results
+)
+
+result: VectorSearchResult = await client.vector_search(
+    "embeddings",
+    query,
+    10,
+    options,
+)
+
+for match in result.matches:
+    print(f"ID: {match.id}, Distance: {match.distance}")
+    if match.vector:
+        print(f"Vector dims: {len(match.vector)}")
+```
+
+### Getting a Vector by ID
+
+```python
+vector = await client.vector_get("embeddings", "doc-123")
+
+if vector:
+    print(f"Vector has {len(vector)} dimensions")
+else:
+    print("Vector not found")
+```
+
+### Deleting Vectors
+
+```python
+deleted = await client.vector_delete("embeddings", "doc-123")
+
+if deleted:
+    print("Vector deleted")
+else:
+    print("Vector not found")
+```
+
+#### With Options
+
+```python
+from norikv import VectorDeleteOptions
+
+options = VectorDeleteOptions(
+    idempotency_key="delete-doc-123",
+)
+
+deleted = await client.vector_delete("embeddings", "doc-123", options)
+```
+
+### Dropping a Vector Index
+
+```python
+dropped = await client.vector_drop_index("embeddings")
+
+if dropped:
+    print("Index dropped")
+else:
+    print("Index did not exist")
+```
+
+### Complete Vector Example
+
+```python
+import asyncio
+from norikv import (
+    NoriKVClient,
+    ClientConfig,
+    DistanceFunction,
+    VectorIndexType,
+)
+
+async def main():
+    config = ClientConfig(
+        nodes=["localhost:9001"],
+        total_shards=1024,
+    )
+
+    async with NoriKVClient(config) as client:
+        # Create index
+        await client.vector_create_index(
+            "products",
+            768,
+            DistanceFunction.COSINE,
+            VectorIndexType.HNSW,
+        )
+
+        # Insert product embeddings
+        product_embedding = await get_product_embedding("Red running shoes")
+        await client.vector_insert("products", "prod-001", product_embedding)
+
+        # Search for similar products
+        query_embedding = await get_product_embedding("Athletic footwear")
+        results = await client.vector_search("products", query_embedding, 5)
+
+        print("Similar products:")
+        for match in results.matches:
+            print(f"  {match.id} (distance: {match.distance:.4f})")
+
+        # Cleanup
+        await client.vector_delete("products", "prod-001")
+        await client.vector_drop_index("products")
+
+
+async def get_product_embedding(text: str) -> list[float]:
+    # Call your embedding model here
+    return [0.0] * 768
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
 
 ## Error Handling

@@ -9,6 +9,7 @@ Complete reference for the NoriKV TypeScript/JavaScript Client SDK.
 - [Client Configuration](#client-configuration)
 - [Core Operations](#core-operations)
 - [Advanced Features](#advanced-features)
+- [Vector Operations](#vector-operations)
 - [Error Handling](#error-handling)
 - [Best Practices](#best-practices)
 
@@ -286,6 +287,224 @@ const stats = client.getStats();
 console.log('Active connections:', stats.pool.activeConnections);
 console.log('Total nodes:', stats.router.totalNodes);
 console.log('Cached leaders:', stats.topology.cachedLeaders);
+```
+
+## Vector Operations
+
+NoriKV supports vector similarity search for building AI/ML applications, recommendation systems, and semantic search.
+
+### Creating a Vector Index
+
+Before inserting vectors, create an index with your configuration:
+
+```typescript
+const created = await client.vectorCreateIndex(
+  'embeddings',      // namespace
+  1536,              // dimensions
+  'cosine',          // distance function: 'euclidean' | 'cosine' | 'inner_product'
+  'hnsw'             // index type: 'brute_force' | 'hnsw'
+);
+
+if (created) {
+  console.log('Index created');
+} else {
+  console.log('Index already exists');
+}
+```
+
+#### With Options
+
+```typescript
+import { CreateVectorIndexOptions } from '@norikv/client';
+
+const options: CreateVectorIndexOptions = {
+  idempotencyKey: 'create-embeddings-index',
+};
+
+const created = await client.vectorCreateIndex(
+  'embeddings',
+  1536,
+  'cosine',
+  'hnsw',
+  options
+);
+```
+
+### Distance Functions
+
+| Value | Description | Use Case |
+|-------|-------------|----------|
+| `'euclidean'` | L2 distance | General purpose |
+| `'cosine'` | Cosine similarity (1 - cos) | Text embeddings, normalized vectors |
+| `'inner_product'` | Negative inner product | Maximum inner product search |
+
+### Index Types
+
+| Value | Description | Trade-off |
+|-------|-------------|-----------|
+| `'brute_force'` | Exact linear scan | Exact results, O(n) complexity |
+| `'hnsw'` | Hierarchical Navigable Small World | Approximate, O(log n) complexity |
+
+### Inserting Vectors
+
+```typescript
+const embedding = await getEmbedding('Hello world');
+
+const version = await client.vectorInsert(
+  'embeddings',    // namespace
+  'doc-123',       // unique ID
+  embedding        // number[]
+);
+
+console.log('Inserted at version:', version);
+```
+
+#### With Options
+
+```typescript
+import { VectorInsertOptions } from '@norikv/client';
+
+const options: VectorInsertOptions = {
+  idempotencyKey: 'insert-doc-123',
+};
+
+const version = await client.vectorInsert('embeddings', 'doc-123', embedding, options);
+```
+
+### Searching for Similar Vectors
+
+```typescript
+const query = await getEmbedding('Find similar documents');
+
+const result = await client.vectorSearch(
+  'embeddings',    // namespace
+  query,           // query vector
+  10               // k nearest neighbors
+);
+
+console.log(`Search took ${result.searchTimeUs}us`);
+
+for (const match of result.matches) {
+  console.log(`ID: ${match.id}, Distance: ${match.distance}`);
+}
+```
+
+#### With Options
+
+```typescript
+import { VectorSearchOptions, VectorSearchResult } from '@norikv/client';
+
+const options: VectorSearchOptions = {
+  includeVectors: true, // include vector data in results
+};
+
+const result: VectorSearchResult = await client.vectorSearch(
+  'embeddings',
+  query,
+  10,
+  options
+);
+
+for (const match of result.matches) {
+  console.log(`ID: ${match.id}, Distance: ${match.distance}`);
+  if (match.vector) {
+    console.log(`Vector dims: ${match.vector.length}`);
+  }
+}
+```
+
+### Getting a Vector by ID
+
+```typescript
+const vector = await client.vectorGet('embeddings', 'doc-123');
+
+if (vector) {
+  console.log(`Vector has ${vector.length} dimensions`);
+} else {
+  console.log('Vector not found');
+}
+```
+
+### Deleting Vectors
+
+```typescript
+const deleted = await client.vectorDelete('embeddings', 'doc-123');
+
+if (deleted) {
+  console.log('Vector deleted');
+} else {
+  console.log('Vector not found');
+}
+```
+
+#### With Options
+
+```typescript
+import { VectorDeleteOptions } from '@norikv/client';
+
+const options: VectorDeleteOptions = {
+  idempotencyKey: 'delete-doc-123',
+};
+
+const deleted = await client.vectorDelete('embeddings', 'doc-123', options);
+```
+
+### Dropping a Vector Index
+
+```typescript
+const dropped = await client.vectorDropIndex('embeddings');
+
+if (dropped) {
+  console.log('Index dropped');
+} else {
+  console.log('Index did not exist');
+}
+```
+
+### Complete Vector Example
+
+```typescript
+import { NoriKVClient } from '@norikv/client';
+
+async function main() {
+  const client = new NoriKVClient({
+    nodes: ['localhost:9001'],
+    totalShards: 1024,
+  });
+
+  await client.connect();
+
+  try {
+    // Create index
+    await client.vectorCreateIndex('products', 768, 'cosine', 'hnsw');
+
+    // Insert product embeddings
+    const productEmbedding = await getProductEmbedding('Red running shoes');
+    await client.vectorInsert('products', 'prod-001', productEmbedding);
+
+    // Search for similar products
+    const queryEmbedding = await getProductEmbedding('Athletic footwear');
+    const results = await client.vectorSearch('products', queryEmbedding, 5);
+
+    console.log('Similar products:');
+    for (const match of results.matches) {
+      console.log(`  ${match.id} (distance: ${match.distance.toFixed(4)})`);
+    }
+
+    // Cleanup
+    await client.vectorDelete('products', 'prod-001');
+    await client.vectorDropIndex('products');
+  } finally {
+    await client.close();
+  }
+}
+
+async function getProductEmbedding(text: string): Promise<number[]> {
+  // Call your embedding model here
+  return new Array(768).fill(0);
+}
+
+main().catch(console.error);
 ```
 
 ## Error Handling

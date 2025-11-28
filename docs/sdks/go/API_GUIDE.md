@@ -9,6 +9,7 @@ Complete reference for the NoriKV Go Client SDK.
 - [Client Configuration](#client-configuration)
 - [Core Operations](#core-operations)
 - [Advanced Features](#advanced-features)
+- [Vector Operations](#vector-operations)
 - [Error Handling](#error-handling)
 - [Best Practices](#best-practices)
 
@@ -325,6 +326,259 @@ stats := client.Stats()
 fmt.Printf("Active connections: %d\n", stats.Pool.ActiveConnections)
 fmt.Printf("Total nodes: %d\n", stats.Router.TotalNodes)
 fmt.Printf("Cached leaders: %d\n", stats.Topology.CachedLeaders)
+```
+
+## Vector Operations
+
+NoriKV supports vector similarity search for building AI/ML applications, recommendation systems, and semantic search.
+
+### Creating a Vector Index
+
+Before inserting vectors, create an index with your configuration:
+
+```go
+created, err := client.VectorCreateIndex(
+    ctx,
+    "embeddings",              // namespace
+    1536,                      // dimensions
+    norikv.DistanceCosine,     // distance function
+    norikv.VectorIndexHNSW,    // index type
+    nil,                       // options
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+if created {
+    fmt.Println("Index created")
+} else {
+    fmt.Println("Index already exists")
+}
+```
+
+#### With Options
+
+```go
+options := &norikv.CreateVectorIndexOptions{
+    IdempotencyKey: "create-embeddings-index",
+}
+
+created, err := client.VectorCreateIndex(
+    ctx,
+    "embeddings",
+    1536,
+    norikv.DistanceCosine,
+    norikv.VectorIndexHNSW,
+    options,
+)
+```
+
+### Distance Functions
+
+| Constant | Description | Use Case |
+|----------|-------------|----------|
+| `DistanceEuclidean` | L2 distance | General purpose |
+| `DistanceCosine` | Cosine similarity (1 - cos) | Text embeddings, normalized vectors |
+| `DistanceInnerProduct` | Negative inner product | Maximum inner product search |
+
+### Index Types
+
+| Constant | Description | Trade-off |
+|----------|-------------|-----------|
+| `VectorIndexBruteForce` | Exact linear scan | Exact results, O(n) complexity |
+| `VectorIndexHNSW` | Hierarchical Navigable Small World | Approximate, O(log n) complexity |
+
+### Inserting Vectors
+
+```go
+embedding := getEmbedding("Hello world")
+
+version, err := client.VectorInsert(
+    ctx,
+    "embeddings",    // namespace
+    "doc-123",       // unique ID
+    embedding,       // []float32
+    nil,             // options
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Inserted at version: %v\n", version)
+```
+
+#### With Options
+
+```go
+options := &norikv.VectorInsertOptions{
+    IdempotencyKey: "insert-doc-123",
+}
+
+version, err := client.VectorInsert(ctx, "embeddings", "doc-123", embedding, options)
+```
+
+### Searching for Similar Vectors
+
+```go
+query := getEmbedding("Find similar documents")
+
+result, err := client.VectorSearch(
+    ctx,
+    "embeddings",    // namespace
+    query,           // query vector
+    10,              // k nearest neighbors
+    nil,             // options
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Search took %dus\n", result.SearchTimeUs)
+
+for _, match := range result.Matches {
+    fmt.Printf("ID: %s, Distance: %.4f\n", match.ID, match.Distance)
+}
+```
+
+#### With Options
+
+```go
+options := &norikv.VectorSearchOptions{
+    IncludeVectors: true, // include vector data in results
+}
+
+result, err := client.VectorSearch(ctx, "embeddings", query, 10, options)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, match := range result.Matches {
+    fmt.Printf("ID: %s, Distance: %.4f, Vector dims: %d\n",
+        match.ID, match.Distance, len(match.Vector))
+}
+```
+
+### Getting a Vector by ID
+
+```go
+vector, err := client.VectorGet(ctx, "embeddings", "doc-123")
+if err != nil {
+    if errors.Is(err, norikv.ErrKeyNotFound) {
+        fmt.Println("Vector not found")
+    } else {
+        log.Fatal(err)
+    }
+}
+
+if vector != nil {
+    fmt.Printf("Vector has %d dimensions\n", len(vector))
+}
+```
+
+### Deleting Vectors
+
+```go
+deleted, err := client.VectorDelete(ctx, "embeddings", "doc-123", nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+if deleted {
+    fmt.Println("Vector deleted")
+} else {
+    fmt.Println("Vector not found")
+}
+```
+
+#### With Options
+
+```go
+options := &norikv.VectorDeleteOptions{
+    IdempotencyKey: "delete-doc-123",
+}
+
+deleted, err := client.VectorDelete(ctx, "embeddings", "doc-123", options)
+```
+
+### Dropping a Vector Index
+
+```go
+dropped, err := client.VectorDropIndex(ctx, "embeddings", nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+if dropped {
+    fmt.Println("Index dropped")
+} else {
+    fmt.Println("Index did not exist")
+}
+```
+
+### Complete Vector Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    norikv "github.com/norikv/norikv-go"
+)
+
+func main() {
+    ctx := context.Background()
+
+    config := norikv.DefaultClientConfig([]string{"localhost:9001"})
+    client, err := norikv.NewClient(ctx, config)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    // Create index
+    _, err = client.VectorCreateIndex(
+        ctx,
+        "products",
+        768,
+        norikv.DistanceCosine,
+        norikv.VectorIndexHNSW,
+        nil,
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Insert product embeddings
+    productEmbedding := getProductEmbedding("Red running shoes")
+    _, err = client.VectorInsert(ctx, "products", "prod-001", productEmbedding, nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Search for similar products
+    queryEmbedding := getProductEmbedding("Athletic footwear")
+    results, err := client.VectorSearch(ctx, "products", queryEmbedding, 5, nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Println("Similar products:")
+    for _, match := range results.Matches {
+        fmt.Printf("  %s (distance: %.4f)\n", match.ID, match.Distance)
+    }
+
+    // Cleanup
+    client.VectorDelete(ctx, "products", "prod-001", nil)
+    client.VectorDropIndex(ctx, "products", nil)
+}
+
+func getProductEmbedding(text string) []float32 {
+    // Call your embedding model here
+    return make([]float32, 768)
+}
 ```
 
 ## Error Handling

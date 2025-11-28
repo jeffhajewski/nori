@@ -9,6 +9,7 @@ Complete reference for the NoriKV Java Client SDK.
 - [Client Configuration](#client-configuration)
 - [Core Operations](#core-operations)
 - [Advanced Features](#advanced-features)
+- [Vector Operations](#vector-operations)
 - [Error Handling](#error-handling)
 - [Best Practices](#best-practices)
 
@@ -306,6 +307,235 @@ System.out.println("Router stats: " + stats.getRouterStats());
 System.out.println("Connection pool stats: " + stats.getPoolStats());
 System.out.println("Topology stats: " + stats.getTopologyStats());
 System.out.println("Client closed: " + stats.isClosed());
+```
+
+## Vector Operations
+
+NoriKV supports vector similarity search for building AI/ML applications, recommendation systems, and semantic search.
+
+### Creating a Vector Index
+
+Before inserting vectors, create an index with your configuration:
+
+```java
+boolean created = client.vectorCreateIndex(
+    "embeddings",                    // namespace
+    1536,                            // dimensions
+    DistanceFunction.COSINE,         // distance function
+    VectorIndexType.HNSW,            // index type
+    null                             // options
+);
+
+if (created) {
+    System.out.println("Index created");
+} else {
+    System.out.println("Index already exists");
+}
+```
+
+#### With Options
+
+```java
+CreateVectorIndexOptions options = CreateVectorIndexOptions.builder()
+    .idempotencyKey("create-embeddings-index")
+    .build();
+
+boolean created = client.vectorCreateIndex(
+    "embeddings",
+    1536,
+    DistanceFunction.COSINE,
+    VectorIndexType.HNSW,
+    options
+);
+```
+
+### Distance Functions
+
+| Function | Description | Use Case |
+|----------|-------------|----------|
+| `EUCLIDEAN` | L2 distance | General purpose |
+| `COSINE` | Cosine similarity (1 - cos) | Text embeddings, normalized vectors |
+| `INNER_PRODUCT` | Negative inner product | Maximum inner product search |
+
+### Index Types
+
+| Type | Description | Trade-off |
+|------|-------------|-----------|
+| `BRUTE_FORCE` | Exact linear scan | Exact results, O(n) complexity |
+| `HNSW` | Hierarchical Navigable Small World | Approximate, O(log n) complexity |
+
+### Inserting Vectors
+
+```java
+float[] embedding = getEmbedding("Hello world");
+
+Version version = client.vectorInsert(
+    "embeddings",    // namespace
+    "doc-123",       // unique ID
+    embedding,       // vector data
+    null             // options
+);
+
+System.out.println("Inserted at version: " + version);
+```
+
+#### With Options
+
+```java
+VectorInsertOptions options = VectorInsertOptions.builder()
+    .idempotencyKey("insert-doc-123")
+    .build();
+
+Version version = client.vectorInsert(
+    "embeddings",
+    "doc-123",
+    embedding,
+    options
+);
+```
+
+### Searching for Similar Vectors
+
+```java
+float[] query = getEmbedding("Find similar documents");
+
+VectorSearchResult result = client.vectorSearch(
+    "embeddings",    // namespace
+    query,           // query vector
+    10,              // k nearest neighbors
+    null             // options
+);
+
+System.out.println("Search took " + result.getSearchTimeUs() + "us");
+
+for (VectorMatch match : result.getMatches()) {
+    System.out.printf("ID: %s, Distance: %.4f%n",
+        match.getId(), match.getDistance());
+}
+```
+
+#### With Options
+
+```java
+VectorSearchOptions options = VectorSearchOptions.builder()
+    .includeVectors(true)  // include vector data in results
+    .build();
+
+VectorSearchResult result = client.vectorSearch(
+    "embeddings",
+    query,
+    10,
+    options
+);
+
+for (VectorMatch match : result.getMatches()) {
+    System.out.printf("ID: %s, Distance: %.4f, Vector dims: %d%n",
+        match.getId(),
+        match.getDistance(),
+        match.getVector() != null ? match.getVector().length : 0);
+}
+```
+
+### Getting a Vector by ID
+
+```java
+float[] vector = client.vectorGet("embeddings", "doc-123");
+
+if (vector != null) {
+    System.out.printf("Vector has %d dimensions%n", vector.length);
+} else {
+    System.out.println("Vector not found");
+}
+```
+
+### Deleting Vectors
+
+```java
+boolean deleted = client.vectorDelete("embeddings", "doc-123", null);
+
+if (deleted) {
+    System.out.println("Vector deleted");
+} else {
+    System.out.println("Vector not found");
+}
+```
+
+#### With Options
+
+```java
+VectorDeleteOptions options = VectorDeleteOptions.builder()
+    .idempotencyKey("delete-doc-123")
+    .build();
+
+boolean deleted = client.vectorDelete("embeddings", "doc-123", options);
+```
+
+### Dropping a Vector Index
+
+```java
+boolean dropped = client.vectorDropIndex("embeddings", null);
+
+if (dropped) {
+    System.out.println("Index dropped");
+} else {
+    System.out.println("Index did not exist");
+}
+```
+
+### Complete Vector Example
+
+```java
+import com.norikv.client.NoriKVClient;
+import com.norikv.client.types.*;
+import java.util.Arrays;
+
+public class VectorExample {
+    public static void main(String[] args) throws NoriKVException {
+        ClientConfig config = ClientConfig.builder()
+            .nodes(Arrays.asList("localhost:9001"))
+            .totalShards(1024)
+            .build();
+
+        try (NoriKVClient client = new NoriKVClient(config)) {
+            // Create index
+            client.vectorCreateIndex(
+                "products",
+                768,
+                DistanceFunction.COSINE,
+                VectorIndexType.HNSW,
+                null
+            );
+
+            // Insert product embeddings
+            float[] productEmbedding = getProductEmbedding("Red running shoes");
+            client.vectorInsert("products", "prod-001", productEmbedding, null);
+
+            // Search for similar products
+            float[] queryEmbedding = getProductEmbedding("Athletic footwear");
+            VectorSearchResult results = client.vectorSearch(
+                "products",
+                queryEmbedding,
+                5,
+                null
+            );
+
+            System.out.println("Similar products:");
+            for (VectorMatch match : results.getMatches()) {
+                System.out.printf("  %s (distance: %.4f)%n",
+                    match.getId(), match.getDistance());
+            }
+
+            // Cleanup
+            client.vectorDelete("products", "prod-001", null);
+            client.vectorDropIndex("products", null);
+        }
+    }
+
+    private static float[] getProductEmbedding(String text) {
+        // Call your embedding model here
+        return new float[768];
+    }
+}
 ```
 
 ## Error Handling

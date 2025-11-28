@@ -445,6 +445,241 @@ await client.get(key, GetOptions(
 ))
 ```
 
+## Vector Search
+
+NoriKV supports vector similarity search for building AI/ML applications, recommendation systems, and semantic search.
+
+### Creating a Vector Index
+
+Before inserting vectors, create an index with your desired configuration:
+
+#### Java
+```java
+boolean created = client.vectorCreateIndex(
+    "embeddings",      // namespace
+    1536,              // dimensions
+    DistanceFunction.COSINE,
+    VectorIndexType.HNSW,
+    null               // options
+);
+```
+
+#### Go
+```go
+created, err := client.VectorCreateIndex(
+    ctx,
+    "embeddings",           // namespace
+    1536,                   // dimensions
+    norikv.DistanceCosine,
+    norikv.VectorIndexHNSW,
+    nil,                    // options
+)
+```
+
+#### TypeScript
+```typescript
+const created = await client.vectorCreateIndex(
+    'embeddings',      // namespace
+    1536,              // dimensions
+    'cosine',          // distance function
+    'hnsw'             // index type
+);
+```
+
+#### Python
+```python
+created = await client.vector_create_index(
+    "embeddings",                    # namespace
+    1536,                            # dimensions
+    DistanceFunction.COSINE,
+    VectorIndexType.HNSW,
+)
+```
+
+### Inserting Vectors
+
+#### Java
+```java
+float[] embedding = getEmbedding("Hello world");
+Version version = client.vectorInsert(
+    "embeddings",
+    "doc-123",
+    embedding,
+    null
+);
+```
+
+#### Go
+```go
+embedding := getEmbedding("Hello world")
+version, err := client.VectorInsert(
+    ctx,
+    "embeddings",
+    "doc-123",
+    embedding,
+    nil,
+)
+```
+
+#### TypeScript
+```typescript
+const embedding = await getEmbedding('Hello world');
+const version = await client.vectorInsert(
+    'embeddings',
+    'doc-123',
+    embedding
+);
+```
+
+#### Python
+```python
+embedding = await get_embedding("Hello world")
+version = await client.vector_insert(
+    "embeddings",
+    "doc-123",
+    embedding,
+)
+```
+
+### Searching for Similar Vectors
+
+#### Java
+```java
+float[] query = getEmbedding("Find similar documents");
+VectorSearchResult result = client.vectorSearch(
+    "embeddings",
+    query,
+    10,    // k nearest neighbors
+    VectorSearchOptions.builder()
+        .includeVectors(true)
+        .build()
+);
+
+for (VectorMatch match : result.getMatches()) {
+    System.out.printf("ID: %s, Distance: %.4f%n",
+        match.getId(), match.getDistance());
+}
+```
+
+#### Go
+```go
+query := getEmbedding("Find similar documents")
+result, err := client.VectorSearch(
+    ctx,
+    "embeddings",
+    query,
+    10,  // k nearest neighbors
+    &norikv.VectorSearchOptions{
+        IncludeVectors: true,
+    },
+)
+
+for _, match := range result.Matches {
+    fmt.Printf("ID: %s, Distance: %.4f\n", match.ID, match.Distance)
+}
+```
+
+#### TypeScript
+```typescript
+const query = await getEmbedding('Find similar documents');
+const result = await client.vectorSearch(
+    'embeddings',
+    query,
+    10,  // k nearest neighbors
+    { includeVectors: true }
+);
+
+for (const match of result.matches) {
+    console.log(`ID: ${match.id}, Distance: ${match.distance}`);
+}
+```
+
+#### Python
+```python
+query = await get_embedding("Find similar documents")
+result = await client.vector_search(
+    "embeddings",
+    query,
+    10,  # k nearest neighbors
+    VectorSearchOptions(include_vectors=True),
+)
+
+for match in result.matches:
+    print(f"ID: {match.id}, Distance: {match.distance}")
+```
+
+### Getting a Vector by ID
+
+#### Java
+```java
+float[] vector = client.vectorGet("embeddings", "doc-123");
+if (vector != null) {
+    System.out.printf("Vector has %d dimensions%n", vector.length);
+}
+```
+
+#### Go
+```go
+vector, err := client.VectorGet(ctx, "embeddings", "doc-123")
+if err == nil && vector != nil {
+    fmt.Printf("Vector has %d dimensions\n", len(vector))
+}
+```
+
+#### TypeScript
+```typescript
+const vector = await client.vectorGet('embeddings', 'doc-123');
+if (vector) {
+    console.log(`Vector has ${vector.length} dimensions`);
+}
+```
+
+#### Python
+```python
+vector = await client.vector_get("embeddings", "doc-123")
+if vector:
+    print(f"Vector has {len(vector)} dimensions")
+```
+
+### Deleting Vectors
+
+#### Java
+```java
+boolean deleted = client.vectorDelete("embeddings", "doc-123", null);
+```
+
+#### Go
+```go
+deleted, err := client.VectorDelete(ctx, "embeddings", "doc-123", nil)
+```
+
+#### TypeScript
+```typescript
+const deleted = await client.vectorDelete('embeddings', 'doc-123');
+```
+
+#### Python
+```python
+deleted = await client.vector_delete("embeddings", "doc-123")
+```
+
+### Distance Functions
+
+| Function | Description | Use Case |
+|----------|-------------|----------|
+| EUCLIDEAN | L2 distance | General purpose |
+| COSINE | Cosine similarity (1 - cos) | Text embeddings, normalized vectors |
+| INNER_PRODUCT | Negative inner product | Maximum inner product search |
+
+### Index Types
+
+| Type | Description | Trade-off |
+|------|-------------|-----------|
+| BRUTE_FORCE | Exact linear scan | Exact results, O(n) complexity |
+| HNSW | Hierarchical Navigable Small World | Approximate, O(log n) complexity |
+
+---
+
 ## Error Handling
 
 All SDKs provide typed errors:

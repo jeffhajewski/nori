@@ -750,6 +750,394 @@ if !allowed {
 // Process request...
 ```
 
+## Leader Election
+
+Implement distributed leader election using CAS operations:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    norikv "github.com/norikv/norikv-go"
+)
+
+type LeaderElection struct {
+    client     *norikv.Client
+    key        []byte
+    nodeID     string
+    leaseTTL   time.Duration
+}
+
+func NewLeaderElection(client *norikv.Client, name, nodeID string, leaseTTL time.Duration) *LeaderElection {
+    return &LeaderElection{
+        client:   client,
+        key:      []byte(fmt.Sprintf("leader:%s", name)),
+        nodeID:   nodeID,
+        leaseTTL: leaseTTL,
+    }
+}
+
+// TryAcquire attempts to become the leader
+func (le *LeaderElection) TryAcquire(ctx context.Context) (bool, error) {
+    ttlMs := uint64(le.leaseTTL.Milliseconds())
+
+    // Try to create leader key (if not exists)
+    _, err := le.client.Put(ctx, le.key, []byte(le.nodeID), &norikv.PutOptions{
+        IfNotExists: true,
+        TTLMs:       &ttlMs,
+    })
+    if err == nil {
+        return true, nil // We are the leader
+    }
+    if !errors.Is(err, norikv.ErrAlreadyExists) {
+        return false, err
+    }
+
+    // Key exists - check if we already hold it
+    result, err := le.client.Get(ctx, le.key, nil)
+    if err != nil {
+        return false, err
+    }
+
+    if string(result.Value) == le.nodeID {
+        // Refresh our lease
+        _, err = le.client.Put(ctx, le.key, []byte(le.nodeID), &norikv.PutOptions{
+            IfMatchVersion: result.Version,
+            TTLMs:          &ttlMs,
+        })
+        return err == nil, err
+    }
+
+    return false, nil // Another node is leader
+}
+
+// IsLeader checks if this node is currently the leader
+func (le *LeaderElection) IsLeader(ctx context.Context) (bool, error) {
+    result, err := le.client.Get(ctx, le.key, nil)
+    if errors.Is(err, norikv.ErrKeyNotFound) {
+        return false, nil
+    }
+    if err != nil {
+        return false, err
+    }
+    return string(result.Value) == le.nodeID, nil
+}
+
+// Release voluntarily gives up leadership
+func (le *LeaderElection) Release(ctx context.Context) error {
+    result, err := le.client.Get(ctx, le.key, nil)
+    if err != nil {
+        return err
+    }
+    if string(result.Value) != le.nodeID {
+        return nil // Not the leader
+    }
+    _, err = le.client.Delete(ctx, le.key, &norikv.DeleteOptions{
+        IfMatchVersion: result.Version,
+    })
+    return err
+}
+```
+
+### Usage
+
+```go
+election := NewLeaderElection(client, "worker-pool", "node-1", 30*time.Second)
+
+// Leader election loop
+go func() {
+    ticker := time.NewTicker(10 * time.Second)
+    for range ticker.C {
+        isLeader, _ := election.TryAcquire(ctx)
+        if isLeader {
+            // Perform leader duties
+            runLeaderTasks()
+        }
+    }
+}()
+```
+
+## Event Sourcing
+
+Implement an event-sourced aggregate using append-only event streams:
+
+```go
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "time"
+
+    norikv "github.com/norikv/norikv-go"
+)
+
+type Event struct {
+    Type      string          `json:"type"`
+    Data      json.RawMessage `json:"data"`
+    Timestamp time.Time       `json:"timestamp"`
+    Version   int64           `json:"version"`
+}
+
+type EventStore struct {
+    client *norikv.Client
+}
+
+func NewEventStore(client *norikv.Client) *EventStore {
+    return &EventStore{client: client}
+}
+
+// Append adds a new event to the stream
+func (es *EventStore) Append(ctx context.Context, streamID string, eventType string, data interface{}) error {
+    // Get current stream version
+    metaKey := []byte(fmt.Sprintf("stream:%s:meta", streamID))
+
+    var version int64 = 0
+    var metaVersion *norikv.Version
+
+    result, err := es.client.Get(ctx, metaKey, nil)
+    if err == nil {
+        json.Unmarshal(result.Value, &version)
+        metaVersion = result.Version
+    } else if !errors.Is(err, norikv.ErrKeyNotFound) {
+        return err
+    }
+
+    // Create event
+    version++
+    eventData, _ := json.Marshal(data)
+    event := Event{
+        Type:      eventType,
+        Data:      eventData,
+        Timestamp: time.Now(),
+        Version:   version,
+    }
+
+    eventBytes, _ := json.Marshal(event)
+    eventKey := []byte(fmt.Sprintf("stream:%s:event:%d", streamID, version))
+
+    // Write event
+    _, err = es.client.Put(ctx, eventKey, eventBytes, &norikv.PutOptions{
+        IfNotExists: true,
+    })
+    if err != nil {
+        return err
+    }
+
+    // Update stream metadata with CAS
+    versionBytes, _ := json.Marshal(version)
+    opts := &norikv.PutOptions{}
+    if metaVersion != nil {
+        opts.IfMatchVersion = metaVersion
+    } else {
+        opts.IfNotExists = true
+    }
+
+    _, err = es.client.Put(ctx, metaKey, versionBytes, opts)
+    return err
+}
+
+// ReadStream reads all events for a stream
+func (es *EventStore) ReadStream(ctx context.Context, streamID string, fromVersion int64) ([]Event, error) {
+    // Get current version
+    metaKey := []byte(fmt.Sprintf("stream:%s:meta", streamID))
+    result, err := es.client.Get(ctx, metaKey, nil)
+    if errors.Is(err, norikv.ErrKeyNotFound) {
+        return nil, nil
+    }
+    if err != nil {
+        return nil, err
+    }
+
+    var currentVersion int64
+    json.Unmarshal(result.Value, &currentVersion)
+
+    // Read events
+    var events []Event
+    for v := fromVersion; v <= currentVersion; v++ {
+        eventKey := []byte(fmt.Sprintf("stream:%s:event:%d", streamID, v))
+        result, err := es.client.Get(ctx, eventKey, nil)
+        if err != nil {
+            continue
+        }
+
+        var event Event
+        json.Unmarshal(result.Value, &event)
+        events = append(events, event)
+    }
+
+    return events, nil
+}
+```
+
+### Usage
+
+```go
+store := NewEventStore(client)
+
+// Append events
+store.Append(ctx, "order-123", "OrderCreated", map[string]interface{}{
+    "customerId": "cust-456",
+    "items":      []string{"item-1", "item-2"},
+})
+
+store.Append(ctx, "order-123", "OrderShipped", map[string]interface{}{
+    "trackingNumber": "TRACK123",
+})
+
+// Read event stream
+events, _ := store.ReadStream(ctx, "order-123", 1)
+for _, e := range events {
+    fmt.Printf("Event: %s at %v\n", e.Type, e.Timestamp)
+}
+```
+
+## Multi-Tenancy
+
+Implement tenant isolation with prefixed keys and quota management:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "strconv"
+
+    norikv "github.com/norikv/norikv-go"
+)
+
+type TenantClient struct {
+    client   *norikv.Client
+    tenantID string
+    quota    int64
+}
+
+func NewTenantClient(client *norikv.Client, tenantID string, quota int64) *TenantClient {
+    return &TenantClient{
+        client:   client,
+        tenantID: tenantID,
+        quota:    quota,
+    }
+}
+
+func (tc *TenantClient) prefixKey(key []byte) []byte {
+    return []byte(fmt.Sprintf("tenant:%s:%s", tc.tenantID, string(key)))
+}
+
+// Put stores a value with tenant isolation and quota check
+func (tc *TenantClient) Put(ctx context.Context, key, value []byte, options *norikv.PutOptions) (*norikv.Version, error) {
+    // Check quota
+    if err := tc.checkQuota(ctx); err != nil {
+        return nil, err
+    }
+
+    prefixedKey := tc.prefixKey(key)
+    version, err := tc.client.Put(ctx, prefixedKey, value, options)
+    if err == nil {
+        tc.incrementUsage(ctx)
+    }
+    return version, err
+}
+
+// Get retrieves a value with tenant isolation
+func (tc *TenantClient) Get(ctx context.Context, key []byte, options *norikv.GetOptions) (*norikv.GetResult, error) {
+    prefixedKey := tc.prefixKey(key)
+    return tc.client.Get(ctx, prefixedKey, options)
+}
+
+// Delete removes a value with tenant isolation
+func (tc *TenantClient) Delete(ctx context.Context, key []byte, options *norikv.DeleteOptions) (bool, error) {
+    prefixedKey := tc.prefixKey(key)
+    deleted, err := tc.client.Delete(ctx, prefixedKey, options)
+    if deleted {
+        tc.decrementUsage(ctx)
+    }
+    return deleted, err
+}
+
+func (tc *TenantClient) checkQuota(ctx context.Context) error {
+    usageKey := []byte(fmt.Sprintf("tenant:%s:usage", tc.tenantID))
+    result, err := tc.client.Get(ctx, usageKey, nil)
+    if errors.Is(err, norikv.ErrKeyNotFound) {
+        return nil // No usage yet
+    }
+    if err != nil {
+        return err
+    }
+
+    usage, _ := strconv.ParseInt(string(result.Value), 10, 64)
+    if usage >= tc.quota {
+        return fmt.Errorf("quota exceeded: %d/%d", usage, tc.quota)
+    }
+    return nil
+}
+
+func (tc *TenantClient) incrementUsage(ctx context.Context) {
+    tc.updateUsage(ctx, 1)
+}
+
+func (tc *TenantClient) decrementUsage(ctx context.Context) {
+    tc.updateUsage(ctx, -1)
+}
+
+func (tc *TenantClient) updateUsage(ctx context.Context, delta int64) {
+    usageKey := []byte(fmt.Sprintf("tenant:%s:usage", tc.tenantID))
+
+    for attempt := 0; attempt < 5; attempt++ {
+        result, err := tc.client.Get(ctx, usageKey, nil)
+
+        var usage int64 = 0
+        var version *norikv.Version
+
+        if err == nil {
+            usage, _ = strconv.ParseInt(string(result.Value), 10, 64)
+            version = result.Version
+        }
+
+        usage += delta
+        if usage < 0 {
+            usage = 0
+        }
+
+        opts := &norikv.PutOptions{}
+        if version != nil {
+            opts.IfMatchVersion = version
+        } else {
+            opts.IfNotExists = true
+        }
+
+        _, err = tc.client.Put(ctx, usageKey, []byte(strconv.FormatInt(usage, 10)), opts)
+        if err == nil {
+            return
+        }
+    }
+}
+```
+
+### Usage
+
+```go
+// Create tenant-specific clients
+tenant1 := NewTenantClient(client, "acme-corp", 10000)
+tenant2 := NewTenantClient(client, "globex", 5000)
+
+// Operations are isolated by tenant
+tenant1.Put(ctx, []byte("config"), []byte("acme config"), nil)
+tenant2.Put(ctx, []byte("config"), []byte("globex config"), nil)
+
+// Each tenant sees only their data
+result1, _ := tenant1.Get(ctx, []byte("config"), nil)
+result2, _ := tenant2.Get(ctx, []byte("config"), nil)
+// result1.Value = "acme config"
+// result2.Value = "globex config"
+```
+
 ## Semantic Search
 
 Build a semantic search engine using vector embeddings:

@@ -777,6 +777,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Comparison">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#feature-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Matrix
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-characteristics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Characteristics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-style" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Style
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cross-sdk-compatibility" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4250,6 +4300,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Comparison">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#feature-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Matrix
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-characteristics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Characteristics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#api-style" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Style
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cross-sdk-compatibility" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4500,6 +4600,163 @@
 2. Java (after optimization)
 3. TypeScript (V8 garbage collection)
 4. Python (higher overhead)</p>
+<h2 id="comparison">Comparison<a class="headerlink" href="#comparison" title="Permanent link">&para;</a></h2>
+<h3 id="feature-matrix">Feature Matrix<a class="headerlink" href="#feature-matrix" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Java</th>
+<th>Go</th>
+<th style="text-align: right;">TypeScript</th>
+<th>Python</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET/PUT/DELETE</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>CAS (Compare-and-Swap)</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>TTL Support</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Idempotency Keys</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Vector Search</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Consistency Levels</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Connection Pooling</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Automatic Retries</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Topology Tracking</td>
+<td>✅</td>
+<td>✅</td>
+<td style="text-align: right;">✅</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<h3 id="performance-characteristics">Performance Characteristics<a class="headerlink" href="#performance-characteristics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Java</th>
+<th>Go</th>
+<th style="text-align: right;">TypeScript</th>
+<th>Python</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hash Performance</td>
+<td>~3ns</td>
+<td>~2.5ns</td>
+<td style="text-align: right;">~5ns</td>
+<td>~50ns</td>
+</tr>
+<tr>
+<td>Routing Overhead</td>
+<td>~15ns</td>
+<td>~23ns</td>
+<td style="text-align: right;">~30ns</td>
+<td>~100ns</td>
+</tr>
+<tr>
+<td>Memory per Connection</td>
+<td>~2KB</td>
+<td>~1KB</td>
+<td style="text-align: right;">~3KB</td>
+<td>~5KB</td>
+</tr>
+<tr>
+<td>Cold Start</td>
+<td>~500ms</td>
+<td>~10ms</td>
+<td style="text-align: right;">~100ms</td>
+<td>~200ms</td>
+</tr>
+</tbody>
+</table>
+<h3 id="api-style">API Style<a class="headerlink" href="#api-style" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>SDK</th>
+<th>Style</th>
+<th>Async Model</th>
+<th>Error Handling</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Java</td>
+<td>Builder pattern</td>
+<td>Sync (CompletableFuture available)</td>
+<td>Checked exceptions</td>
+</tr>
+<tr>
+<td>Go</td>
+<td>Functional options</td>
+<td>Context-based</td>
+<td>Error values</td>
+</tr>
+<tr>
+<td>TypeScript</td>
+<td>Options objects</td>
+<td>Promise/async-await</td>
+<td>Thrown errors</td>
+</tr>
+<tr>
+<td>Python</td>
+<td>Dataclasses</td>
+<td>asyncio</td>
+<td>Exceptions</td>
+</tr>
+</tbody>
+</table>
 <h2 id="cross-sdk-compatibility">Cross-SDK Compatibility<a class="headerlink" href="#cross-sdk-compatibility" title="Permanent link">&para;</a></h2>
 <p>All SDKs use <strong>identical hashing algorithms</strong> to ensure compatibility:</p>
 <ul>

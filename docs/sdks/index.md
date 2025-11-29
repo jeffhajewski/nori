@@ -141,6 +141,40 @@ All SDKs support:
 3. TypeScript (V8 garbage collection)
 4. Python (higher overhead)
 
+## Comparison
+
+### Feature Matrix
+
+| Feature | Java | Go | TypeScript | Python |
+|---------|------|----|-----------:|--------|
+| GET/PUT/DELETE | ✅ | ✅ | ✅ | ✅ |
+| CAS (Compare-and-Swap) | ✅ | ✅ | ✅ | ✅ |
+| TTL Support | ✅ | ✅ | ✅ | ✅ |
+| Idempotency Keys | ✅ | ✅ | ✅ | ✅ |
+| Vector Search | ✅ | ✅ | ✅ | ✅ |
+| Consistency Levels | ✅ | ✅ | ✅ | ✅ |
+| Connection Pooling | ✅ | ✅ | ✅ | ✅ |
+| Automatic Retries | ✅ | ✅ | ✅ | ✅ |
+| Topology Tracking | ✅ | ✅ | ✅ | ✅ |
+
+### Performance Characteristics
+
+| Metric | Java | Go | TypeScript | Python |
+|--------|------|----|-----------:|--------|
+| Hash Performance | ~3ns | ~2.5ns | ~5ns | ~50ns |
+| Routing Overhead | ~15ns | ~23ns | ~30ns | ~100ns |
+| Memory per Connection | ~2KB | ~1KB | ~3KB | ~5KB |
+| Cold Start | ~500ms | ~10ms | ~100ms | ~200ms |
+
+### API Style
+
+| SDK | Style | Async Model | Error Handling |
+|-----|-------|-------------|----------------|
+| Java | Builder pattern | Sync (CompletableFuture available) | Checked exceptions |
+| Go | Functional options | Context-based | Error values |
+| TypeScript | Options objects | Promise/async-await | Thrown errors |
+| Python | Dataclasses | asyncio | Exceptions |
+
 ## Cross-SDK Compatibility
 
 All SDKs use **identical hashing algorithms** to ensure compatibility:

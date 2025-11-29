@@ -101,6 +101,14 @@
          <lastmod>2025-11-29</lastmod>
     </url>
     <url>
+         <loc>https://norikv.dev/crates/nori-observe/</loc>
+         <lastmod>2025-11-29</lastmod>
+    </url>
+    <url>
+         <loc>https://norikv.dev/crates/nori-raft/</loc>
+         <lastmod>2025-11-29</lastmod>
+    </url>
+    <url>
          <loc>https://norikv.dev/crates/nori-sstable/</loc>
          <lastmod>2025-11-29</lastmod>
     </url>
@@ -198,6 +206,10 @@
     </url>
     <url>
          <loc>https://norikv.dev/crates/nori-sstable/recipes/hot-workloads/</loc>
+         <lastmod>2025-11-29</lastmod>
+    </url>
+    <url>
+         <loc>https://norikv.dev/crates/nori-swim/</loc>
          <lastmod>2025-11-29</lastmod>
     </url>
     <url>

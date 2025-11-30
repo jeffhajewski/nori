@@ -84,6 +84,7 @@ pub enum VizEvent {
     Swim(SwimEvt),
     Shard(ShardEvt),
     Cache(CacheEvt),
+    SlotHeat(SlotHeatEvt),
 }
 
 #[derive(Clone, Debug)]
@@ -217,6 +218,16 @@ pub enum ShardKind {
 pub struct CacheEvt {
     pub name: &'static str,
     pub hit_ratio: f32,
+}
+
+/// Slot heat event for ATLL dynamic K adjustment visualization.
+#[derive(Clone, Debug)]
+pub struct SlotHeatEvt {
+    pub node: u32,
+    pub level: u8,
+    pub slot: u32,
+    pub heat: f32,
+    pub k: u8,
 }
 
 /// Macros (simple versions). Can be feature-gated if desired.

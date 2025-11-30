@@ -463,7 +463,6 @@ pub struct LsmEngine {
     guards: Arc<GuardManager>,
 
     /// Heat tracker for workload adaptation
-    #[allow(dead_code)] // TODO: Will be used when heat tracking is implemented (Option D)
     heat: Arc<HeatTracker>,
 
     /// Configuration
@@ -903,6 +902,9 @@ impl LsmEngine {
 
                 match reader.get(key).await {
                     Ok(Some(entry)) => {
+                        // Record heat for this slot access
+                        self.heat.record_op(level, slot_id, heat::Operation::Get);
+
                         // Track latency before returning
                         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
                         nori_observe::obs_hist!(
@@ -933,8 +935,9 @@ impl LsmEngine {
             }
         }
 
-        // TODO: Heat tracking
-        // self.heat.record_op(level, slot_id, heat::Operation::Get);
+        // Record heat for the slot that was searched (L1+)
+        // L0 is not slot-partitioned, so we only track heat for L1+ accesses
+        self.heat.record_op(1, slot_id, heat::Operation::Get);
 
         // Track latency
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -1013,6 +1016,9 @@ impl LsmEngine {
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
         let version = Version::new(0, seqno);
 
+        // Compute slot_id for heat tracking before key is consumed
+        let slot_id = self.guards.slot_for_key(&key);
+
         // 4. Insert into memtable
         {
             let memtable = self.memtable.read();
@@ -1022,6 +1028,9 @@ impl LsmEngine {
             let new_size = memtable.size() as u64;
             self.memtable_size.store(new_size, std::sync::atomic::Ordering::Relaxed);
         }
+
+        // Record heat for the slot that will receive this write
+        self.heat.record_op(1, slot_id, heat::Operation::Put);
 
         // 5. Check flush triggers
         self.check_flush_triggers().await?;
@@ -1090,6 +1099,9 @@ impl LsmEngine {
         let seqno = self.seqno.fetch_add(1, Ordering::SeqCst);
         let version = Version::new(0, seqno);
 
+        // Compute slot_id for heat tracking before key_bytes is consumed
+        let slot_id = self.guards.slot_for_key(&key_bytes);
+
         // 4. Write tombstone to memtable
         {
             let memtable = self.memtable.read();
@@ -1099,6 +1111,9 @@ impl LsmEngine {
             let new_size = memtable.size() as u64;
             self.memtable_size.store(new_size, std::sync::atomic::Ordering::Relaxed);
         }
+
+        // Record heat for the slot that will receive this delete
+        self.heat.record_op(1, slot_id, heat::Operation::Delete);
 
         // 5. Check flush triggers
         self.check_flush_triggers().await?;
@@ -1465,6 +1480,11 @@ impl LsmEngine {
 
         // 3. Add L1+ levels (only overlapping slots)
         let overlapping_slots = self.guards.overlapping_slots(start, end);
+
+        // Record heat for all overlapping slots (scan is read-intensive)
+        for slot_id in &overlapping_slots {
+            self.heat.record_op(1, *slot_id, heat::Operation::Scan);
+        }
 
         for level in 1..self.config.max_levels {
             for slot_id in &overlapping_slots {
@@ -2684,6 +2704,52 @@ impl LsmEngine {
             if shutdown.load(Ordering::Relaxed) {
                 tracing::info!("Compaction loop shutting down");
                 break;
+            }
+
+            // Decay heat for idle slots (internal timer ensures this runs at most every 10s)
+            heat.decay_idle_slots();
+
+            // Dynamic K adjustment for all slots based on heat and write pressure
+            // Hot slots get K=1 (leveled), cold slots under pressure get higher K (tiered)
+            let write_pressure_high = heat.estimate_write_pressure();
+            {
+                let manifest_guard = manifest.read();
+                let snapshot = manifest_guard.snapshot();
+                let snapshot_guard = snapshot.read();
+                for level_meta in &snapshot_guard.levels {
+                    if level_meta.level == 0 {
+                        continue; // L0 doesn't have slots
+                    }
+                    for slot in &level_meta.slots {
+                        // adjust_k updates the heat tracker's internal K value
+                        // This K value is then read by generate_candidates via get_k()
+                        let k_changed = heat.adjust_k(level_meta.level, slot.slot_id, write_pressure_high);
+
+                        // Emit heat metrics (per-slot heat and K values)
+                        let heat_score = heat.get_heat(level_meta.level, slot.slot_id);
+                        let current_k = heat.get_k(level_meta.level, slot.slot_id);
+
+                        // Emit VizEvent for slot heat (dashboard streaming)
+                        meter.emit(nori_observe::VizEvent::SlotHeat(nori_observe::SlotHeatEvt {
+                            node: 0,
+                            level: level_meta.level,
+                            slot: slot.slot_id,
+                            heat: heat_score,
+                            k: current_k,
+                        }));
+
+                        // Log K changes for debugging
+                        if let Some(new_k) = k_changed {
+                            tracing::debug!(
+                                level = level_meta.level,
+                                slot = slot.slot_id,
+                                heat = heat_score,
+                                new_k = new_k,
+                                "Dynamic K adjustment"
+                            );
+                        }
+                    }
+                }
             }
 
             // Select compaction action

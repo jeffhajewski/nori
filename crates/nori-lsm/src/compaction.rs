@@ -476,11 +476,13 @@ impl BanditScheduler {
                 }
 
                 // Trigger 4: Run count threshold (too many runs)
-                if slot.runs.len() > slot.k as usize {
+                // Use dynamic K from heat tracker (which adjusts based on workload)
+                let dynamic_k = heat_tracker.get_k(level_meta.level, slot.slot_id);
+                if slot.runs.len() > dynamic_k as usize {
                     candidates.push(CompactionAction::Tier {
                         level: level_meta.level,
                         slot_id: slot.slot_id,
-                        run_count: slot.k.min(4) as usize,
+                        run_count: dynamic_k.min(4) as usize,
                     });
                 }
 

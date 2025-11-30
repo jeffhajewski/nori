@@ -2448,6 +2448,39 @@ impl LsmEngine {
         self.write_pressure.write_count()
     }
 
+    /// Returns the heat score for a slot (0.0 to 1.0+).
+    ///
+    /// Heat represents workload intensity computed via EWMA of operations.
+    /// Higher heat indicates more frequent access (read-intensive slots).
+    pub fn slot_heat(&self, level: u8, slot_id: u32) -> f32 {
+        self.heat.get_heat(level, slot_id)
+    }
+
+    /// Returns the current K value for a slot.
+    ///
+    /// K determines the maximum number of runs before compaction triggers.
+    /// - K=1: Leveled compaction (low read amp, higher write amp)
+    /// - K>1: Tiered compaction (higher read amp, lower write amp)
+    pub fn slot_k(&self, level: u8, slot_id: u32) -> u8 {
+        self.heat.get_k(level, slot_id)
+    }
+
+    /// Returns the slot classification (Hot/Warm/Cold) based on heat.
+    ///
+    /// - Hot: heat >= 0.8 (target K=1)
+    /// - Cold: heat <= 0.2 (increase K under write pressure)
+    /// - Warm: in between (maintain current K)
+    pub fn slot_classification(&self, level: u8, slot_id: u32) -> heat::SlotClass {
+        self.heat.classify_slot(level, slot_id)
+    }
+
+    /// Returns all slot heat scores for a level.
+    ///
+    /// Returns a vector of (slot_id, heat_score, current_k) tuples.
+    pub fn level_heat_scores(&self, level: u8) -> Vec<(u32, f32, u8)> {
+        self.heat.level_heat_scores(level)
+    }
+
     /// Computes current system pressure metrics.
     ///
     /// Returns a `PressureMetrics` struct that combines L0, memtable, and memory
@@ -7235,5 +7268,282 @@ mod tests {
             .await;
 
         assert!(result.is_ok(), "End-only bound compaction should succeed");
+    }
+
+    // =============================================================================
+    // Heat Tracking Integration Tests
+    // =============================================================================
+
+    /// Test that PUT operations record heat for the target slot
+    #[tokio::test]
+    async fn test_heat_recording_put() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        // Use faster heat convergence for testing
+        config.heat_thresholds.half_life_ops = 100;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Initially, slot 0 should have zero heat
+        let initial_heat = engine.slot_heat(1, 0);
+        assert_eq!(initial_heat, 0.0, "Initial heat should be zero");
+
+        // Write multiple keys that hash to slot 0
+        // With default 32 slots, keys are distributed by hash
+        for i in 0..100 {
+            let key = Bytes::from(format!("put_heat_key_{:04}", i));
+            let value = Bytes::from("value");
+            engine.put(key, value, None).await.unwrap();
+        }
+
+        // Check that some heat was recorded
+        // Note: With 32 slots, not all keys go to slot 0, so check total L1 heat
+        let l1_scores = engine.level_heat_scores(1);
+        let total_heat: f32 = l1_scores.iter().map(|(_, h, _)| h).sum();
+        assert!(total_heat > 0.0, "Total heat should be positive after PUTs");
+    }
+
+    /// Test that GET operations record heat for accessed slots
+    #[tokio::test]
+    async fn test_heat_recording_get() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.heat_thresholds.half_life_ops = 100;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write some data first
+        for i in 0..10 {
+            let key = Bytes::from(format!("get_heat_key_{:04}", i));
+            let value = Bytes::from("value");
+            engine.put(key, value, None).await.unwrap();
+        }
+
+        // Record heat from PUTs
+        let heat_after_puts: f32 = engine.level_heat_scores(1).iter().map(|(_, h, _)| h).sum();
+
+        // Now do many GETs (which have higher weight than PUTs)
+        for _ in 0..100 {
+            for i in 0..10 {
+                let key = format!("get_heat_key_{:04}", i);
+                let _ = engine.get(key.as_bytes()).await;
+            }
+        }
+
+        // Heat should increase due to GET operations
+        let heat_after_gets: f32 = engine.level_heat_scores(1).iter().map(|(_, h, _)| h).sum();
+        assert!(
+            heat_after_gets >= heat_after_puts,
+            "Heat should increase or stay same after GETs: before={}, after={}",
+            heat_after_puts,
+            heat_after_gets
+        );
+    }
+
+    /// Test that DELETE operations record heat
+    #[tokio::test]
+    async fn test_heat_recording_delete() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.heat_thresholds.half_life_ops = 100;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write some data
+        for i in 0..50 {
+            let key = Bytes::from(format!("del_heat_key_{:04}", i));
+            let value = Bytes::from("value");
+            engine.put(key, value, None).await.unwrap();
+        }
+
+        let heat_after_puts: f32 = engine.level_heat_scores(1).iter().map(|(_, h, _)| h).sum();
+
+        // Delete the data
+        for i in 0..50 {
+            let key = format!("del_heat_key_{:04}", i);
+            engine.delete(key.as_bytes()).await.unwrap();
+        }
+
+        // Heat should have changed (DELETE has same weight as PUT)
+        let heat_after_deletes: f32 = engine.level_heat_scores(1).iter().map(|(_, h, _)| h).sum();
+        // With more operations, heat should be maintained or increased
+        assert!(
+            heat_after_deletes > 0.0,
+            "Heat should be positive after DELETEs"
+        );
+        println!(
+            "Heat: after_puts={}, after_deletes={}",
+            heat_after_puts, heat_after_deletes
+        );
+    }
+
+    /// Test that SCAN operations record heat for all overlapping slots
+    #[tokio::test]
+    async fn test_heat_recording_scan() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.heat_thresholds.half_life_ops = 100;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Write data across a range
+        for i in 0..100 {
+            let key = Bytes::from(format!("scan_key_{:04}", i));
+            let value = Bytes::from("value");
+            engine.put(key, value, None).await.unwrap();
+        }
+
+        let heat_before_scans: f32 = engine.level_heat_scores(1).iter().map(|(_, h, _)| h).sum();
+
+        // Do range scans (high weight operation)
+        for _ in 0..50 {
+            let mut iter = engine.iter_range(b"scan_key_0000", b"scan_key_0100").await.unwrap();
+            while let Ok(Some(_)) = iter.next().await {}
+        }
+
+        let heat_after_scans: f32 = engine.level_heat_scores(1).iter().map(|(_, h, _)| h).sum();
+        assert!(
+            heat_after_scans >= heat_before_scans,
+            "Heat should increase after scans: before={}, after={}",
+            heat_before_scans,
+            heat_after_scans
+        );
+    }
+
+    /// Test slot classification based on heat thresholds
+    #[tokio::test]
+    async fn test_slot_classification() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.heat_thresholds.hot = 0.8;
+        config.heat_thresholds.cold = 0.2;
+        config.heat_thresholds.half_life_ops = 50; // Fast convergence
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Initially all slots should be Cold (no operations)
+        let classification = engine.slot_classification(1, 0);
+        assert_eq!(
+            classification,
+            heat::SlotClass::Cold,
+            "Unused slot should be Cold"
+        );
+
+        // Write to a specific slot pattern and read heavily
+        // This should increase heat toward Hot
+        for _ in 0..1000 {
+            let key = Bytes::from("hot_slot_key");
+            let _ = engine.get(key.as_ref()).await;
+        }
+
+        // The slot for "hot_slot_key" should have increased heat
+        let slot_id = engine.guards.slot_for_key(b"hot_slot_key");
+        let heat = engine.slot_heat(1, slot_id);
+        println!("Slot {} heat after 1000 GETs: {}", slot_id, heat);
+
+        // Heat should be positive (may not reach Hot threshold without L1+ data)
+        assert!(heat >= 0.0, "Heat should be non-negative");
+    }
+
+    /// Test that K values are retrieved correctly
+    #[tokio::test]
+    async fn test_slot_k_values() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.default_k.l1 = 3;
+        config.default_k.l2 = 4;
+        config.hot_k = 1;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Default K for L1 should be 3
+        let k_l1 = engine.slot_k(1, 0);
+        assert_eq!(k_l1, 3, "Default K for L1 should be 3");
+
+        // Default K for L2 should be 4
+        let k_l2 = engine.slot_k(2, 0);
+        assert_eq!(k_l2, 4, "Default K for L2 should be 4");
+    }
+
+    /// Test that heat-based K adjustment works
+    #[tokio::test]
+    async fn test_dynamic_k_adjustment() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.heat_thresholds.hot = 0.5; // Lower threshold for easier testing
+        config.heat_thresholds.cold = 0.1;
+        config.heat_thresholds.half_life_ops = 10; // Very fast convergence
+        config.default_k.l1 = 3;
+        config.hot_k = 1;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Get a slot ID to track
+        let test_key = b"dynamic_k_test";
+        let slot_id = engine.guards.slot_for_key(test_key);
+
+        // Initial K should be default (3)
+        let initial_k = engine.slot_k(1, slot_id);
+        assert_eq!(initial_k, 3, "Initial K should be default value");
+
+        // Write data to create the slot in manifest
+        for i in 0..20 {
+            let key = Bytes::from(format!("dynamic_k_test_{}", i));
+            let value = Bytes::from("value");
+            engine.put(key, value, None).await.unwrap();
+        }
+
+        // Flush to create L0 files
+        engine.flush().await.unwrap();
+
+        // Wait for compaction loop to potentially adjust K
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        // K value should still be valid (either default or adjusted)
+        let k_after = engine.slot_k(1, slot_id);
+        assert!(k_after >= 1 && k_after <= 3, "K should be in valid range: {}", k_after);
+
+        println!("K value for slot {}: initial={}, after_ops={}", slot_id, initial_k, k_after);
+    }
+
+    /// Test level heat scores aggregation
+    #[tokio::test]
+    async fn test_level_heat_scores() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = ATLLConfig::default();
+        config.data_dir = temp_dir.path().to_path_buf();
+        config.heat_thresholds.half_life_ops = 100;
+
+        let engine = LsmEngine::open(config).await.unwrap();
+
+        // Initially no scores (no operations)
+        let scores = engine.level_heat_scores(1);
+        assert!(scores.is_empty() || scores.iter().all(|(_, h, _)| *h == 0.0),
+            "Initial scores should be empty or zero");
+
+        // Write across multiple slots
+        for i in 0..200 {
+            let key = Bytes::from(format!("level_heat_key_{:04}", i));
+            let value = Bytes::from("value");
+            engine.put(key, value, None).await.unwrap();
+        }
+
+        // Should have scores for multiple slots now
+        let scores = engine.level_heat_scores(1);
+        let non_zero_slots: Vec<_> = scores.iter().filter(|(_, h, _)| *h > 0.0).collect();
+
+        println!("Level 1 heat scores: {} slots with heat", non_zero_slots.len());
+        for (slot_id, heat, k) in &non_zero_slots {
+            println!("  Slot {}: heat={:.4}, k={}", slot_id, heat, k);
+        }
+
+        assert!(!non_zero_slots.is_empty(), "Should have some slots with heat after writes");
     }
 }

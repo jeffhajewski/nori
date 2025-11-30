@@ -149,6 +149,56 @@ impl VectorService {
         Ok(())
     }
 
+    /// Check consistency level and enforce leader requirement for strong consistency.
+    ///
+    /// Supported levels:
+    /// - "strong" (default): Must read from leader
+    /// - "eventual": Can read from any node
+    /// - "bounded_staleness": Can read from any node (same as eventual for now)
+    #[allow(clippy::result_large_err)]
+    fn check_consistency(&self, consistency: &str) -> Result<(), Status> {
+        let level = if consistency.is_empty() {
+            "strong"
+        } else {
+            consistency
+        };
+
+        match level {
+            "strong" => {
+                // Strong consistency: must read from leader
+                if !self.backend.is_leader() {
+                    let leader_hint = self.backend.leader()
+                        .map(|id| id.to_string())
+                        .unwrap_or_default();
+
+                    if !leader_hint.is_empty() {
+                        let mut status = Status::unavailable(
+                            "NOT_LEADER: strong consistency requires leader"
+                        );
+                        let metadata = status.metadata_mut();
+                        metadata.insert("x-norikv-leader", leader_hint.parse().unwrap());
+                        return Err(status);
+                    }
+
+                    return Err(Status::unavailable(
+                        "NOT_LEADER: strong consistency requires leader"
+                    ));
+                }
+            }
+            "eventual" | "bounded_staleness" => {
+                // Eventual/bounded: can read from follower
+                tracing::debug!("Vector read with {} consistency", level);
+            }
+            _ => {
+                return Err(Status::invalid_argument(format!(
+                    "Unknown consistency level: {}",
+                    level
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Convert proto distance function to backend type.
     #[allow(clippy::result_large_err)]
     fn convert_distance(
@@ -380,9 +430,8 @@ impl Vector for VectorService {
             return Err(Status::invalid_argument("k must be greater than 0"));
         }
 
-        // Search is a read operation, can be served by followers with eventual consistency
-        // For now, we require leader for strong consistency
-        // TODO: Add consistency parameter like KV service
+        // Check consistency level (default: strong)
+        self.check_consistency(&req.consistency)?;
 
         // Execute
         let result = self
@@ -429,6 +478,9 @@ impl Vector for VectorService {
         // Validate
         self.validate_namespace(&req.namespace)?;
         self.validate_id(&req.id)?;
+
+        // Check consistency level (default: strong)
+        self.check_consistency(&req.consistency)?;
 
         // Execute
         let result = self.backend.get(&req.namespace, &req.id).await;
@@ -491,6 +543,7 @@ mod tests {
             query: vec![0.1, 0.2, 0.3],
             k: 5,
             include_vectors: false,
+            consistency: "".to_string(), // Default to strong
         });
 
         let response = service.search(search_req).await.unwrap();

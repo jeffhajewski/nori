@@ -145,6 +145,8 @@ message VectorSearchRequest {
   repeated float query = 2;
   uint32 k = 3;
   bool include_vectors = 4;
+  // Consistency level: "strong" (default), "eventual", "bounded_staleness"
+  string consistency = 5;
 }
 message VectorSearchResponse {
   repeated VectorMatch matches = 1;
@@ -154,6 +156,8 @@ message VectorSearchResponse {
 message VectorGetRequest {
   string namespace = 1;
   string id = 2;
+  // Consistency level: "strong" (default), "eventual", "bounded_staleness"
+  string consistency = 3;
 }
 message VectorGetResponse {
   repeated float vector = 1;

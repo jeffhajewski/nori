@@ -90,6 +90,10 @@ pub struct HeatThresholds {
 
     /// EWMA half-life in number of operations (default: 100_000)
     pub half_life_ops: u64,
+
+    /// Write pressure threshold (0.0-1.0, default: 0.5)
+    /// When write ratio (PUT/DELETE ops vs total ops) exceeds this, pressure is high.
+    pub write_pressure_threshold: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,6 +265,7 @@ impl Default for HeatThresholds {
             hot: 0.8,
             cold: 0.2,
             half_life_ops: 100_000,
+            write_pressure_threshold: 0.5,
         }
     }
 }

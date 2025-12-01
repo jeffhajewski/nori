@@ -53,6 +53,11 @@ impl Operation {
             Operation::Delete => 0.5,
         }
     }
+
+    /// Returns true if this is a write operation (PUT/DELETE).
+    pub fn is_write(&self) -> bool {
+        matches!(self, Operation::Put | Operation::Delete)
+    }
 }
 
 /// Heat score for a single slot.
@@ -145,6 +150,10 @@ pub struct HeatTracker {
 
     /// Last decay timestamp
     last_decay: Arc<RwLock<Instant>>,
+
+    /// EWMA of write ratio (0.0 = all reads, 1.0 = all writes)
+    /// Used for proper windowed write pressure estimation.
+    write_ratio: Arc<RwLock<f32>>,
 }
 
 impl HeatTracker {
@@ -155,22 +164,50 @@ impl HeatTracker {
             slot_heat: Arc::new(RwLock::new(HashMap::new())),
             global_op_count: Arc::new(RwLock::new(0)),
             last_decay: Arc::new(RwLock::new(Instant::now())),
+            write_ratio: Arc::new(RwLock::new(0.0)),
         }
     }
 
     /// Records an operation on a slot.
     pub fn record_op(&self, level: u8, slot_id: u32, op: Operation) {
-        let mut heat_map = self.slot_heat.write().unwrap();
+        let half_life = self.config.heat_thresholds.half_life_ops;
 
-        let slot_heat = heat_map
-            .entry((level, slot_id))
-            .or_insert_with(|| SlotHeat::new(self.config.default_k_for_level(level)));
-
-        slot_heat.update(op, self.config.heat_thresholds.half_life_ops);
+        // Update per-slot heat
+        {
+            let mut heat_map = self.slot_heat.write().unwrap();
+            let slot_heat = heat_map
+                .entry((level, slot_id))
+                .or_insert_with(|| SlotHeat::new(self.config.default_k_for_level(level)));
+            slot_heat.update(op, half_life);
+        }
 
         // Update global counter
-        let mut global = self.global_op_count.write().unwrap();
-        *global += 1;
+        {
+            let mut global = self.global_op_count.write().unwrap();
+            *global += 1;
+        }
+
+        // Update write ratio EWMA
+        // Formula: ratio_new = α × is_write + (1 - α) × ratio_old
+        // Using same half_life as heat tracking for consistency
+        {
+            let alpha = self.ewma_alpha(half_life);
+            let write_value = if op.is_write() { 1.0 } else { 0.0 };
+            let mut ratio = self.write_ratio.write().unwrap();
+            *ratio = alpha * write_value + (1.0 - alpha) * *ratio;
+        }
+    }
+
+    /// Calculates EWMA alpha parameter.
+    ///
+    /// α = ln(2) / half_life for large half_life
+    /// At half_life operations, old value contributes 50%.
+    fn ewma_alpha(&self, half_life: u64) -> f32 {
+        if half_life == 0 {
+            return 0.5; // Fallback
+        }
+        let alpha = std::f32::consts::LN_2 / half_life as f32;
+        alpha.min(1.0)
     }
 
     /// Returns the heat score for a slot.
@@ -293,12 +330,17 @@ impl HeatTracker {
 
     /// Estimates write pressure based on recent operation mix.
     ///
-    /// High write pressure: > 50% of recent ops are writes (PUT/DELETE).
+    /// High write pressure when write ratio (EWMA of PUT/DELETE ops) exceeds threshold.
+    /// Returns true when write_ratio > write_pressure_threshold (default: 0.5).
     pub fn estimate_write_pressure(&self) -> bool {
-        // Simplified heuristic for Phase 5
-        // In production, track windowed operation counts
-        let global = self.global_op_count.read().unwrap();
-        *global > 10_000 // Placeholder: always high after 10K ops
+        let ratio = *self.write_ratio.read().unwrap();
+        let threshold = self.config.heat_thresholds.write_pressure_threshold;
+        ratio > threshold
+    }
+
+    /// Returns the current write ratio (0.0 = all reads, 1.0 = all writes).
+    pub fn get_write_ratio(&self) -> f32 {
+        *self.write_ratio.read().unwrap()
     }
 }
 
@@ -481,5 +523,148 @@ mod tests {
         // Heat should remain similar since not enough time passed
         let heat_after = tracker.get_heat(1, 0);
         assert!((heat_after - initial_heat).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_operation_is_write() {
+        assert!(!Operation::Get.is_write());
+        assert!(!Operation::Scan.is_write());
+        assert!(Operation::Put.is_write());
+        assert!(Operation::Delete.is_write());
+    }
+
+    #[test]
+    fn test_write_ratio_all_reads() {
+        let mut config = ATLLConfig::default();
+        config.heat_thresholds.half_life_ops = 100; // Faster convergence
+        config.heat_thresholds.write_pressure_threshold = 0.5;
+
+        let tracker = HeatTracker::new(config);
+
+        // All reads: write ratio should stay near 0
+        for _ in 0..1000 {
+            tracker.record_op(1, 0, Operation::Get);
+        }
+
+        let ratio = tracker.get_write_ratio();
+        assert!(
+            ratio < 0.1,
+            "Expected write ratio near 0 with all reads, got {}",
+            ratio
+        );
+        assert!(!tracker.estimate_write_pressure());
+    }
+
+    #[test]
+    fn test_write_ratio_all_writes() {
+        let mut config = ATLLConfig::default();
+        config.heat_thresholds.half_life_ops = 100; // Faster convergence
+        config.heat_thresholds.write_pressure_threshold = 0.5;
+
+        let tracker = HeatTracker::new(config);
+
+        // All writes: write ratio should converge near 1
+        for _ in 0..1000 {
+            tracker.record_op(1, 0, Operation::Put);
+        }
+
+        let ratio = tracker.get_write_ratio();
+        assert!(
+            ratio > 0.9,
+            "Expected write ratio near 1 with all writes, got {}",
+            ratio
+        );
+        assert!(tracker.estimate_write_pressure());
+    }
+
+    #[test]
+    fn test_write_ratio_mixed_workload() {
+        let mut config = ATLLConfig::default();
+        config.heat_thresholds.half_life_ops = 100; // Faster convergence
+        config.heat_thresholds.write_pressure_threshold = 0.5;
+
+        let tracker = HeatTracker::new(config);
+
+        // 50% reads, 50% writes
+        for i in 0..1000 {
+            if i % 2 == 0 {
+                tracker.record_op(1, 0, Operation::Get);
+            } else {
+                tracker.record_op(1, 0, Operation::Put);
+            }
+        }
+
+        let ratio = tracker.get_write_ratio();
+        // Should be around 0.5
+        assert!(
+            ratio > 0.4 && ratio < 0.6,
+            "Expected write ratio near 0.5 with 50/50 mix, got {}",
+            ratio
+        );
+    }
+
+    #[test]
+    fn test_write_pressure_threshold_custom() {
+        let mut config = ATLLConfig::default();
+        config.heat_thresholds.half_life_ops = 100; // Faster convergence
+        config.heat_thresholds.write_pressure_threshold = 0.7; // Higher threshold
+
+        let tracker = HeatTracker::new(config);
+
+        // 60% writes
+        for i in 0..1000 {
+            if i % 5 < 2 {
+                tracker.record_op(1, 0, Operation::Get);
+            } else {
+                tracker.record_op(1, 0, Operation::Put);
+            }
+        }
+
+        let ratio = tracker.get_write_ratio();
+        // Ratio should be around 0.6, which is below threshold 0.7
+        assert!(
+            !tracker.estimate_write_pressure(),
+            "Expected low pressure with ratio {} < threshold 0.7",
+            ratio
+        );
+    }
+
+    #[test]
+    fn test_write_ratio_adapts_to_workload_change() {
+        let mut config = ATLLConfig::default();
+        config.heat_thresholds.half_life_ops = 50; // Very fast convergence
+        config.heat_thresholds.write_pressure_threshold = 0.5;
+
+        let tracker = HeatTracker::new(config);
+
+        // Start with all writes
+        for _ in 0..500 {
+            tracker.record_op(1, 0, Operation::Put);
+        }
+
+        let ratio_after_writes = tracker.get_write_ratio();
+        assert!(
+            ratio_after_writes > 0.8,
+            "Expected high ratio after writes, got {}",
+            ratio_after_writes
+        );
+
+        // Switch to all reads
+        for _ in 0..500 {
+            tracker.record_op(1, 0, Operation::Get);
+        }
+
+        let ratio_after_reads = tracker.get_write_ratio();
+        assert!(
+            ratio_after_reads < ratio_after_writes,
+            "Expected ratio to decrease after reads: {} vs {}",
+            ratio_after_reads,
+            ratio_after_writes
+        );
+        assert!(
+            ratio_after_reads < 0.3,
+            "Expected low ratio after reads, got {}",
+            ratio_after_reads
+        );
     }
 }

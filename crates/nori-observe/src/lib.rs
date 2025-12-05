@@ -165,6 +165,15 @@ pub enum LsmKind {
     L0AdmissionComplete { file_number: u64, target_slot: u32 },
     /// Guard adjustment proposed
     GuardAdjustment { level: u8, new_guard_count: usize },
+    /// Write pressure update (EWMA of write ratio)
+    WritePressureUpdate {
+        /// Current write ratio (0.0 = all reads, 1.0 = all writes)
+        ratio: f32,
+        /// Whether pressure exceeds threshold
+        high: bool,
+        /// Configured threshold for comparison
+        threshold: f32,
+    },
 }
 
 #[derive(Clone, Debug)]

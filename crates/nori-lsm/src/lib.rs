@@ -2785,6 +2785,18 @@ impl LsmEngine {
                 }
             }
 
+            // Emit write pressure event (global metric, once per cycle)
+            let write_ratio = heat.get_write_ratio();
+            let write_threshold = config.heat_thresholds.write_pressure_threshold;
+            meter.emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
+                node: 0, // TODO: Get node ID from config
+                kind: nori_observe::LsmKind::WritePressureUpdate {
+                    ratio: write_ratio,
+                    high: write_pressure_high,
+                    threshold: write_threshold,
+                },
+            }));
+
             // Select compaction action
             let action = {
                 let manifest_guard = manifest.read();

@@ -9,7 +9,7 @@ readme = "README.md"
 
 [dependencies]
 nori-observe = { path = "../nori-observe" }
-tokio = { version = "1.42", features = ["sync", "time", "rt", "macros"] }
+tokio = { version = "1.42", features = ["sync", "time", "rt", "macros", "net"] }
 async-trait = "0.1"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }

@@ -9,7 +9,6 @@
 
 use crate::shard_manager::{ShardManager, ShardId};
 use nori_raft::NodeId;
-use nori_swim::Membership;
 use norikv_transport_grpc::ClusterViewProvider;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -208,10 +207,9 @@ impl ClusterViewManager {
     /// Returns a task handle that can be aborted on shutdown.
     pub fn start_topology_watcher(
         self: Arc<Self>,
-        swim: Arc<nori_swim::SwimMembership>,
+        mut events: tokio::sync::broadcast::Receiver<nori_swim::MembershipEvent>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            let mut events = swim.events();
 
             tracing::info!("Topology watcher started, listening for SWIM events");
 

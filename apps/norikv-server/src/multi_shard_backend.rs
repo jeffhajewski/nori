@@ -283,6 +283,6 @@ mod tests {
                 Err(e) => panic!("GET failed after {} retries: {:?}", get_retries, e),
             }
         };
-        assert_eq!(retrieved, Some(value));
+        assert_eq!(retrieved.map(|(v, _, _)| v), Some(value));
     }
 }

@@ -8,7 +8,7 @@ use crate::health::HealthChecker;
 use crate::shard_manager::ShardManager;
 use nori_lsm::ATLLConfig;
 use nori_raft::{ConfigEntry, NodeId, RaftConfig};
-use nori_swim::{Membership, SwimMembership};
+use nori_swim::{SwimConfig, SwimNode, UdpTransport};
 use norikv_transport_grpc::{GrpcRaftTransport, GrpcServer};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ pub struct Node {
     meter: Arc<crate::metrics::PrometheusMeter>,
 
     /// SWIM membership (optional, for multi-node clusters)
-    swim: Option<Arc<SwimMembership>>,
+    swim: Option<Arc<SwimNode<UdpTransport>>>,
 
     /// gRPC server (optional, created on start)
     grpc_server: Option<GrpcServer>,
@@ -191,10 +191,26 @@ impl Node {
         // Create SWIM membership if multi-node
         let swim = if !is_single_node {
             tracing::info!("Creating SWIM membership for cluster");
-            let swim_addr = config.rpc_addr.parse().map_err(|e| {
+            let swim_addr: std::net::SocketAddr = config.rpc_addr.parse().map_err(|e| {
                 NodeError::Initialization(format!("Invalid rpc_addr for SWIM: {}", e))
             })?;
-            let swim = Arc::new(SwimMembership::new(config.node_id.clone(), swim_addr));
+
+            // Create UDP transport for SWIM
+            // Use a separate port for SWIM (rpc_port + 1000)
+            let swim_port = swim_addr.port() + 1000;
+            let swim_bind_addr = std::net::SocketAddr::new(swim_addr.ip(), swim_port);
+
+            let transport = UdpTransport::bind(swim_bind_addr).await.map_err(|e| {
+                NodeError::Initialization(format!("Failed to bind SWIM UDP transport: {}", e))
+            })?;
+
+            let swim_config = SwimConfig::default();
+            let swim = Arc::new(SwimNode::new(
+                config.node_id.clone(),
+                swim_bind_addr,
+                swim_config,
+                Arc::new(transport),
+            ));
             Some(swim)
         } else {
             tracing::info!("Single-node mode: SWIM membership disabled");
@@ -302,8 +318,9 @@ impl Node {
         // Start topology watcher if SWIM is enabled
         if let Some(swim) = &self.swim {
             tracing::info!("Starting topology watcher to listen for SWIM events");
+            let events = swim.events();
             let topology_watcher_task = self.cluster_view.clone()
-                .start_topology_watcher(swim.clone());
+                .start_topology_watcher(events);
             self.topology_watcher_task = Some(topology_watcher_task);
             tracing::info!("Topology watcher started");
         }
@@ -311,17 +328,21 @@ impl Node {
         // Start SWIM membership and join cluster
         if let Some(swim) = &self.swim {
             tracing::info!("Starting SWIM membership");
-            swim.start().await
-                .map_err(|e| NodeError::Startup(format!("Failed to start SWIM: {:?}", e)))?;
+            swim.clone().start();
 
             // Join cluster via first seed node
             if let Some(seed) = self.config.cluster.seed_nodes.first() {
-                let seed_addr = seed.parse().map_err(|e| {
+                // Parse seed address and use SWIM port (rpc_port + 1000)
+                let seed_rpc_addr: std::net::SocketAddr = seed.parse().map_err(|e| {
                     NodeError::Startup(format!("Invalid seed node address: {}", e))
                 })?;
+                let seed_swim_addr = std::net::SocketAddr::new(
+                    seed_rpc_addr.ip(),
+                    seed_rpc_addr.port() + 1000,
+                );
 
-                tracing::info!("Joining cluster via seed: {}", seed_addr);
-                swim.join(seed_addr).await
+                tracing::info!("Joining cluster via seed: {}", seed_swim_addr);
+                swim.join(seed_swim_addr).await
                     .map_err(|e| NodeError::Startup(format!("Failed to join cluster: {:?}", e)))?;
             }
 
@@ -374,8 +395,9 @@ impl Node {
         // SWIM leave
         if let Some(swim) = &self.swim {
             tracing::info!("Leaving SWIM cluster");
-            swim.shutdown().await
-                .map_err(|e| NodeError::Shutdown(format!("Failed to shutdown SWIM: {:?}", e)))?;
+            swim.leave().await
+                .map_err(|e| NodeError::Shutdown(format!("Failed to leave SWIM cluster: {:?}", e)))?;
+            swim.shutdown();
             tracing::info!("SWIM shutdown complete");
         }
 

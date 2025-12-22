@@ -243,6 +243,7 @@ async fn test_vector_insert_and_search() {
         query: vec![0.1, 0.2, 0.3, 0.4],
         k: 5,
         include_vectors: true,
+        consistency: String::new(),
     };
 
     let search_resp = client.search(search_req)
@@ -264,6 +265,7 @@ async fn test_vector_insert_and_search() {
     let get_req = VectorGetRequest {
         namespace: "embeddings".to_string(),
         id: "doc-1".to_string(),
+        consistency: String::new(),
     };
 
     let get_resp = client.get(get_req)

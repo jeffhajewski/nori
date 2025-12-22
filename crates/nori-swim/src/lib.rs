@@ -15,6 +15,7 @@
 //! - [`message`]: Wire protocol messages (Ping, Ack, PingReq, etc.)
 //! - [`transport`]: Transport abstraction for network I/O
 
+pub mod chaos;
 pub mod config;
 pub mod member_list;
 pub mod message;
@@ -24,6 +25,7 @@ pub mod suspicion;
 pub mod timer;
 pub mod transport;
 
+pub use chaos::{ChaosConfig, ChaosStats, ChaosTransport};
 pub use config::{ConfigError, SwimConfig};
 pub use member_list::MemberList;
 pub use message::{GossipEntry, MessageError, SwimMessage};
@@ -31,7 +33,7 @@ pub use node::SwimNode;
 pub use probe::ProbeManager;
 pub use suspicion::SuspicionManager;
 pub use timer::{PeriodicTimer, Timeout, TimeoutResult};
-pub use transport::{create_transport_mesh, InMemoryTransport, SwimTransport};
+pub use transport::{create_transport_mesh, InMemoryTransport, SwimTransport, UdpTransport};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

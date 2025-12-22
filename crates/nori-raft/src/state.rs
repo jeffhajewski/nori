@@ -26,12 +26,73 @@ use crate::config::RaftConfig;
 use crate::error::Result;
 use crate::lease::LeaseState;
 use crate::log::RaftLog;
+use crate::snapshot::Snapshot;
 use crate::transport::RaftTransport;
 use crate::types::*;
+use bytes::Bytes;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Pending snapshot being received in chunks.
+///
+/// Used by followers to buffer incoming snapshot chunks from the leader.
+/// When all chunks are received (`done == true`), the snapshot can be installed.
+#[derive(Debug)]
+pub struct PendingSnapshot {
+    /// Last included index in the snapshot
+    pub last_included_index: LogIndex,
+    /// Last included term in the snapshot
+    pub last_included_term: Term,
+    /// Buffer for snapshot data
+    pub data: Vec<u8>,
+    /// Total bytes received so far
+    pub bytes_received: u64,
+}
+
+impl PendingSnapshot {
+    /// Create a new pending snapshot.
+    pub fn new(last_included_index: LogIndex, last_included_term: Term) -> Self {
+        Self {
+            last_included_index,
+            last_included_term,
+            data: Vec::new(),
+            bytes_received: 0,
+        }
+    }
+
+    /// Append chunk data at the given offset.
+    ///
+    /// Returns the new bytes_received count.
+    pub fn append_chunk(&mut self, offset: u64, data: &[u8]) -> u64 {
+        let offset = offset as usize;
+
+        // Extend buffer if needed
+        if offset + data.len() > self.data.len() {
+            self.data.resize(offset + data.len(), 0);
+        }
+
+        // Copy chunk data
+        self.data[offset..offset + data.len()].copy_from_slice(data);
+
+        self.bytes_received = (offset + data.len()) as u64;
+        self.bytes_received
+    }
+}
+
+/// Complete snapshot ready for installation.
+///
+/// Created when all chunks of a snapshot have been received.
+#[derive(Debug, Clone)]
+pub struct CompletePendingSnapshot {
+    /// Last included index in the snapshot
+    pub last_included_index: LogIndex,
+    /// Last included term in the snapshot
+    pub last_included_term: Term,
+    /// Complete snapshot data
+    pub data: Bytes,
+}
 
 /// Raft node state machine.
 ///
@@ -90,6 +151,20 @@ pub struct VolatileState {
     /// Highest log index included in the last snapshot
     /// Used to determine when to create a new snapshot
     pub last_snapshot_index: LogIndex,
+
+    /// Cached snapshot for sending to followers
+    /// Updated when create_snapshot is called
+    pub last_snapshot: Option<Arc<Snapshot>>,
+
+    /// Pending snapshot being received from leader (chunk buffering)
+    /// Set when receiving InstallSnapshot with offset == 0
+    /// Cleared when snapshot is complete and ready for installation
+    pub pending_snapshot: Option<PendingSnapshot>,
+
+    /// Complete pending snapshot ready for installation
+    /// Set when all chunks received (done == true)
+    /// Consumed by apply_loop to restore state machine
+    pub complete_pending_snapshot: Option<CompletePendingSnapshot>,
 
     /// Leader-specific state (only valid when role == Leader)
     pub leader_state: Option<LeaderState>,
@@ -150,6 +225,9 @@ impl RaftState {
                 commit_index: LogIndex::ZERO,
                 last_applied: LogIndex::ZERO,
                 last_snapshot_index: LogIndex::ZERO,
+                last_snapshot: None,
+                pending_snapshot: None,
+                complete_pending_snapshot: None,
                 leader_state: None,
                 last_heartbeat: Instant::now(),
                 config: initial_config,
@@ -193,6 +271,32 @@ impl RaftState {
     /// Get a reference to the volatile state.
     pub fn volatile_state(&self) -> &Arc<RwLock<VolatileState>> {
         &self.volatile
+    }
+
+    /// Get a reference to the Raft configuration.
+    pub fn config(&self) -> &RaftConfig {
+        &self.config
+    }
+
+    /// Get the cached snapshot for sending to followers.
+    pub fn last_snapshot(&self) -> Option<Arc<Snapshot>> {
+        self.volatile.read().last_snapshot.clone()
+    }
+
+    /// Set the cached snapshot (called after create_snapshot).
+    pub fn set_last_snapshot(&self, snapshot: Arc<Snapshot>) {
+        let mut volatile = self.volatile.write();
+        volatile.last_snapshot_index = snapshot.metadata.last_included_index;
+        volatile.last_snapshot = Some(snapshot);
+    }
+
+    /// Take the complete pending snapshot if available.
+    ///
+    /// Returns the snapshot and clears the pending state.
+    /// Called by apply_loop to install received snapshots.
+    pub fn take_complete_pending_snapshot(&self) -> Option<CompletePendingSnapshot> {
+        let mut volatile = self.volatile.write();
+        volatile.complete_pending_snapshot.take()
     }
 
     /// Set the current term (for testing).
@@ -364,7 +468,8 @@ impl RaftState {
     /// Handle InstallSnapshot RPC.
     ///
     /// Invoked by leader when follower is too far behind (log compacted).
-    /// Replaces follower's log with snapshot.
+    /// Receives snapshot in chunks and buffers until complete.
+    /// When all chunks received (done == true), marks snapshot ready for installation.
     pub async fn handle_install_snapshot(
         &self,
         request: InstallSnapshotRequest,
@@ -389,13 +494,76 @@ impl RaftState {
         volatile.last_heartbeat = Instant::now();
         volatile.leader_id = Some(request.leader_id.clone());
 
-        // Note: Full snapshot installation is handled at a higher level (Raft struct).
-        // This handler just acknowledges the RPC and returns metadata.
-        // The actual state machine restoration happens via Raft::install_snapshot.
+        // If offset == 0, start a new pending snapshot
+        if request.offset == 0 {
+            tracing::info!(
+                leader = ?request.leader_id,
+                last_included_index = %request.last_included_index,
+                last_included_term = %request.last_included_term,
+                "Starting to receive snapshot from leader"
+            );
+            volatile.pending_snapshot = Some(PendingSnapshot::new(
+                request.last_included_index,
+                request.last_included_term,
+            ));
+        }
+
+        // Append chunk to pending snapshot
+        let bytes_stored = if let Some(ref mut pending) = volatile.pending_snapshot {
+            // Verify snapshot metadata matches
+            if pending.last_included_index != request.last_included_index
+                || pending.last_included_term != request.last_included_term
+            {
+                tracing::warn!(
+                    expected_index = %pending.last_included_index,
+                    expected_term = %pending.last_included_term,
+                    got_index = %request.last_included_index,
+                    got_term = %request.last_included_term,
+                    "Snapshot metadata mismatch, resetting"
+                );
+                // Reset and start fresh
+                volatile.pending_snapshot = Some(PendingSnapshot::new(
+                    request.last_included_index,
+                    request.last_included_term,
+                ));
+                let pending = volatile.pending_snapshot.as_mut().unwrap();
+                pending.append_chunk(request.offset, &request.data)
+            } else {
+                pending.append_chunk(request.offset, &request.data)
+            }
+        } else {
+            // No pending snapshot and offset != 0 - stale chunk, ignore
+            tracing::warn!(
+                offset = request.offset,
+                "Received snapshot chunk with no pending snapshot, ignoring"
+            );
+            return Ok(InstallSnapshotResponse {
+                term: persistent.current_term,
+                bytes_stored: 0,
+            });
+        };
+
+        // If done, move to complete pending snapshot
+        if request.done {
+            if let Some(pending) = volatile.pending_snapshot.take() {
+                tracing::info!(
+                    last_included_index = %pending.last_included_index,
+                    last_included_term = %pending.last_included_term,
+                    bytes = pending.bytes_received,
+                    "Snapshot fully received, ready for installation"
+                );
+
+                volatile.complete_pending_snapshot = Some(CompletePendingSnapshot {
+                    last_included_index: pending.last_included_index,
+                    last_included_term: pending.last_included_term,
+                    data: Bytes::from(pending.data),
+                });
+            }
+        }
 
         Ok(InstallSnapshotResponse {
             term: persistent.current_term,
-            bytes_stored: request.data.len() as u64,
+            bytes_stored,
         })
     }
 
@@ -619,5 +787,161 @@ mod tests {
         let response = state.handle_request_vote(request).await.unwrap();
         assert!(!response.vote_granted);
         assert_eq!(response.term, Term(10));
+    }
+
+    // ========== Snapshot Transfer Tests ==========
+
+    #[test]
+    fn test_pending_snapshot_append_chunk() {
+        let mut pending = PendingSnapshot::new(LogIndex(100), Term(5));
+
+        // Append first chunk
+        let chunk1 = b"Hello, ";
+        let bytes = pending.append_chunk(0, chunk1);
+        assert_eq!(bytes, chunk1.len() as u64);
+        assert_eq!(pending.bytes_received, chunk1.len() as u64);
+        assert_eq!(&pending.data[..], chunk1);
+
+        // Append second chunk
+        let chunk2 = b"World!";
+        let bytes = pending.append_chunk(chunk1.len() as u64, chunk2);
+        assert_eq!(bytes, (chunk1.len() + chunk2.len()) as u64);
+        assert_eq!(pending.data, b"Hello, World!");
+    }
+
+    #[test]
+    fn test_pending_snapshot_non_sequential_chunks() {
+        let mut pending = PendingSnapshot::new(LogIndex(100), Term(5));
+
+        // Append second chunk first (simulating out-of-order)
+        let chunk2 = b"World!";
+        pending.append_chunk(7, chunk2);
+
+        // Then first chunk
+        let chunk1 = b"Hello, ";
+        pending.append_chunk(0, chunk1);
+
+        // Both chunks should be in place
+        assert_eq!(pending.data, b"Hello, World!");
+    }
+
+    #[tokio::test]
+    async fn test_handle_install_snapshot_single_chunk() {
+        let (state, _temp) = create_test_state().await;
+
+        let snapshot_data = b"test snapshot data";
+        let request = InstallSnapshotRequest {
+            term: Term(1),
+            leader_id: NodeId::new("leader"),
+            last_included_index: LogIndex(100),
+            last_included_term: Term(1),
+            offset: 0,
+            data: Bytes::from(&snapshot_data[..]),
+            done: true,
+        };
+
+        let response = state.handle_install_snapshot(request).await.unwrap();
+        assert_eq!(response.term, Term(1));
+        assert_eq!(response.bytes_stored, snapshot_data.len() as u64);
+
+        // Verify complete snapshot is ready
+        let complete = state.take_complete_pending_snapshot();
+        assert!(complete.is_some());
+        let complete = complete.unwrap();
+        assert_eq!(complete.last_included_index, LogIndex(100));
+        assert_eq!(complete.last_included_term, Term(1));
+        assert_eq!(complete.data.as_ref(), snapshot_data);
+    }
+
+    #[tokio::test]
+    async fn test_handle_install_snapshot_multi_chunk() {
+        let (state, _temp) = create_test_state().await;
+
+        let chunk1 = b"first chunk ";
+        let chunk2 = b"second chunk";
+
+        // First chunk
+        let request1 = InstallSnapshotRequest {
+            term: Term(1),
+            leader_id: NodeId::new("leader"),
+            last_included_index: LogIndex(100),
+            last_included_term: Term(1),
+            offset: 0,
+            data: Bytes::from(&chunk1[..]),
+            done: false,
+        };
+
+        let response1 = state.handle_install_snapshot(request1).await.unwrap();
+        assert_eq!(response1.bytes_stored, chunk1.len() as u64);
+
+        // Verify snapshot is pending but not complete
+        assert!(state.take_complete_pending_snapshot().is_none());
+
+        // Second chunk (final)
+        let request2 = InstallSnapshotRequest {
+            term: Term(1),
+            leader_id: NodeId::new("leader"),
+            last_included_index: LogIndex(100),
+            last_included_term: Term(1),
+            offset: chunk1.len() as u64,
+            data: Bytes::from(&chunk2[..]),
+            done: true,
+        };
+
+        let response2 = state.handle_install_snapshot(request2).await.unwrap();
+        assert_eq!(response2.bytes_stored, (chunk1.len() + chunk2.len()) as u64);
+
+        // Verify complete snapshot is ready
+        let complete = state.take_complete_pending_snapshot();
+        assert!(complete.is_some());
+        let complete = complete.unwrap();
+        assert_eq!(complete.data.as_ref(), b"first chunk second chunk");
+    }
+
+    #[tokio::test]
+    async fn test_handle_install_snapshot_rejects_stale_term() {
+        let (state, _temp) = create_test_state().await;
+
+        // Set current term higher
+        state.set_current_term(Term(5));
+
+        let request = InstallSnapshotRequest {
+            term: Term(3), // Stale term
+            leader_id: NodeId::new("leader"),
+            last_included_index: LogIndex(100),
+            last_included_term: Term(3),
+            offset: 0,
+            data: Bytes::from("data"),
+            done: true,
+        };
+
+        let response = state.handle_install_snapshot(request).await.unwrap();
+        assert_eq!(response.term, Term(5));
+        assert_eq!(response.bytes_stored, 0);
+
+        // Verify no snapshot was stored
+        assert!(state.take_complete_pending_snapshot().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_handle_install_snapshot_stale_chunk_ignored() {
+        let (state, _temp) = create_test_state().await;
+
+        // Send a chunk with offset != 0 but no pending snapshot
+        let request = InstallSnapshotRequest {
+            term: Term(1),
+            leader_id: NodeId::new("leader"),
+            last_included_index: LogIndex(100),
+            last_included_term: Term(1),
+            offset: 100, // Non-zero offset with no pending snapshot
+            data: Bytes::from("orphan chunk"),
+            done: false,
+        };
+
+        let response = state.handle_install_snapshot(request).await.unwrap();
+        assert_eq!(response.bytes_stored, 0); // Should be rejected
+
+        // Verify no pending snapshot was created
+        assert!(state.take_complete_pending_snapshot().is_none());
     }
 }

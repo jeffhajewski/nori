@@ -603,6 +603,56 @@ impl ManifestLog {
         Arc::clone(&self.snapshot)
     }
 
+    /// Restore from a snapshot received from Raft leader.
+    ///
+    /// Replaces the in-memory snapshot and writes a new MANIFEST file.
+    /// This is used when a follower receives a snapshot via InstallSnapshot RPC.
+    pub fn restore_from_snapshot(&mut self, new_snapshot: ManifestSnapshot) -> Result<()> {
+        // Start new MANIFEST file
+        let new_manifest_number = self.current_manifest_number + 1;
+        let new_manifest_path = Self::manifest_path(&self.manifest_dir, new_manifest_number);
+
+        let mut new_writer = BufWriter::new(File::create(&new_manifest_path)?);
+
+        // Write snapshot as first edit
+        let snapshot_edit = ManifestEdit::Snapshot(Box::new(new_snapshot.clone()));
+        let encoded = bincode::serialize(&snapshot_edit)
+            .map_err(|e| Error::Manifest(format!("Failed to serialize snapshot: {}", e)))?;
+
+        let length = encoded.len() as u32;
+        let crc = crc32c::crc32c(&encoded);
+
+        new_writer.write_all(&length.to_le_bytes())?;
+        new_writer.write_all(&encoded)?;
+        new_writer.write_all(&crc.to_le_bytes())?;
+        new_writer.flush()?;
+        new_writer.get_ref().sync_all()?;
+
+        // Update CURRENT file
+        Self::write_current_file(&self.manifest_dir, new_manifest_number)?;
+
+        // Replace in-memory snapshot
+        {
+            let mut snapshot = self.snapshot.write();
+            *snapshot = new_snapshot;
+        }
+
+        // Update state
+        self.writer = Some(new_writer);
+        self.current_manifest_number = new_manifest_number;
+        self.edits_since_snapshot = 0;
+
+        // Clean up old MANIFEST files
+        self.cleanup_old_manifests()?;
+
+        tracing::info!(
+            manifest_number = new_manifest_number,
+            "Manifest restored from snapshot"
+        );
+
+        Ok(())
+    }
+
     /// Recovers the MANIFEST from disk.
     fn recover(manifest_dir: &Path, max_levels: u8) -> Result<(ManifestSnapshot, u64)> {
         let current_path = manifest_dir.join("CURRENT");

@@ -9,17 +9,122 @@
 
 use crate::config::RaftConfig;
 use crate::error::Result;
+use crate::snapshot::Snapshot;
 use crate::state::RaftState;
 use crate::transport::RaftTransport;
 use crate::types::*;
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
 
+/// Send a snapshot to a follower that is too far behind.
+///
+/// Per Raft §7 (Log compaction):
+/// - Leader sends InstallSnapshot RPC when follower is behind snapshot point
+/// - Snapshot is chunked for large transfers
+/// - On success, updates next_index to last_included_index + 1
+///
+/// Returns true if snapshot was successfully installed, false otherwise.
+pub async fn send_snapshot_to_follower(
+    state: Arc<RaftState>,
+    follower: &NodeId,
+    transport: Arc<dyn RaftTransport>,
+    snapshot: Arc<Snapshot>,
+) -> Result<bool> {
+    let current_term = state.current_term();
+    let leader_id = state.node_id().clone();
+    let chunk_size = state.config().snapshot_chunk_size;
+
+    // Serialize the snapshot to bytes
+    let mut snapshot_bytes = Vec::new();
+    snapshot.write_to(&mut snapshot_bytes)?;
+
+    let total_size = snapshot_bytes.len();
+    let last_included_index = snapshot.metadata.last_included_index;
+    let last_included_term = snapshot.metadata.last_included_term;
+
+    tracing::info!(
+        follower = ?follower,
+        last_included_index = %last_included_index,
+        snapshot_size = total_size,
+        chunk_size = chunk_size,
+        "Sending snapshot to follower"
+    );
+
+    // Send snapshot in chunks
+    let mut offset: u64 = 0;
+    while (offset as usize) < total_size {
+        let start = offset as usize;
+        let end = std::cmp::min(start + chunk_size, total_size);
+        let chunk_data = bytes::Bytes::copy_from_slice(&snapshot_bytes[start..end]);
+        let done = end >= total_size;
+
+        let request = InstallSnapshotRequest {
+            term: current_term,
+            leader_id: leader_id.clone(),
+            last_included_index,
+            last_included_term,
+            offset,
+            data: chunk_data,
+            done,
+        };
+
+        match transport.install_snapshot(follower, request).await {
+            Ok(response) => {
+                // Check for higher term (step down if needed)
+                if response.term > current_term {
+                    tracing::warn!(
+                        follower = ?follower,
+                        their_term = %response.term,
+                        our_term = %current_term,
+                        "Follower has higher term during snapshot transfer"
+                    );
+                    return Ok(false);
+                }
+
+                // Move to next chunk
+                offset = response.bytes_stored;
+
+                if done {
+                    tracing::info!(
+                        follower = ?follower,
+                        last_included_index = %last_included_index,
+                        "Snapshot transfer complete"
+                    );
+
+                    // Update next_index for this follower
+                    let mut volatile = state.volatile_state().write();
+                    if let Some(leader_state) = volatile.leader_state.as_mut() {
+                        leader_state
+                            .next_index
+                            .insert(follower.clone(), last_included_index.next());
+                        leader_state
+                            .match_index
+                            .insert(follower.clone(), last_included_index);
+                    }
+
+                    return Ok(true);
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    follower = ?follower,
+                    error = ?e,
+                    offset = offset,
+                    "Failed to send snapshot chunk"
+                );
+                return Ok(false);
+            }
+        }
+    }
+
+    Ok(true)
+}
+
 /// Replicate to a single follower.
 ///
 /// Sends AppendEntries RPC with entries starting from next_index[follower].
 /// If follower is too far behind (next_index <= last_snapshot_index),
-/// logs a warning that snapshot should be sent.
+/// sends a snapshot instead.
 ///
 /// Updates next_index and match_index based on response.
 ///
@@ -49,17 +154,29 @@ pub async fn replicate_to_follower(
     // Check if follower needs a snapshot
     // (next_index points to entry that's been compacted)
     if next_idx <= last_snapshot_index && last_snapshot_index > LogIndex::ZERO {
-        tracing::warn!(
+        tracing::info!(
             follower = ?follower,
             next_index = %next_idx,
             last_snapshot_index = %last_snapshot_index,
-            "Follower is behind snapshot point - snapshot transfer not yet implemented. \
-             Follower will need to catch up via snapshot installation."
+            "Follower is behind snapshot point - sending snapshot"
         );
-        // TODO: Implement snapshot sending
-        // For now, return false to indicate replication did not succeed
-        // The follower will remain behind until snapshot support is fully implemented
-        return Ok(false);
+
+        // Get the cached snapshot
+        if let Some(snapshot) = state.last_snapshot() {
+            return send_snapshot_to_follower(
+                state.clone(),
+                follower,
+                transport.clone(),
+                snapshot,
+            )
+            .await;
+        } else {
+            tracing::warn!(
+                follower = ?follower,
+                "No snapshot available to send to lagging follower"
+            );
+            return Ok(false);
+        }
     }
 
     // Get prev_log info for consistency check
@@ -331,6 +448,9 @@ pub async fn heartbeat_loop(
 /// If so, applies entries [last_applied+1..commit_index] to state machine
 /// via the applied channel.
 ///
+/// Also checks for complete pending snapshots from InstallSnapshot RPCs.
+/// When a snapshot is ready, restores state machine and updates indices.
+///
 /// If a state_machine is provided, entries are automatically applied to it.
 /// Otherwise, clients consume from the applied channel to update their state machine.
 pub async fn apply_loop(
@@ -345,6 +465,54 @@ pub async fn apply_loop(
     loop {
         tokio::select! {
             _ = ticker.tick() => {
+                // First, check for complete pending snapshots to install
+                if let Some(complete_snapshot) = state.take_complete_pending_snapshot() {
+                    tracing::info!(
+                        last_included_index = %complete_snapshot.last_included_index,
+                        last_included_term = %complete_snapshot.last_included_term,
+                        bytes = complete_snapshot.data.len(),
+                        "Installing received snapshot"
+                    );
+
+                    // Install to state machine if provided
+                    if let Some(ref sm) = state_machine {
+                        let mut sm_lock = sm.lock().await;
+                        match sm_lock.restore(&complete_snapshot.data) {
+                            Ok(()) => {
+                                tracing::info!(
+                                    last_included_index = %complete_snapshot.last_included_index,
+                                    "Snapshot restored to state machine"
+                                );
+
+                                // Update last_applied and last_snapshot_index
+                                let mut volatile = state.volatile_state().write();
+                                volatile.last_applied = complete_snapshot.last_included_index;
+                                volatile.last_snapshot_index = complete_snapshot.last_included_index;
+
+                                // Update commit_index if behind
+                                if volatile.commit_index < complete_snapshot.last_included_index {
+                                    volatile.commit_index = complete_snapshot.last_included_index;
+                                }
+
+                                // Truncate log (entries before snapshot are no longer needed)
+                                // Note: This is handled by log compaction, not here
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    error = ?e,
+                                    "Failed to restore snapshot to state machine"
+                                );
+                                // Continue - we'll retry on next tick if snapshot is re-sent
+                            }
+                        }
+                    } else {
+                        tracing::warn!("Received snapshot but no state machine to restore to");
+                    }
+
+                    // Skip normal apply loop for this tick to avoid conflicts
+                    continue;
+                }
+
                 // Get last_applied and commit_index
                 let (last_applied, commit_index) = {
                     let volatile = state.volatile_state().read();

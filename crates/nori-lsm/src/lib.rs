@@ -1687,6 +1687,107 @@ impl LsmEngine {
         Ok(())
     }
 
+    /// Restore LSM state from a snapshot received via Raft InstallSnapshot.
+    ///
+    /// This is used when a follower receives a snapshot from the leader because
+    /// it fell too far behind in log replication. The snapshot contains a serialized
+    /// ManifestSnapshot with references to SSTable files.
+    ///
+    /// # Requirements
+    /// - All SSTable files referenced in the snapshot must exist locally
+    /// - If any files are missing, returns an error (full data transfer not yet supported)
+    ///
+    /// # Process
+    /// 1. Deserialize the manifest snapshot
+    /// 2. Verify all SSTable files exist on disk
+    /// 3. Pause compaction
+    /// 4. Clear memtable (drop in-memory writes)
+    /// 5. Restore manifest from snapshot
+    /// 6. Resume compaction
+    ///
+    /// Note: WAL is not truncated here - the caller should handle WAL state.
+    pub async fn restore_from_snapshot(&self, snapshot_data: &[u8]) -> Result<()> {
+        use std::sync::atomic::Ordering;
+
+        // 1. Deserialize the manifest snapshot
+        let manifest_snapshot: crate::manifest::ManifestSnapshot =
+            bincode::deserialize(snapshot_data)
+                .map_err(|e| Error::Internal(format!("Failed to deserialize snapshot: {}", e)))?;
+
+        let files = manifest_snapshot.all_files();
+        tracing::info!(
+            "Restoring from snapshot: version={}, files={}, levels={}",
+            manifest_snapshot.version,
+            files.len(),
+            manifest_snapshot.levels.len()
+        );
+
+        // 2. Verify all SSTable files exist locally
+        let mut missing_files = Vec::new();
+        for file_meta in &files {
+            let sst_path = self.sst_dir.join(format!("{:06}.sst", file_meta.file_number));
+            if !sst_path.exists() {
+                missing_files.push(file_meta.file_number);
+            }
+        }
+
+        if !missing_files.is_empty() {
+            return Err(Error::Internal(format!(
+                "Cannot restore snapshot: {} SSTable files missing ({:?}). \
+                Full SSTable data transfer not yet supported.",
+                missing_files.len(),
+                missing_files
+            )));
+        }
+
+        // 3. Pause compaction
+        tracing::info!("Pausing compaction for snapshot restore");
+        self.compaction_shutdown.store(true, Ordering::SeqCst);
+
+        // Give compaction a moment to notice the shutdown signal
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 4. Clear memtable (replace with new empty memtable)
+        {
+            let mut memtable_guard = self.memtable.write();
+            let current_seqno = self.seqno.load(Ordering::SeqCst);
+            *memtable_guard = Memtable::new(Version::new(0, current_seqno));
+
+            // Reset atomic size counter
+            self.memtable_size.store(0, Ordering::Relaxed);
+
+            // Invalidate pressure cache
+            self.cached_pressure.lock().invalidate();
+
+            tracing::info!("Memtable cleared for snapshot restore");
+        }
+
+        // Clear immutable memtables too
+        {
+            let mut immutables = self.immutable_memtables.write();
+            immutables.clear();
+        }
+
+        // 5. Restore manifest from snapshot
+        {
+            let mut manifest = self.manifest.write();
+            manifest.restore_from_snapshot(manifest_snapshot)?;
+        }
+
+        // Clear SSTable reader cache (files may have changed)
+        {
+            let mut cache = self.reader_cache.lock();
+            cache.clear();
+        }
+
+        // 6. Resume compaction
+        tracing::info!("Resuming compaction after snapshot restore");
+        self.compaction_shutdown.store(false, Ordering::SeqCst);
+
+        tracing::info!("LSM snapshot restoration complete");
+        Ok(())
+    }
+
     /// Freezes the active memtable and initiates background flush.
     ///
     /// # Process

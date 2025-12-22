@@ -197,38 +197,20 @@ impl LsmStateMachine {
 
     /// Restore LSM state from a snapshot.
     ///
-    /// Deserializes and validates the snapshot. Full restoration would require:
-    /// - Ensuring all SSTable files referenced in snapshot exist on disk
-    /// - Stopping ongoing compactions
-    /// - Clearing memtable and WAL
-    /// - Applying manifest snapshot atomically
+    /// Delegates to `LsmEngine::restore_from_snapshot` which:
+    /// - Deserializes the manifest snapshot
+    /// - Verifies all SSTable files exist locally
+    /// - Pauses compaction, clears memtable, restores manifest, resumes compaction
     ///
-    /// For now, this validates deserialization and logs snapshot metadata.
-    /// File transfer and atomic restoration will be implemented when needed.
+    /// Returns error if any SSTable files are missing (full data transfer not yet supported).
     pub fn restore_snapshot(&mut self, snapshot: &[u8]) -> Result<()> {
-        // Deserialize the manifest snapshot
-        let manifest_snapshot: crate::manifest::ManifestSnapshot = bincode::deserialize(snapshot)
-            .map_err(|e| Error::Internal(format!("Failed to deserialize snapshot: {}", e)))?;
-
-        tracing::info!(
-            "Snapshot deserialized: version={}, files={}, levels={}",
-            manifest_snapshot.version,
-            manifest_snapshot.all_files().len(),
-            manifest_snapshot.levels.len()
-        );
-
-        // TODO: Full restoration requires:
-        // 1. Verify all SSTable files exist (or transfer them via Raft InstallSnapshot)
-        // 2. Stop compaction tasks
-        // 3. Clear memtable and WAL
-        // 4. Atomically replace manifest snapshot
-        // 5. Restart compaction
-
-        tracing::warn!("restore_snapshot: full restoration not yet implemented");
-
-        Err(Error::Internal(
-            "Snapshot restoration not fully implemented - requires SSTable file transfer".to_string()
-        ))
+        // Use tokio runtime to call the async restore method
+        // This is safe because we're already in an async context (Raft apply loop)
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.engine.restore_from_snapshot(snapshot).await
+            })
+        })
     }
 }
 
@@ -316,24 +298,57 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_snapshot_create_restore() {
         let (engine, _temp) = create_test_engine().await;
         let mut sm = LsmStateMachine::new(engine);
 
         // Create snapshot - should serialize manifest
         let snapshot = sm.create_snapshot().unwrap();
-        assert!(snapshot.len() > 0, "Snapshot should contain serialized manifest");
+        assert!(!snapshot.is_empty(), "Snapshot should contain serialized manifest");
 
-        // Restore snapshot - should deserialize but not fully restore
+        // Restore snapshot - for an empty engine with no SST files, should succeed
         let result = sm.restore_snapshot(&snapshot);
         assert!(
-            result.is_err(),
-            "Restore should fail with unimplemented error"
+            result.is_ok(),
+            "Restore should succeed when no SST files are referenced: {:?}",
+            result.err()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_snapshot_restore_missing_files() {
+        let (engine, _temp) = create_test_engine().await;
+        let mut sm = LsmStateMachine::new(engine);
+
+        // Create a fake manifest snapshot that references non-existent SST files
+        let mut manifest_snapshot = crate::manifest::ManifestSnapshot::with_levels(7);
+        manifest_snapshot.levels[0].l0_files.push(crate::manifest::RunMeta {
+            file_number: 999999,
+            size: 1024,
+            min_key: Bytes::from("a"),
+            max_key: Bytes::from("z"),
+            min_version: Version::new(0, 1),
+            max_version: Version::new(0, 100),
+            tombstone_count: 0,
+            filter_fp: 0.01,
+            heat_hint: 0.5,
+            value_log_segment_id: None,
+        });
+
+        let snapshot_data = bincode::serialize(&manifest_snapshot).unwrap();
+
+        // Restore should fail because SST file 999999 doesn't exist
+        let result = sm.restore_snapshot(&snapshot_data);
         assert!(
-            result.unwrap_err().to_string().contains("not fully implemented"),
-            "Error should indicate incomplete implementation"
+            result.is_err(),
+            "Restore should fail with missing SST files"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("SSTable files missing"),
+            "Error should indicate missing files: {}",
+            err_msg
         );
     }
 

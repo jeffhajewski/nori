@@ -173,6 +173,8 @@ mod tests {
         let (mut adapter, _temp) = create_test_adapter().await;
 
         // Write some data and create a snapshot
+        // Note: Data is in memtable, not yet flushed to SSTable, so snapshot
+        // should contain a manifest with no SST files
         use nori_lsm::raft_sm::Command;
         let cmd = Command::Put {
             key: Bytes::from("restore_key"),
@@ -185,23 +187,52 @@ mod tests {
         let snapshot = adapter.snapshot().unwrap();
 
         // Restore from snapshot
-        // Note: Full restoration requires SSTable file transfer, which isn't implemented yet
-        // So we expect this to fail with a specific error message
+        // Since data is only in memtable (not yet flushed to SSTables), the snapshot
+        // has no SST file references and restore should succeed
         let result = adapter.restore(&snapshot);
-
-        // Should fail with "not fully implemented" message
         assert!(
-            result.is_err(),
-            "Restore should fail until SSTable file transfer is implemented"
+            result.is_ok(),
+            "Restore should succeed when no SST files are referenced: {:?}",
+            result.err()
         );
 
-        if let Err(e) = result {
-            let error_msg = format!("{:?}", e);
-            assert!(
-                error_msg.contains("not fully implemented") || error_msg.contains("SSTable file transfer"),
-                "Expected 'not fully implemented' error, got: {}",
-                error_msg
-            );
-        }
+        // After restore, memtable is cleared (snapshot doesn't include memtable data)
+        // So the key we wrote should no longer be accessible
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_adapter_restore_missing_files() {
+        let (mut adapter, _temp) = create_test_adapter().await;
+
+        // Create a snapshot with a fake SSTable reference that doesn't exist
+        let mut manifest_snapshot = nori_lsm::manifest::ManifestSnapshot::with_levels(7);
+        manifest_snapshot.levels[0].l0_files.push(nori_lsm::manifest::RunMeta {
+            file_number: 888888,
+            size: 1024,
+            min_key: Bytes::from("a"),
+            max_key: Bytes::from("z"),
+            min_version: nori_lsm::Version::new(0, 1),
+            max_version: nori_lsm::Version::new(0, 100),
+            tombstone_count: 0,
+            filter_fp: 0.01,
+            heat_hint: 0.5,
+            value_log_segment_id: None,
+        });
+
+        let snapshot = bincode::serialize(&manifest_snapshot).unwrap();
+
+        // Restore should fail because the SSTable file doesn't exist
+        let result = adapter.restore(&snapshot);
+        assert!(
+            result.is_err(),
+            "Restore should fail when SST files are missing"
+        );
+
+        let err_msg = format!("{:?}", result.err().unwrap());
+        assert!(
+            err_msg.contains("SSTable files missing"),
+            "Expected 'SSTable files missing' error, got: {}",
+            err_msg
+        );
     }
 }

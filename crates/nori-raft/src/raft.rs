@@ -239,11 +239,8 @@ impl Raft {
 
         let snapshot = Snapshot::new(last_applied, last_term, config, data);
 
-        // Update last_snapshot_index tracking
-        {
-            let mut volatile = self.state.volatile_state().write();
-            volatile.last_snapshot_index = last_applied;
-        }
+        // Store snapshot for sending to followers
+        self.state.set_last_snapshot(Arc::new(snapshot.clone()));
 
         // Truncate log (keep entries after snapshot for ongoing replication)
         // We truncate at last_applied + 1, keeping all entries after the snapshot point

@@ -146,6 +146,12 @@ impl ShardManager {
         // Clone and customize LSM config for this shard
         let mut shard_lsm_config = self.lsm_config.clone();
         shard_lsm_config.data_dir = lsm_dir.clone();
+        // Set node_id for observability events (hash of base node ID)
+        shard_lsm_config.node_id = Self::node_id_hash(&self.config.node_id);
+
+        // Clone and customize Raft config for this shard
+        let mut shard_raft_config = self.raft_config.clone();
+        shard_raft_config.shard_id = shard_id;
 
         // Create node ID with shard suffix (e.g., "node1-shard0")
         let node_id = NodeId::new(format!("{}-shard{}", self.config.node_id, shard_id));
@@ -187,7 +193,7 @@ impl ShardManager {
         // Create ReplicatedLSM for this shard
         let replicated_lsm = ReplicatedLSM::new(
             node_id,
-            self.raft_config.clone(),
+            shard_raft_config,
             shard_lsm_config,
             raft_log,
             self.transport.clone(),
@@ -356,6 +362,19 @@ impl ShardManager {
     /// Gets the RPC sender for a shard (used by gRPC transport to route messages).
     pub async fn get_rpc_sender(&self, shard_id: ShardId) -> Option<tokio::sync::mpsc::Sender<RpcMessage>> {
         self.rpc_senders.read().await.get(&shard_id).cloned()
+    }
+
+    /// Derives a numeric node ID from a string node identifier.
+    ///
+    /// Uses a simple hash to convert the string to u32 for observability events.
+    /// Consistent across restarts as long as the node_id string is the same.
+    fn node_id_hash(node_id: &str) -> u32 {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+
+        let mut hasher = DefaultHasher::new();
+        node_id.hash(&mut hasher);
+        hasher.finish() as u32
     }
 }
 

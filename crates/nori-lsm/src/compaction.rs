@@ -275,7 +275,7 @@ impl BanditScheduler {
 
             self.meter.emit(nori_observe::VizEvent::Compaction(
                 nori_observe::CompEvt {
-                    node: 0, // TODO: Pass node_id through config
+                    node: self.config.node_id,
                     level,
                     kind: nori_observe::CompKind::BanditSelection {
                         slot_id,
@@ -362,7 +362,7 @@ impl BanditScheduler {
         // Emit bandit reward event for observability
         self.meter.emit(nori_observe::VizEvent::Compaction(
             nori_observe::CompEvt {
-                node: 0, // TODO: Pass node_id through config
+                node: self.config.node_id,
                 level,
                 kind: nori_observe::CompKind::BanditReward {
                     slot_id,

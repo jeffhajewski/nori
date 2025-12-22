@@ -511,6 +511,9 @@ pub struct LsmEngine {
     /// Observability meter for emitting events and metrics
     meter: Arc<dyn Meter>,
 
+    /// Node ID for observability events (from config)
+    node_id: u32,
+
     // Hot path optimizations (Phase 7)
     /// Cached pressure check result with TTL to avoid recomputing on every PUT
     cached_pressure: Arc<parking_lot::Mutex<CachedPressure>>,
@@ -577,7 +580,7 @@ impl LsmEngine {
             max_segment_size: 128 * 1024 * 1024, // 128 MB
             fsync_policy: nori_wal::FsyncPolicy::Batch(Duration::from_millis(5)),
             preallocate: true,
-            node_id: 0,
+            node_id: config.node_id,
         };
 
         let (wal, recovery_info) = Wal::open(wal_config)
@@ -680,6 +683,7 @@ impl LsmEngine {
             wal_bytes_written: Arc::new(AtomicU64::new(0)),
             write_pressure: Arc::new(WritePressureTracker::new(Duration::from_secs(5))),
             meter,
+            node_id: config.node_id,
 
             // Hot path optimizations (Phase 7)
             cached_pressure: Arc::new(parking_lot::Mutex::new(CachedPressure::new())),
@@ -1577,7 +1581,7 @@ impl LsmEngine {
             // Emit flush triggered event
             self.meter
                 .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
-                    node: 0,
+                    node: self.node_id,
                     kind: nori_observe::LsmKind::FlushTriggered {
                         reason: flush_reason,
                         memtable_bytes: size_bytes as usize,
@@ -1832,7 +1836,7 @@ impl LsmEngine {
         // Emit flush start event
         self.meter
             .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
-                node: 0,
+                node: self.node_id,
                 kind: nori_observe::LsmKind::FlushStart {
                     seqno_min: frozen_memtable.min_version().index,
                     seqno_max: frozen_memtable.max_version().index,
@@ -1874,7 +1878,7 @@ impl LsmEngine {
         // Emit flush complete event
         self.meter
             .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
-                node: 0,
+                node: self.node_id,
                 kind: nori_observe::LsmKind::FlushComplete {
                     file_number: run_meta.file_number,
                     bytes: run_meta.size,
@@ -1910,7 +1914,7 @@ impl LsmEngine {
             // Emit L0 admission start event
             self.meter
                 .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
-                    node: 0,
+                    node: self.node_id,
                     kind: nori_observe::LsmKind::L0AdmissionStart {
                         file_number: run_meta.file_number,
                     },
@@ -1949,7 +1953,7 @@ impl LsmEngine {
             // Emit L0 admission complete event
             self.meter
                 .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
-                    node: 0,
+                    node: self.node_id,
                     kind: nori_observe::LsmKind::L0AdmissionComplete {
                         file_number: run_meta.file_number,
                         target_slot,
@@ -2149,7 +2153,7 @@ impl LsmEngine {
                 // Emit L0 stall event (for compatibility with existing dashboard)
                 self.meter
                     .emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
-                        node: 0,
+                        node: self.node_id,
                         kind: nori_observe::LsmKind::L0Stall {
                             file_count: l0_count,
                             threshold: max_files,
@@ -2865,7 +2869,7 @@ impl LsmEngine {
 
                         // Emit VizEvent for slot heat (dashboard streaming)
                         meter.emit(nori_observe::VizEvent::SlotHeat(nori_observe::SlotHeatEvt {
-                            node: 0,
+                            node: config.node_id,
                             level: level_meta.level,
                             slot: slot.slot_id,
                             heat: heat_score,
@@ -2890,7 +2894,7 @@ impl LsmEngine {
             let write_ratio = heat.get_write_ratio();
             let write_threshold = config.heat_thresholds.write_pressure_threshold;
             meter.emit(nori_observe::VizEvent::Lsm(nori_observe::LsmEvt {
-                node: 0, // TODO: Get node ID from config
+                node: config.node_id,
                 kind: nori_observe::LsmKind::WritePressureUpdate {
                     ratio: write_ratio,
                     high: write_pressure_high,
@@ -2922,7 +2926,7 @@ impl LsmEngine {
 
                 // Emit compaction start event
                 meter.emit(nori_observe::VizEvent::Compaction(nori_observe::CompEvt {
-                    node: 0, // TODO: Get node ID from config
+                    node: config.node_id,
                     level: action_level,
                     kind: nori_observe::CompKind::Start,
                 }));
@@ -2962,7 +2966,7 @@ impl LsmEngine {
                     };
 
                     meter.emit(nori_observe::VizEvent::Compaction(nori_observe::CompEvt {
-                        node: 0, // TODO: Get node ID from config
+                        node: config.node_id,
                         level: *level,
                         kind: nori_observe::CompKind::GuardRebalance {
                             old_guard_count,
@@ -3032,7 +3036,7 @@ impl LsmEngine {
                                 // Emit compaction finish event
                                 meter.emit(nori_observe::VizEvent::Compaction(
                                     nori_observe::CompEvt {
-                                        node: 0,
+                                        node: config.node_id,
                                         level: action_level,
                                         kind: nori_observe::CompKind::Finish {
                                             in_bytes: bytes_written, // Approximation

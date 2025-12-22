@@ -10,6 +10,10 @@ pub struct ATLLConfig {
     /// Base directory for all LSM data (sst/, manifest/, wal/)
     pub data_dir: PathBuf,
 
+    /// Node ID for observability events (default: 0)
+    /// Used to identify this LSM instance in multi-node deployments
+    pub node_id: u32,
+
     /// Target level size ratio (default: 10x per level)
     /// Spec name: `fanout_T`
     pub fanout: u8,
@@ -229,6 +233,7 @@ impl Default for ATLLConfig {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from("data"),
+            node_id: 0,
             fanout: 10,
             max_levels: 7,
             l1_slot_count: 32,

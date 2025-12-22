@@ -8,6 +8,10 @@ use std::time::Duration;
 /// Defaults are based on context/31_consensus.yaml specifications.
 #[derive(Debug, Clone)]
 pub struct RaftConfig {
+    /// Shard ID for observability events (default: 0).
+    /// Used to identify this Raft group in multi-shard deployments.
+    pub shard_id: u32,
+
     /// Heartbeat interval (leader → followers).
     ///
     /// Leader sends AppendEntries (heartbeat or real entries) at this interval.
@@ -98,6 +102,7 @@ pub struct RaftConfig {
 impl Default for RaftConfig {
     fn default() -> Self {
         Self {
+            shard_id: 0,
             // Per context/31_consensus.yaml
             heartbeat_interval: Duration::from_millis(150),
             election_timeout_min: Duration::from_millis(300),

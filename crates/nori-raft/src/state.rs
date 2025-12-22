@@ -692,7 +692,7 @@ impl RaftState {
 
         // Emit VizEvent for leader election
         self.meter.emit(nori_observe::VizEvent::Raft(nori_observe::RaftEvt {
-            shard: 0, // TODO: Add shard_id when sharding is implemented
+            shard: self.config.shard_id,
             term: term.as_u64(),
             kind: nori_observe::RaftKind::LeaderElected {
                 node: self.node_id_as_u32(),

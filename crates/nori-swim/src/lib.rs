@@ -9,10 +9,29 @@
 //! - Suspicion mechanism before declaring failures
 //! - Gossip-based dissemination of membership changes
 //!
-//! # Status
+//! # Modules
 //!
-//! This is a minimal implementation providing the Membership trait interface.
-//! Full SWIM protocol (probing, suspicion, gossip) to be implemented in future phases.
+//! - [`config`]: Protocol configuration (timeouts, fanout, etc.)
+//! - [`message`]: Wire protocol messages (Ping, Ack, PingReq, etc.)
+//! - [`transport`]: Transport abstraction for network I/O
+
+pub mod config;
+pub mod member_list;
+pub mod message;
+pub mod node;
+pub mod probe;
+pub mod suspicion;
+pub mod timer;
+pub mod transport;
+
+pub use config::{ConfigError, SwimConfig};
+pub use member_list::MemberList;
+pub use message::{GossipEntry, MessageError, SwimMessage};
+pub use node::SwimNode;
+pub use probe::ProbeManager;
+pub use suspicion::SuspicionManager;
+pub use timer::{PeriodicTimer, Timeout, TimeoutResult};
+pub use transport::{create_transport_mesh, InMemoryTransport, SwimTransport};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -115,6 +134,25 @@ pub enum MembershipError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+}
+
+/// SWIM protocol errors.
+#[derive(Debug, thiserror::Error)]
+pub enum SwimError {
+    #[error("Transport error: {0}")]
+    Transport(String),
+
+    #[error("Message error: {0}")]
+    Message(#[from] MessageError),
+
+    #[error("Configuration error: {0}")]
+    Config(#[from] ConfigError),
+
+    #[error("Timeout")]
+    Timeout,
+
+    #[error("Shutdown")]
+    Shutdown,
 }
 
 /// Placeholder SWIM implementation.

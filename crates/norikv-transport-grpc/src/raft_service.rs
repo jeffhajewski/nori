@@ -1,7 +1,7 @@
 //! Raft RPC service implementation (server-side).
 //!
 //! Receives Raft RPCs from peer nodes over gRPC and forwards them to the
-//! local Raft node via a channel for processing.
+//! appropriate shard's Raft core via per-shard channels.
 
 use crate::proto::{self, raft_server::Raft};
 use bytes::Bytes;
@@ -10,25 +10,44 @@ use nori_raft::types::{
     AppendEntriesRequest, InstallSnapshotRequest, LogEntry, LogIndex, NodeId, ReadIndexRequest,
     RequestVoteRequest, Term,
 };
-use tokio::sync::oneshot;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{oneshot, RwLock};
 use tonic::{Request, Response, Status};
 
-/// Raft service implementation.
+/// Extracts shard ID from a NodeId string.
 ///
-/// Receives RPCs from network and forwards to Raft core via channel.
-/// This decouples network I/O from Raft logic and enables testing.
+/// NodeIds follow the pattern `"{base_node}-shard{shard_id}"`.
+/// For example: "node1-shard5" → Some(5)
+fn extract_shard_id(node_id: &str) -> Option<u32> {
+    node_id.rsplit("-shard").next()?.parse().ok()
+}
+
+/// Raft service implementation with per-shard routing.
+///
+/// Receives RPCs from network and forwards to the appropriate shard's Raft core.
+/// Routes based on shard ID extracted from the NodeId in each RPC.
 pub struct RaftService {
-    /// Channel to send RPC requests to Raft core
-    rpc_tx: tokio::sync::mpsc::Sender<RpcMessage>,
+    /// Per-shard channels: shard_id → Sender<RpcMessage>
+    rpc_channels: Arc<RwLock<HashMap<u32, tokio::sync::mpsc::Sender<RpcMessage>>>>,
 }
 
 impl RaftService {
-    /// Create a new Raft service.
+    /// Create a new Raft service with per-shard channel routing.
     ///
     /// # Arguments
-    /// * `rpc_tx` - Channel to forward RPC requests to Raft core
-    pub fn new(rpc_tx: tokio::sync::mpsc::Sender<RpcMessage>) -> Self {
-        Self { rpc_tx }
+    /// * `rpc_channels` - Map of shard_id to RPC channel for that shard
+    pub fn new(rpc_channels: Arc<RwLock<HashMap<u32, tokio::sync::mpsc::Sender<RpcMessage>>>>) -> Self {
+        Self { rpc_channels }
+    }
+
+    /// Get the RPC channel for a specific shard.
+    async fn get_shard_channel(&self, shard_id: u32) -> Result<tokio::sync::mpsc::Sender<RpcMessage>, Status> {
+        let channels = self.rpc_channels.read().await;
+        channels
+            .get(&shard_id)
+            .cloned()
+            .ok_or_else(|| Status::unavailable(format!("Shard {} not initialized", shard_id)))
     }
 
     /// Convert protobuf LogEntry to Rust type
@@ -59,11 +78,21 @@ impl Raft for RaftService {
     ) -> Result<Response<proto::RequestVoteResponse>, Status> {
         let req = request.into_inner();
 
+        // Extract shard ID from candidate_id
+        let shard_id = extract_shard_id(&req.candidate_id)
+            .ok_or_else(|| Status::invalid_argument(format!(
+                "Invalid candidate_id format: {}. Expected 'node-shardN'", req.candidate_id
+            )))?;
+
         tracing::debug!(
-            "RequestVote RPC: term={}, candidate={}",
+            "RequestVote RPC: term={}, candidate={}, shard={}",
             req.term,
-            req.candidate_id
+            req.candidate_id,
+            shard_id
         );
+
+        // Get the channel for this shard
+        let rpc_tx = self.get_shard_channel(shard_id).await?;
 
         // Convert protobuf to Rust types
         let raft_req = RequestVoteRequest {
@@ -75,7 +104,7 @@ impl Raft for RaftService {
 
         // Forward to Raft core
         let (response_tx, response_rx) = oneshot::channel();
-        self.rpc_tx
+        rpc_tx
             .send(RpcMessage::RequestVote {
                 request: raft_req,
                 response_tx,
@@ -100,12 +129,22 @@ impl Raft for RaftService {
     ) -> Result<Response<proto::AppendEntriesResponse>, Status> {
         let req = request.into_inner();
 
+        // Extract shard ID from leader_id
+        let shard_id = extract_shard_id(&req.leader_id)
+            .ok_or_else(|| Status::invalid_argument(format!(
+                "Invalid leader_id format: {}. Expected 'node-shardN'", req.leader_id
+            )))?;
+
         tracing::debug!(
-            "AppendEntries RPC: term={}, leader={}, entries={}",
+            "AppendEntries RPC: term={}, leader={}, shard={}, entries={}",
             req.term,
             req.leader_id,
+            shard_id,
             req.entries.len()
         );
+
+        // Get the channel for this shard
+        let rpc_tx = self.get_shard_channel(shard_id).await?;
 
         // Convert protobuf to Rust types
         let raft_req = AppendEntriesRequest {
@@ -119,7 +158,7 @@ impl Raft for RaftService {
 
         // Forward to Raft core
         let (response_tx, response_rx) = oneshot::channel();
-        self.rpc_tx
+        rpc_tx
             .send(RpcMessage::AppendEntries {
                 request: raft_req,
                 response_tx,
@@ -146,13 +185,23 @@ impl Raft for RaftService {
     ) -> Result<Response<proto::InstallSnapshotResponse>, Status> {
         let req = request.into_inner();
 
+        // Extract shard ID from leader_id
+        let shard_id = extract_shard_id(&req.leader_id)
+            .ok_or_else(|| Status::invalid_argument(format!(
+                "Invalid leader_id format: {}. Expected 'node-shardN'", req.leader_id
+            )))?;
+
         tracing::debug!(
-            "InstallSnapshot RPC: term={}, leader={}, offset={}, done={}",
+            "InstallSnapshot RPC: term={}, leader={}, shard={}, offset={}, done={}",
             req.term,
             req.leader_id,
+            shard_id,
             req.offset,
             req.done
         );
+
+        // Get the channel for this shard
+        let rpc_tx = self.get_shard_channel(shard_id).await?;
 
         // Convert protobuf to Rust types
         let raft_req = InstallSnapshotRequest {
@@ -167,7 +216,7 @@ impl Raft for RaftService {
 
         // Forward to Raft core
         let (response_tx, response_rx) = oneshot::channel();
-        self.rpc_tx
+        rpc_tx
             .send(RpcMessage::InstallSnapshot {
                 request: raft_req,
                 response_tx,
@@ -192,23 +241,34 @@ impl Raft for RaftService {
     ) -> Result<Response<proto::ReadIndexResponse>, Status> {
         let req = request.into_inner();
 
+        // Extract shard ID from leader_id
+        let shard_id = extract_shard_id(&req.leader_id)
+            .ok_or_else(|| Status::invalid_argument(format!(
+                "Invalid leader_id format: {}. Expected 'node-shardN'", req.leader_id
+            )))?;
+
         tracing::debug!(
-            "ReadIndex RPC: term={}, read_id={}, commit_index={}",
+            "ReadIndex RPC: term={}, shard={}, read_id={}, commit_index={}",
             req.term,
+            shard_id,
             req.read_id,
             req.commit_index
         );
+
+        // Get the channel for this shard
+        let rpc_tx = self.get_shard_channel(shard_id).await?;
 
         // Convert protobuf to Rust types
         let raft_req = ReadIndexRequest {
             term: Term(req.term),
             read_id: req.read_id,
             commit_index: LogIndex(req.commit_index),
+            leader_id: NodeId::new(req.leader_id),
         };
 
         // Forward to Raft core
         let (response_tx, response_rx) = oneshot::channel();
-        self.rpc_tx
+        rpc_tx
             .send(RpcMessage::ReadIndex {
                 request: raft_req,
                 response_tx,
@@ -234,6 +294,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_extract_shard_id() {
+        assert_eq!(extract_shard_id("node1-shard0"), Some(0));
+        assert_eq!(extract_shard_id("node1-shard5"), Some(5));
+        assert_eq!(extract_shard_id("node1-shard1023"), Some(1023));
+        assert_eq!(extract_shard_id("my-node-shard42"), Some(42));
+
+        // Invalid formats
+        assert_eq!(extract_shard_id("node1"), None);
+        assert_eq!(extract_shard_id("node1-shardX"), None);
+        assert_eq!(extract_shard_id(""), None);
+    }
+
+    #[test]
     fn test_entry_conversion() {
         let proto = proto::LogEntry {
             term: 5,
@@ -254,8 +327,34 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_creation() {
-        let (tx, _rx) = tokio::sync::mpsc::channel(100);
-        let _service = RaftService::new(tx);
+        let channels = Arc::new(RwLock::new(HashMap::new()));
+        let _service = RaftService::new(channels);
         // Service should be created successfully
+    }
+
+    #[tokio::test]
+    async fn test_get_shard_channel_not_found() {
+        let channels = Arc::new(RwLock::new(HashMap::new()));
+        let service = RaftService::new(channels);
+
+        let result = service.get_shard_channel(5).await;
+        assert!(result.is_err());
+
+        let status = result.unwrap_err();
+        assert_eq!(status.code(), tonic::Code::Unavailable);
+        assert!(status.message().contains("Shard 5 not initialized"));
+    }
+
+    #[tokio::test]
+    async fn test_get_shard_channel_found() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(100);
+        let mut map = HashMap::new();
+        map.insert(5u32, tx);
+
+        let channels = Arc::new(RwLock::new(map));
+        let service = RaftService::new(channels);
+
+        let result = service.get_shard_channel(5).await;
+        assert!(result.is_ok());
     }
 }

@@ -14,8 +14,10 @@ use crate::proto::{
 use nori_observe::Meter;
 use nori_raft::transport::RpcMessage;
 use nori_raft::ReplicatedLSM;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tonic::transport::Server;
 
@@ -29,7 +31,8 @@ pub struct GrpcServer {
     cluster_view: Option<Arc<dyn ClusterViewProvider>>,
     shard_manager: Option<Arc<dyn ShardManagerOps>>,
     meter: Option<Arc<dyn Meter>>,
-    raft_rpc_tx: Option<tokio::sync::mpsc::Sender<RpcMessage>>,
+    /// Per-shard Raft RPC channels: shard_id → Sender<RpcMessage>
+    raft_rpc_channels: Option<Arc<RwLock<HashMap<u32, tokio::sync::mpsc::Sender<RpcMessage>>>>>,
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
     server_handle: Option<JoinHandle<Result<(), tonic::transport::Error>>>,
 }
@@ -50,7 +53,7 @@ impl GrpcServer {
             cluster_view: None,
             shard_manager: None,
             meter: None,
-            raft_rpc_tx: None,
+            raft_rpc_channels: None,
             shutdown_tx: None,
             server_handle: None,
         }
@@ -69,7 +72,7 @@ impl GrpcServer {
             cluster_view: None,
             shard_manager: None,
             meter: None,
-            raft_rpc_tx: None,
+            raft_rpc_channels: None,
             shutdown_tx: None,
             server_handle: None,
         }
@@ -119,14 +122,18 @@ impl GrpcServer {
         self
     }
 
-    /// Set the Raft RPC channel.
+    /// Set the Raft RPC channels for per-shard routing.
     ///
-    /// If provided, the Raft service will be enabled and RPCs will be forwarded to this channel.
+    /// If provided, the Raft service will be enabled and RPCs will be routed to the
+    /// appropriate shard's channel based on the shard ID extracted from the NodeId.
     ///
     /// # Arguments
-    /// - `rpc_tx`: Channel to forward Raft RPCs to Raft core
-    pub fn with_raft_rpc(mut self, rpc_tx: tokio::sync::mpsc::Sender<RpcMessage>) -> Self {
-        self.raft_rpc_tx = Some(rpc_tx);
+    /// - `channels`: Per-shard RPC channel map (shard_id → Sender<RpcMessage>)
+    pub fn with_raft_rpc_channels(
+        mut self,
+        channels: Arc<RwLock<HashMap<u32, tokio::sync::mpsc::Sender<RpcMessage>>>>,
+    ) -> Self {
+        self.raft_rpc_channels = Some(channels);
         self
     }
 
@@ -189,10 +196,10 @@ impl GrpcServer {
             .add_service(MetaServer::new(meta_service))
             .add_service(AdminServer::new(admin_service));
 
-        // Add Raft service if RPC channel provided
-        if let Some(rpc_tx) = self.raft_rpc_tx.clone() {
-            tracing::info!("Enabling Raft peer-to-peer service");
-            let raft_service = RaftService::new(rpc_tx);
+        // Add Raft service if RPC channels provided
+        if let Some(channels) = self.raft_rpc_channels.clone() {
+            tracing::info!("Enabling Raft peer-to-peer service with per-shard routing");
+            let raft_service = RaftService::new(channels);
             server_builder = server_builder.add_service(RaftServer::new(raft_service));
         }
 

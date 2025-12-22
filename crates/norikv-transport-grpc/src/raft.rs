@@ -217,6 +217,7 @@ impl RaftTransport for GrpcRaftTransport {
             term: request.term.as_u64(),
             read_id: request.read_id,
             commit_index: request.commit_index.as_u64(),
+            leader_id: request.leader_id.as_str().to_string(),
         };
 
         let response = client

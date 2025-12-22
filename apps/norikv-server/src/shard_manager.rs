@@ -364,6 +364,14 @@ impl ShardManager {
         self.rpc_senders.read().await.get(&shard_id).cloned()
     }
 
+    /// Gets the per-shard RPC channel map.
+    ///
+    /// Returns the shared map of shard_id → mpsc::Sender<RpcMessage> for
+    /// wiring to the gRPC server's multi-shard Raft RPC routing.
+    pub fn rpc_channels(&self) -> Arc<RwLock<HashMap<ShardId, tokio::sync::mpsc::Sender<RpcMessage>>>> {
+        self.rpc_senders.clone()
+    }
+
     /// Derives a numeric node ID from a string node identifier.
     ///
     /// Uses a simple hash to convert the string to u32 for observability events.

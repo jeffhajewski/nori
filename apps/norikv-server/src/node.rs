@@ -278,12 +278,13 @@ impl Node {
             .with_shard_manager(self.shard_manager.clone() as Arc<dyn norikv_transport_grpc::ShardManagerOps>)
             .with_meter(self.meter.clone() as Arc<dyn nori_observe::Meter>);
 
-        // Wire Raft RPC channel if multi-node
-        // Note: For now, only shard 0's RPC channel is wired
-        // Phase 1.4 will implement per-shard RPC routing
-        if let Some(raft_rpc_tx) = self.shard_manager.get_rpc_sender(0).await {
-            tracing::info!("Enabling Raft peer-to-peer RPC service for shard 0");
-            grpc_server = grpc_server.with_raft_rpc(raft_rpc_tx);
+        // Wire Raft RPC channels for per-shard routing (multi-node mode)
+        // The channel map is shared: as new shards are created, they register their channels.
+        // In single-node mode the map is empty (shards use InMemoryTransport instead).
+        let rpc_channels = self.shard_manager.rpc_channels();
+        if !rpc_channels.read().await.is_empty() {
+            tracing::info!("Enabling Raft peer-to-peer RPC service with per-shard routing");
+            grpc_server = grpc_server.with_raft_rpc_channels(rpc_channels);
         }
 
         grpc_server.start().await

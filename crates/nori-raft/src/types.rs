@@ -236,6 +236,9 @@ pub struct ReadIndexRequest {
 
     /// Leader's commit index at request time
     pub commit_index: LogIndex,
+
+    /// Leader's node ID (for shard routing)
+    pub leader_id: NodeId,
 }
 
 /// ReadIndex RPC response.

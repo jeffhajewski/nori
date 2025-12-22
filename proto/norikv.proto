@@ -65,6 +65,7 @@ message ReadIndexRequest {
   uint64 term = 1;
   uint64 read_id = 2;
   uint64 commit_index = 3;
+  string leader_id = 4;
 }
 message ReadIndexResponse {
   uint64 term = 1;

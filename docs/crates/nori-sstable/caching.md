@@ -561,7 +561,7 @@ let reader2 = Arc::new(SSTableReader::open("cold.sst").await?);
 
 - **[Compression Guide](compression.md)** - Learn how compression works with caching
 - **[Performance Benchmarks](performance/benchmarks.md)** - See cache benchmark results
-- **[API Reference](api-reference/reader.md)** - SSTableReader cache methods
+- **[API Reference](api-reference/index.md)** - SSTableReader cache methods
 - **[Tuning Guide](performance/tuning.md)** - General performance tuning
 
 ---

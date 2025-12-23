@@ -557,7 +557,7 @@ Result:
 
 **Key insight**: ATLL optimizes for **heterogeneous workloads** where different key ranges have different access patterns.
 
-**Next steps**: See [Recipes](../recipes/index.md) for implementation patterns and [Performance](../performance/index.md) for tuning guidance.
+**Next steps**: See [Design Decisions](../design-decisions/index.md) for implementation details and [How It Works](../how-it-works/index.md) for technical guidance.
 
 ---
 

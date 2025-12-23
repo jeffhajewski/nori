@@ -559,6 +559,4 @@ See [Performance Tuning](../performance/tuning.md) for optimization tips.
 
 - [WalConfig](config.md) - Configuration options
 - [Record](record.md) - Record types
-- [Position](position.md) - Position in the log
-- [RecoveryInfo](recovery-info.md) - Recovery statistics
 - [Errors](errors.md) - Error types

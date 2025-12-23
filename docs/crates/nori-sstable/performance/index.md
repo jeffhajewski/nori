@@ -16,15 +16,6 @@ Comprehensive benchmark results for different workloads and configurations.
 ### [Tuning Guide](tuning.md)
 How to configure nori-sstable for your specific workload.
 
-### [Compression Ratios](compression-ratios.md)
-Real-world compression ratios for different data types and algorithms.
-
-### [Cache Hit Rates](cache-analysis.md)
-Analysis of cache performance across different workload patterns.
-
-### [Profiling](profiling.md)
-How to profile and optimize nori-sstable performance.
-
 ---
 
 ## Quick Wins

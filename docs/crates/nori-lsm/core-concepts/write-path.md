@@ -705,4 +705,4 @@ if batch.len() >= batch_size {
 ---
 
 *Last Updated: 2025-10-31*
-*See Also: [ATLL Architecture](atll-architecture.md), [Memory Pressure](../MEMORY_PRESSURE.md)*
+*See Also: [ATLL Architecture](atll-architecture.md), [Memory Pressure](../design-decisions/memory-pressure.md)*

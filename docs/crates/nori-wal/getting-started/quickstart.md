@@ -283,7 +283,6 @@ Now that you've written your first WAL program, you can:
 
 - **[Understand configuration options](configuration.md)** - Tune for your workload
 - **[Learn about fsync policies](../core-concepts/fsync-policies.md)** - Balance durability vs performance
-- **[Explore record types](../core-concepts/records.md)** - TTL, compression, tombstones
 - **[Dive into recovery](../how-it-works/recovery.md)** - How crash recovery really works
 
 Or jump straight into building something real with our [Recipes](../recipes/index.md) section!

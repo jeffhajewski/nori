@@ -266,7 +266,7 @@ Thread 4: compaction     → Slot 0 mutex (doesn't block Slot 1-15)
 
 ## Performance Characteristics
 
-From benchmarks (see [Performance](../performance/index.md) for details):
+From benchmarks:
 
 **Write latency**:
 - Memtable insert: 50ns (in-memory skiplist)
@@ -300,4 +300,3 @@ Ready to dive in? Start with:
 If you're looking for something else:
 - **[Core Concepts](../core-concepts/index.md)** - High-level architecture and theory
 - **[Design Decisions](../design-decisions/index.md)** - Why ATLL is built this way
-- **[Performance](../performance/index.md)** - Benchmarks and tuning guides (coming soon)

@@ -802,7 +802,6 @@ L0 count > 12: Write stall imminent
 - **[ATLL Architecture](atll-architecture.md)** - Our guard-based partitioning and dynamic K approach
 - **[Write Path](write-path.md)** - How writes flow through memtable → L0 → compaction
 - **[Read Path](read-path.md)** - How reads traverse levels with Bloom filters
-- **[Amplification Trade-offs](../design-decisions/amplification-tradeoffs.md)** - Deep math on RUM conjecture
 
 ---
 

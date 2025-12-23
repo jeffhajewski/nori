@@ -508,8 +508,7 @@ pub struct Footer {
 
 - **[Caching Guide](caching.md)** - Learn how caching works with compression
 - **[Performance Benchmarks](performance/benchmarks.md)** - See compression benchmark results
-- **[API Reference](api-reference/config.md)** - SSTableConfig compression field
-- **[Compression Ratios](performance/compression-ratios.md)** - Detailed ratio analysis
+- **[API Reference](api-reference/index.md)** - SSTableConfig compression field
 
 ---
 

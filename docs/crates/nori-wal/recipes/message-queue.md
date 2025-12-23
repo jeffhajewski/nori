@@ -580,4 +580,4 @@ This recipe demonstrates:
 - At-least-once delivery semantics
 - Message replay and seeking
 
-For distributed message queues, combine with [Replication recipe](replication.md).
+For distributed message queues, consider adding a replication layer.

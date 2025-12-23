@@ -33,32 +33,11 @@ Simple message queue with consumer position tracking.
 - Multiple consumers
 - Retention and cleanup
 
-### [Replication](replication.md)
-Replicating WAL to followers for high availability.
+**Replication**: Replicating WAL to followers for high availability. Topics include streaming WAL to replicas, handling network failures, catchup after disconnection, and consistency guarantees.
 
-**What you'll learn:**
-- Streaming WAL to replicas
-- Handling network failures
-- Catchup after disconnection
-- Consistency guarantees
+**Custom Serialization**: Using different serialization formats with WAL. Topics include Protobuf with WAL, JSON with compression, MessagePack for efficiency, and schema evolution.
 
-### [Custom Serialization](custom-serialization.md)
-Using different serialization formats with WAL.
-
-**What you'll learn:**
-- Protobuf with WAL
-- JSON with compression
-- MessagePack for efficiency
-- Schema evolution
-
-### [Performance Tuning](performance-tuning.md)
-Optimizing WAL for your workload.
-
-**What you'll learn:**
-- Choosing segment size
-- Batching strategies
-- Compression trade-offs
-- Monitoring and profiling
+**Performance Tuning**: Optimizing WAL for your workload. See the [Performance section](../performance/index.md) for choosing segment size, batching strategies, compression trade-offs, and monitoring.
 
 ## Using These Recipes
 

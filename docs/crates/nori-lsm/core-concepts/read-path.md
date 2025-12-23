@@ -774,4 +774,4 @@ WHERE timestamp > NOW() - INTERVAL '1 hour';
 ---
 
 *Last Updated: 2025-10-31*
-*See Also: [ATLL Architecture](atll-architecture.md), [Write Path](write-path.md), [Bloom Filter Strategy](../design-decisions/bloom-strategy.md)*
+*See Also: [ATLL Architecture](atll-architecture.md), [Write Path](write-path.md)*

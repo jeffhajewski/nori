@@ -150,4 +150,3 @@ Ready to dive in? Start with:
 If you're looking for something else:
 - **[API Reference](../api-reference/index.md)** - Documentation for all public types
 - **[Recipes](../recipes/index.md)** - Build real applications with nori-wal
-- **[Troubleshooting](../troubleshooting/index.md)** - Debug common issues

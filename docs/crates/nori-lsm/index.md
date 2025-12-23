@@ -134,8 +134,6 @@ Topics include:
 ### Performance
 Benchmarks, optimization techniques, and tuning guides.
 
-[Performance →](performance/index.md)
-
 Topics include:
 - Write Amplification Analysis (per-slot WA, weighted average)
 - Read Amplification Analysis (bloom filter impact, cache hit rates)
@@ -144,8 +142,6 @@ Topics include:
 
 ### Recipes
 Common usage patterns and integration examples.
-
-[Recipes →](recipes/index.md)
 
 Topics include:
 - Time-Series Data (recent-heavy reads, TTL integration)
@@ -377,7 +373,7 @@ Start with [What is an LSM Tree?](core-concepts/what-is-lsm.md) to build foundat
 Read [ATLL Architecture](core-concepts/atll-architecture.md) for the full design.
 
 **Ready to use nori-lsm?**
-Check out [Recipes](recipes/index.md) for common patterns and integration examples.
+Check out the Recipes section above for common patterns and integration examples.
 
 **Migrating from another LSM?**
 See [When to Use ATLL](core-concepts/when-to-use.md) for migration checklists.

@@ -31,27 +31,27 @@ crates/nori-wal/src/
 
 | Module | Purpose | Key Types |
 |--------|---------|-----------|
-| [wal.rs](wal-module.md) | Public API, lifecycle | `Wal`, `WalConfig` |
-| [segment.rs](segment-module.md) | File I/O, rotation | `SegmentManager`, `SegmentFile` |
-| [record.rs](record-module.md) | Serialization format | `Record`, `Compression` |
-| [recovery.rs](recovery-module.md) | Crash recovery | `RecoveryInfo` |
-| [prealloc.rs](prealloc-module.md) | File preallocation | Platform-specific code |
+| `wal.rs` | Public API, lifecycle | `Wal`, `WalConfig` |
+| `segment.rs` | File I/O, rotation | `SegmentManager`, `SegmentFile` |
+| `record.rs` | Serialization format | `Record`, `Compression` |
+| `recovery.rs` | Crash recovery | `RecoveryInfo` |
+| `prealloc.rs` | File preallocation | Platform-specific code |
 
 ## Key Internal Concepts
 
 ### [Segment Lifecycle](segment-lifecycle.md)
 How segments are created, written to, and closed.
 
-### [Locking Strategy](locking.md)
+### Locking Strategy
 Where locks are used and how we avoid contention.
 
-### [Buffer Management](buffers.md)
+### Buffer Management
 How we minimize allocations and copies.
 
-### [Fsync Coordination](fsync-coordination.md)
+### Fsync Coordination
 How batched fsync works internally.
 
-### [Error Handling](error-handling.md)
+### Error Handling
 How errors propagate through the system.
 
 ## Code Walkthrough
@@ -283,12 +283,10 @@ cargo bench --bench wal_bench
 
 ## Further Reading
 
-Each subsection goes deep on a specific internal component:
+For more details on specific components:
 
-- **[Wal Module](wal-module.md)** - High-level API implementation
-- **[Segment Module](segment-module.md)** - File management and I/O
-- **[Record Module](record-module.md)** - Serialization format
-- **[Recovery Module](recovery-module.md)** - Crash recovery logic
-- **[Preallocation](prealloc-module.md)** - Platform-specific optimizations
+- **[Segment Lifecycle](segment-lifecycle.md)** - How segments are managed
+- **[API Reference](../api-reference/index.md)** - Public API documentation
+- **[How It Works](../how-it-works/index.md)** - High-level architecture
 
 These documents assume familiarity with Rust and systems programming.

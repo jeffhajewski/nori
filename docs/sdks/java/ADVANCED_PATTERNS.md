@@ -1320,4 +1320,4 @@ System.out.println("doc3 is duplicate: " + result3.isDuplicate);  // false
 - [API Guide](API_GUIDE.md) - Complete API reference
 - [Architecture Guide](ARCHITECTURE.md) - Internal design
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
-- [Examples](../src/main/java/com/norikv/client/examples/index.md) - Working code samples
+- [Examples](../src/main/java/com/norikv/client/examples/) - Working code samples

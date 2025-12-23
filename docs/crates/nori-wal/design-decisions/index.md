@@ -25,23 +25,17 @@ Why we truncate at the first corruption rather than trying to recover more data.
 ### [Segment-Based Storage](segmentation.md)
 Why the WAL is split into multiple files instead of one large file.
 
-### [CRC32C Checksums](checksums.md)
-Why we use CRC32C for data integrity and where it's computed.
+**CRC32C Checksums**: Why we use CRC32C for data integrity and where it's computed.
 
-### [Varint Encoding](varint-encoding.md)
-Why record lengths use variable-length encoding instead of fixed sizes.
+**Varint Encoding**: Why record lengths use variable-length encoding instead of fixed sizes.
 
-### [Fsync Policies](fsync-policies.md)
-How we balance durability and performance with configurable fsync behavior.
+**Fsync Policies**: How we balance durability and performance with configurable fsync behavior. See [Core Concepts: Fsync Policies](../core-concepts/fsync-policies.md).
 
-### [Compression Support](compression.md)
-Why compression is optional and how it's integrated into the record format.
+**Compression Support**: Why compression is optional and how it's integrated into the record format.
 
-### [Zero-Copy Design](zero-copy.md)
-Where we use zero-copy techniques and where we don't.
+**Zero-Copy Design**: Where we use zero-copy techniques and where we don't.
 
-### [Observability First](observability.md)
-Why metrics and events are built into the core rather than added later.
+**Observability First**: Why metrics and events are built into the core rather than added later.
 
 ## Decision-Making Framework
 

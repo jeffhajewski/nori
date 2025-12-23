@@ -208,4 +208,4 @@ nori-wal = { path = "../norikv/crates/nori-wal" }
 
 ---
 
-Need help? Check the [Troubleshooting Guide](../troubleshooting/index.md) or [open an issue on GitHub](https://github.com/jeffhajewski/norikv/issues).
+Need help? [Open an issue on GitHub](https://github.com/jeffhajewski/norikv/issues).

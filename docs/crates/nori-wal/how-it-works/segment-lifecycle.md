@@ -556,7 +556,7 @@ compact_segments(0..10, 100).await?;
 wal.delete_segments_before(Position { segment_id: 10, offset: 0 }).await?;
 ```
 
-See [Recipes: Compaction](../recipes/compaction.md) for details.
+See the [Recipes section](../recipes/index.md) for more details on common patterns.
 
 ---
 
@@ -739,7 +739,7 @@ VizEvent::Wal(WalEvt {
 })
 ```
 
-See [Observability](../observability/index.md) for how to consume these events.
+These events can be consumed via the nori-observe event streaming API.
 
 ---
 

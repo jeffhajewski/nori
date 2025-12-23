@@ -283,7 +283,7 @@ Yes, but typically not needed. Tunable parameters:
 - `heat_alpha`: 0.1 (default), increase for rapidly changing patterns
 - `compaction_epsilon`: 0.1 (default), increase for non-stationary workloads
 
-See [Performance Tuning](../performance/tuning.md) for detailed guidance.
+See the Design Decisions section for detailed guidance on parameter tuning.
 
 ---
 
@@ -292,8 +292,6 @@ See [Performance Tuning](../performance/tuning.md) for detailed guidance.
 After completing Core Concepts:
 1. **[Design Decisions](../design-decisions/index.md)** - Dive deeper into ATLL's design rationale
 2. **[How It Works](../how-it-works/index.md)** - Implementation details and algorithms
-3. **[Performance](../performance/index.md)** - Benchmarking, tuning, and optimization
-4. **[Recipes](../recipes/index.md)** - Common use cases and integration patterns
 
 ---
 

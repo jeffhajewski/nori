@@ -571,11 +571,8 @@ Cost: 12.5 MB memory (negligible)
 
 ## Next Steps
 
-**Understand the implementation:**
-See [How It Works: Bloom Filter](../how-it-works/bloom-filter-impl.md) for implementation details.
-
-**Learn about indexing:**
-Read [How It Works: Index Structure](../how-it-works/index-structure.md) for how bloom works with block index.
+**Understand the design choices:**
+See [Design Decisions: Bloom Strategy](../design-decisions/bloom-strategy.md) for bloom filter design rationale.
 
 **Optimize reads:**
 Check [Performance: Tuning](../performance/tuning.md) for bloom filter configuration guidance.

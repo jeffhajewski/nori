@@ -532,14 +532,11 @@ if hit_rate < 0.8 {
 
 ## Next Steps
 
-**Understand prefix compression:**
-See [How It Works: Block Format](../how-it-works/block-format.md) for entry encoding details.
+**Understand the file format:**
+See [How It Works: File Format](../how-it-works/file-format.md) for detailed format specification.
 
 **Learn about caching:**
 Check [Caching](../caching.md) for how the LRU cache works with blocks.
 
 **Optimize compression:**
 Read [Compression](../compression.md) for how blocks are compressed.
-
-**See the index:**
-Explore [How It Works: Index Structure](../how-it-works/index-structure.md) for block indexing details.

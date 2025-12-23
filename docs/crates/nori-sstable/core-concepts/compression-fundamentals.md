@@ -558,8 +558,8 @@ if ratio < 1.5 {
 **Deep dive on algorithms:**
 See [Compression Guide](../compression.md) for detailed LZ4/Zstd comparison and configuration.
 
-**Understand implementation:**
-Check [How It Works: Compression](../how-it-works/compression-impl.md) for implementation details.
+**Understand design choices:**
+Check [Design Decisions: Compression Strategy](../design-decisions/compression-strategy.md) for compression design rationale.
 
 **Learn caching interaction:**
 Read [Caching](../caching.md) for how compression + cache work together.

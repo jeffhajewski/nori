@@ -656,4 +656,4 @@ This recipe demonstrates:
 - Command validation
 - Event replay and recovery
 
-For distributed event sourcing, combine with [Replication recipe](replication.md).
+For distributed event sourcing, consider adding a replication layer.

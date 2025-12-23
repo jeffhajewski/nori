@@ -817,5 +817,4 @@ norikv-admin move-shard --shard-id 42 --from node0 --to node1
 ## Next Steps
 
 - **[SWIM Topology Tracking](swim-topology.md)** - How cluster membership is tracked
-- **[Placement & Hashing](placement.md)** - Deep dive into Jump Consistent Hash
 - **[Operations Guide](../operations/index.md)** - Production deployment

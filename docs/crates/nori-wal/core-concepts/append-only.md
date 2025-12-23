@@ -322,7 +322,7 @@ This is what LSM-tree databases (RocksDB, Cassandra, nori-lsm) do.
 
 **Important**: nori-wal itself does **not** implement compaction. It provides the primitives (`delete_segments_before()`) but **you** decide when and how to compact.
 
-See [Recipes: Compaction](../recipes/compaction.md) for implementation examples.
+See the [Recipes](../recipes/index.md) section for implementation examples.
 
 ---
 

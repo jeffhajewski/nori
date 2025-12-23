@@ -415,7 +415,7 @@ Exceptions include:
 
 ### Benchmarks
 
-See [Performance Benchmarks](../README.md#performance-benchmarks) for detailed metrics.
+See the SDK documentation for detailed performance metrics.
 
 ## Observability
 
@@ -505,4 +505,4 @@ Java SDK performance is comparable to other SDKs:
 - [API Guide](API_GUIDE.md) - Public API documentation
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
 - [Advanced Patterns](ADVANCED_PATTERNS.md) - Complex use cases
-- [Source Code](../src/main/java/com/norikv/client/index.md) - Implementation
+- [Source Code](../src/main/java/com/norikv/client/) - Implementation

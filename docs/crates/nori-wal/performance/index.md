@@ -76,7 +76,7 @@ Check these first:
 3. **Segment size** - Too small segments cause frequent rotation
 4. **Disk** - Is your disk actually fast? (check `iostat`)
 
-See [Troubleshooting Performance](../troubleshooting/performance.md) for details.
+See the [Tuning Guide](tuning.md) for details.
 
 ### "Why does latency spike?"
 

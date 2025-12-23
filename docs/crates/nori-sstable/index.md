@@ -157,7 +157,7 @@ Benchmarked on Apple M1 (release build):
 └────────────────┘ Compression type | CRC32C checksum
 ```
 
-[Learn more about the architecture →](architecture.md)
+[Learn more about the architecture →](how-it-works/index.md)
 
 ---
 

@@ -647,4 +647,3 @@ wal.append(&record).await.map_err(|e| AppError::WalError {
 - [Record API](record.md) - Record operations
 - [Configuration](config.md) - Configuration options
 - [Recovery Guarantees](../core-concepts/recovery-guarantees.md) - Recovery behavior
-- [Troubleshooting](../troubleshooting/index.md) - Common issues and solutions

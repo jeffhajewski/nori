@@ -663,6 +663,6 @@ Now that you understand recovery, explore:
 
 - **[When to Use a WAL](when-to-use.md)** - Scenarios where WALs shine
 - **[How Recovery Works Internally](../how-it-works/recovery.md)** - Deep dive into the algorithm
-- **[Recipes: Crash Testing](../recipes/crash-testing.md)** - Property-based testing for recovery
+- **[Recipes](../recipes/index.md)** - Build real applications with nori-wal
 
-Or jump to [Performance Tuning](../performance/tuning.md) to optimize your WAL.
+Or check the [Performance](../performance/index.md) section to optimize your WAL.

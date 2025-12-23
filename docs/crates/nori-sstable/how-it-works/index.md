@@ -11,38 +11,21 @@ This section explains **how** nori-sstable implements SSTables. Each page covers
 ## Topics
 
 ### [File Format](file-format.md)
-Complete specification of the `.sst` file format with byte-level layout.
-
-### [Block Format](block-format.md)
-How entries are encoded within 4KB blocks, including prefix compression.
-
-### [Index Structure](index-structure.md)
-The two-level index: block index and restart points within blocks.
-
-### [Bloom Filter](bloom-filter-impl.md)
-Implementation details of the bloom filter using xxHash64 and double hashing.
-
-### [Compression](compression-impl.md)
-How LZ4 and Zstd compression are applied at block granularity.
-
-### [Caching](cache-impl.md)
-LRU cache implementation, eviction policy, and integration with compression.
-
-### [Iterator](iterator-impl.md)
-How range scans work across blocks with efficient buffering.
+Complete specification of the `.sst` file format with byte-level layout, including:
+- Block encoding and prefix compression
+- Two-level index structure
+- Bloom filter implementation using xxHash64
+- LZ4 and Zstd compression at block granularity
+- LRU cache integration
 
 ---
 
 ## Learning Path
 
-**Understand the file:**
-Start with [File Format](file-format.md) to see the overall structure.
+**Start here:**
+Read [File Format](file-format.md) for a complete understanding of the SSTable structure.
 
-**Dive into blocks:**
-Read [Block Format](block-format.md) for entry encoding details.
-
-**Optimize reads:**
-Check [Bloom Filter](bloom-filter-impl.md) and [Caching](cache-impl.md).
-
-**Advanced topics:**
-Explore [Compression](compression-impl.md) and [Iterator](iterator-impl.md).
+**Related documentation:**
+- [Compression Guide](../compression.md) - Compression algorithms and tradeoffs
+- [Caching Guide](../caching.md) - Cache tuning and performance
+- [Core Concepts](../core-concepts/index.md) - Conceptual overview

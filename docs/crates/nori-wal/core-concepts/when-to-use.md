@@ -627,7 +627,7 @@ Writes → WAL (durability) + Memtable (fast writes)
 - Durable (WAL)
 - Compact (SSTables deduplicate versions)
 
-See [Recipes: LSM-Tree](../recipes/lsm-tree.md) for implementation.
+See the [Recipes](../recipes/index.md) section for implementation examples.
 
 ---
 
@@ -646,7 +646,7 @@ Time 3: Truncate WAL (keep only records after snapshot)
 - Fast recovery (load snapshot + replay small WAL)
 - Bounded disk usage (old WAL segments deleted)
 
-See [Recipes: Snapshotting](../recipes/snapshotting.md) for details.
+See the [Recipes](../recipes/index.md) section for details.
 
 ---
 

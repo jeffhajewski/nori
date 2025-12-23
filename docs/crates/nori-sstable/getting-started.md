@@ -513,14 +513,13 @@ let mut builder = SSTableBuilder::new(config).await?;
 
 - **[Compression Guide](compression.md)** - Deep dive into LZ4/Zstd
 - **[Caching Guide](caching.md)** - Optimize for hot workloads
-- **[Architecture](architecture.md)** - Understand the file format
+- **[How It Works](how-it-works/index.md)** - Understand the file format
 - **[API Reference](api-reference/index.md)** - Complete API documentation
 
 ### Examples
 
 - **[Basic Usage](recipes/basic-usage.md)** - More complete examples
 - **[Hot Workloads](recipes/hot-workloads.md)** - Cache tuning
-- **[Cold Storage](recipes/cold-storage.md)** - Archival patterns
 
 ### Performance
 

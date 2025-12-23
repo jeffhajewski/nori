@@ -157,7 +157,7 @@ See the [source repository](https://github.com/jeffhajewski/norikv/tree/main/sdk
 
 - **Issues**: [GitHub Issues](https://github.com/jeffhajewski/norikv/issues)
 - **Source**: [GitHub Repository](https://github.com/jeffhajewski/norikv/tree/main/sdks/java)
-- **API Docs**: [Javadoc](./javadoc/index.md) (if published)
+- **API Docs**: Javadoc (generated on build)
 
 ## License
 

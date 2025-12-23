@@ -199,8 +199,6 @@ fn key_to_shard(key: &[u8], num_shards: u32) -> u32 {
 - Replication factor: 3
 - Replica placement: Hash mod ring + offset
 
-[Learn more about placement →](placement.md)
-
 ---
 
 ### Observability: nori-observe
@@ -353,10 +351,6 @@ client.get_with_consistency("key", Consistency::Stale).await?;
 - [Consensus (Raft)](../crates/nori-raft/index.md)
 - [Membership (SWIM)](../crates/nori-swim/index.md)
 - [Observability](../crates/nori-observe/index.md)
-
-### Understand Sharding
-
-- [Placement & Hashing](placement.md)
 
 ### Operations & Monitoring
 

@@ -1466,4 +1466,4 @@ func main() {
 - [API Guide](API_GUIDE.md) - Complete API reference
 - [Architecture Guide](ARCHITECTURE.md) - Internal design
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
-- [Examples](../examples/index.md) - Working code samples
+- [Examples](../examples/) - Working code samples

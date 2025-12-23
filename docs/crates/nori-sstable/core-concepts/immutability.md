@@ -401,11 +401,5 @@ Think of **version control** (like Git):
 **Learn about organization:**
 See [Block-Based Storage](block-based-storage.md) for how immutable data is structured.
 
-**Understand deletion:**
-Read about [Tombstones](../design-decisions/tombstones.md) in the design decisions.
-
-**See compaction details:**
-Check out [Compaction Strategy](../how-it-works/compaction.md) for how we manage immutability at scale.
-
 **Explore implementation:**
 Jump to [File Format](../how-it-works/file-format.md) to see how immutability is enforced.

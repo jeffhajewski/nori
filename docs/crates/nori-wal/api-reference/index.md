@@ -13,15 +13,15 @@ Complete API documentation for all public types and methods in nori-wal.
 | [`Wal`](wal.md) | Main WAL interface | [API →](wal.md) |
 | [`Record`](record.md) | Key-value record with metadata | [API →](record.md) |
 | [`WalConfig`](config.md) | Configuration builder | [API →](config.md) |
-| [`Position`](position.md) | Location in the log | [API →](position.md) |
-| [`RecoveryInfo`](recovery-info.md) | Recovery statistics | [API →](recovery-info.md) |
+| `Position` | Location in the log | See [Wal](wal.md) |
+| `RecoveryInfo` | Recovery statistics | See [Wal](wal.md) |
 
 ### Enums
 
 | Type | Purpose | Page |
 |------|---------|------|
-| [`FsyncPolicy`](fsync-policy.md) | Durability policy | [API →](fsync-policy.md) |
-| [`Compression`](compression.md) | Compression algorithm | [API →](compression.md) |
+| `FsyncPolicy` | Durability policy | See [Config](config.md) |
+| `Compression` | Compression algorithm | See [Record](record.md) |
 
 ### Error Types
 
@@ -188,16 +188,16 @@ Start here for most use cases:
 
 For fine-grained control:
 
-- [`Position`](position.md) - Seek to specific locations
-- [`SegmentReader`](segment-reader.md) - Manual reading
-- [`FsyncPolicy`](fsync-policy.md) - Custom durability
+- `Position` - Seek to specific locations (see [Wal](wal.md))
+- `SegmentReader` - Manual reading (see [Wal](wal.md))
+- `FsyncPolicy` - Custom durability (see [Config](config.md))
 
 ### Observability
 
 For monitoring and debugging:
 
-- [`RecoveryInfo`](recovery-info.md) - Recovery statistics
-- [`Meter` trait](meter.md) - Custom metrics (advanced)
+- `RecoveryInfo` - Recovery statistics (see [Wal](wal.md))
+- `Meter` trait - Custom metrics (see [nori-observe](../../nori-observe/index.md))
 
 ---
 

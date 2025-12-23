@@ -58,7 +58,7 @@ impl DeterministicRng {
 }
 
 /// Fault injection policy for network events
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NetworkFaultPolicy {
     /// Probability (0.0-1.0) of dropping a message
     pub drop_probability: f64,

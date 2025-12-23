@@ -26,3 +26,4 @@ pub use linearizability::{History, Operation, OperationResult, LinearizabilityEr
 pub use fault_injection::{
     DeterministicRng, NetworkFaultPolicy, NetworkFaultInjector, FaultAction, ChaosScheduler,
 };
+pub use generators::{ClusterEvent, TestScenario};

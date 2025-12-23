@@ -1,0 +1,9 @@
+# Normalize line endings
+* text=auto
+
+# Language-specific diffs
+*.md text diff=markdown
+*.rs text diff=rust
+
+# Mark any accidentally committed generated files
+site/** linguist-generated=true

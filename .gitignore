@@ -20,3 +20,6 @@ apps/norikv-dashboard/.turbo
 .DS_Store
 .idea
 .vscode
+
+# MkDocs build output
+site/

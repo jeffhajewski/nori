@@ -771,7 +771,7 @@ meter.gauge("wal_segment_count", &[("node", "0")])
 - Deletion rate depends on memtable flush frequency and WAL age policy
 - Segment count should stabilize based on write throughput and GC interval
 
-See [Performance Benchmarks](../performance/benchmarks.md#garbage-collection) for detailed measurements.
+See [Performance Benchmarks](../performance/benchmarks.md) for detailed measurements.
 
 ---
 

@@ -9,7 +9,7 @@ Understanding the internal design and components of the Java client SDK.
 - [Request Flow](#request-flow)
 - [Threading Model](#threading-model)
 - [Connection Management](#connection-management)
-- [Routing & Sharding](#routing--sharding)
+- [Routing & Sharding](#routing-sharding)
 - [Retry Logic](#retry-logic)
 - [Error Handling](#error-handling)
 

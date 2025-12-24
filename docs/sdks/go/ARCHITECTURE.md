@@ -9,7 +9,7 @@ Understanding the internal design and components of the Go client SDK.
 - [Request Flow](#request-flow)
 - [Concurrency Model](#concurrency-model)
 - [Connection Management](#connection-management)
-- [Routing & Sharding](#routing--sharding)
+- [Routing & Sharding](#routing-sharding)
 - [Retry Logic](#retry-logic)
 - [Error Handling](#error-handling)
 

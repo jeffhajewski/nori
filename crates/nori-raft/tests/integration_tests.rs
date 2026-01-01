@@ -84,8 +84,10 @@ impl IntegrationTestCluster {
                 .unwrap();
 
             let mut raft_config = RaftConfig::default();
-            raft_config.election_timeout_min = Duration::from_millis(150);
-            raft_config.election_timeout_max = Duration::from_millis(300);
+            // Ensure heartbeat_interval < election_timeout_min to prevent spurious elections
+            raft_config.heartbeat_interval = Duration::from_millis(100);
+            raft_config.election_timeout_min = Duration::from_millis(200);
+            raft_config.election_timeout_max = Duration::from_millis(400);
 
             let mut lsm_config = ATLLConfig::default();
             lsm_config.data_dir = lsm_dir.path().to_path_buf();

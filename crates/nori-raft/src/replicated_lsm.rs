@@ -412,10 +412,11 @@ mod tests {
         let raft_dir = TempDir::new().unwrap();
         let lsm_dir = TempDir::new().unwrap();
 
-        // Configure Raft
+        // Configure Raft - ensure heartbeat_interval < election_timeout_min
         let mut raft_config = RaftConfig::default();
-        raft_config.election_timeout_min = Duration::from_millis(150);
-        raft_config.election_timeout_max = Duration::from_millis(300);
+        raft_config.heartbeat_interval = Duration::from_millis(100);
+        raft_config.election_timeout_min = Duration::from_millis(200);
+        raft_config.election_timeout_max = Duration::from_millis(400);
 
         // Configure LSM
         let mut lsm_config = ATLLConfig::default();

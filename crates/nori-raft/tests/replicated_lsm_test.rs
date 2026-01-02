@@ -28,8 +28,9 @@ async fn create_single_node_cluster() -> (Arc<ReplicatedLSM>, TempDir, TempDir) 
     let lsm_dir = TempDir::new().unwrap();
 
     let mut raft_config = RaftConfig::default();
-    raft_config.election_timeout_min = Duration::from_millis(150);
-    raft_config.election_timeout_max = Duration::from_millis(300);
+    raft_config.heartbeat_interval = Duration::from_millis(100);
+    raft_config.election_timeout_min = Duration::from_millis(200);
+    raft_config.election_timeout_max = Duration::from_millis(400);
 
     let mut lsm_config = ATLLConfig::default();
     lsm_config.data_dir = lsm_dir.path().to_path_buf();
@@ -226,8 +227,9 @@ async fn test_persistence_across_restart() {
         let node_id = NodeId::new("persist_node");
 
         let mut raft_config = RaftConfig::default();
-        raft_config.election_timeout_min = Duration::from_millis(150);
-        raft_config.election_timeout_max = Duration::from_millis(300);
+        raft_config.heartbeat_interval = Duration::from_millis(100);
+        raft_config.election_timeout_min = Duration::from_millis(200);
+        raft_config.election_timeout_max = Duration::from_millis(400);
 
         let mut lsm_config = ATLLConfig::default();
         lsm_config.data_dir = lsm_dir.path().to_path_buf();
@@ -276,8 +278,9 @@ async fn test_persistence_across_restart() {
         let node_id = NodeId::new("persist_node");
 
         let mut raft_config = RaftConfig::default();
-        raft_config.election_timeout_min = Duration::from_millis(150);
-        raft_config.election_timeout_max = Duration::from_millis(300);
+        raft_config.heartbeat_interval = Duration::from_millis(100);
+        raft_config.election_timeout_min = Duration::from_millis(200);
+        raft_config.election_timeout_max = Duration::from_millis(400);
 
         let mut lsm_config = ATLLConfig::default();
         lsm_config.data_dir = lsm_dir.path().to_path_buf();

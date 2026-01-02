@@ -234,15 +234,15 @@ mod tests {
         let (bloom_offset, bloom_size) = writer.write_bloom(&bloom).await.unwrap();
 
         // Write footer
-        let footer = Footer {
+        let footer = Footer::new_bloom(
             index_offset,
             index_size,
             bloom_offset,
             bloom_size,
-            compression: Compression::None,
-            block_size: 4096,
-            entry_count: 2,
-        };
+            Compression::None,
+            4096,
+            2,
+        );
         writer.write_footer(&footer).await.unwrap();
 
         writer.sync().await.unwrap();

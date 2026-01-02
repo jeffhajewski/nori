@@ -174,6 +174,7 @@ mod error;
 mod format;
 mod index;
 mod iterator;
+mod quotient_filter;
 mod reader;
 pub mod vector_block;
 mod writer;
@@ -181,11 +182,16 @@ mod writer;
 pub use block::{Block, BlockBuilder, BlockIterator};
 pub use bloom::BloomFilter;
 pub use builder::{SSTableBuilder, SSTableConfig, SSTableMetadata};
+pub use quotient_filter::{
+    Fingerprint, QuotientFilter, QuotientFilterConfig, DEFAULT_LOAD_FACTOR,
+    DEFAULT_QUOTIENT_BITS, DEFAULT_REMAINDER_BITS,
+};
 pub use entry::Entry;
 pub use error::{Result, SSTableError};
 pub use format::{
     Compression, Footer, BLOOM_BITS_PER_KEY, BLOOM_FP_RATE, DEFAULT_BLOCK_SIZE,
-    DEFAULT_RESTART_INTERVAL, FOOTER_SIZE, SSTABLE_MAGIC,
+    DEFAULT_QF_REMAINDER_BITS, DEFAULT_RESTART_INTERVAL, FOOTER_SIZE, FORMAT_VERSION_BLOOM,
+    FORMAT_VERSION_QUOTIENT, SSTABLE_MAGIC,
 };
 pub use index::{Index, IndexEntry};
 pub use iterator::SSTableIterator;

@@ -1,21 +1,34 @@
 //! SSTable file format constants and layout specification.
 //!
-//! File layout:
+//! # File Layout
+//!
+//! ## Version 1 (legacy): Per-file Bloom Filter
 //! ```text
-//! [Data Blocks] [Index Blocks] [Bloom Filter] [Footer]
+//! [Data Blocks] [Index] [Bloom Filter] [Footer]
 //! ```
 //!
-//! Footer (last 64 bytes):
-//! - index_offset: u64
-//! - index_size: u64
-//! - bloom_offset: u64
-//! - bloom_size: u64
-//! - compression: u8
-//! - block_size: u32
-//! - entry_count: u64
-//! - reserved: 7 bytes
-//! - magic: u64 (0x4E4F52495353544C "NORISSTL")
-//! - crc32c: u32
+//! ## Version 2: Per-block Quotient Filters
+//! ```text
+//! [Data Blocks with inline QF] [Index] [Footer]
+//! ```
+//! Each data block includes its Quotient Filter at the end.
+//!
+//! # Footer (last 64 bytes)
+//!
+//! | Offset | Size | Field |
+//! |--------|------|-------|
+//! | 0-7    | 8    | index_offset: u64 |
+//! | 8-15   | 8    | index_size: u64 |
+//! | 16-23  | 8    | bloom_offset: u64 (v1) or reserved (v2) |
+//! | 24-31  | 8    | bloom_size: u64 (v1) or reserved (v2) |
+//! | 32     | 1    | compression: u8 |
+//! | 33-36  | 4    | block_size: u32 |
+//! | 37-44  | 8    | entry_count: u64 |
+//! | 45     | 1    | format_version: u8 (0/1=bloom, 2=per-block QF) |
+//! | 46     | 1    | qf_remainder_bits: u8 (for v2) |
+//! | 47-51  | 5    | reserved |
+//! | 52-59  | 8    | magic: u64 "NORISSTL" |
+//! | 60-63  | 4    | crc32c: u32 |
 
 /// Default block size (4 KB).
 pub const DEFAULT_BLOCK_SIZE: u32 = 4096;
@@ -34,6 +47,15 @@ pub const BLOOM_BITS_PER_KEY: usize = 10;
 
 /// Target false positive rate for bloom filter (~0.9%).
 pub const BLOOM_FP_RATE: f64 = 0.009;
+
+/// SSTable format version for per-file Bloom filter.
+pub const FORMAT_VERSION_BLOOM: u8 = 1;
+
+/// SSTable format version for per-block Quotient Filters.
+pub const FORMAT_VERSION_QUOTIENT: u8 = 2;
+
+/// Default Quotient Filter remainder bits for ~0.78% FPR.
+pub const DEFAULT_QF_REMAINDER_BITS: u8 = 7;
 
 /// Compression type enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,9 +90,9 @@ pub struct Footer {
     pub index_offset: u64,
     /// Size of index blocks in bytes.
     pub index_size: u64,
-    /// Offset of bloom filter in file.
+    /// Offset of bloom filter in file (v1 only, 0 for v2).
     pub bloom_offset: u64,
-    /// Size of bloom filter in bytes.
+    /// Size of bloom filter in bytes (v1 only, 0 for v2).
     pub bloom_size: u64,
     /// Compression type used for data blocks.
     pub compression: Compression,
@@ -78,6 +100,67 @@ pub struct Footer {
     pub block_size: u32,
     /// Total number of entries in SSTable.
     pub entry_count: u64,
+    /// Format version: 0/1 = per-file Bloom, 2 = per-block Quotient Filter.
+    pub format_version: u8,
+    /// Quotient Filter remainder bits (for v2 format).
+    pub qf_remainder_bits: u8,
+}
+
+impl Footer {
+    /// Creates a new Footer with default Bloom filter format (v1).
+    pub fn new_bloom(
+        index_offset: u64,
+        index_size: u64,
+        bloom_offset: u64,
+        bloom_size: u64,
+        compression: Compression,
+        block_size: u32,
+        entry_count: u64,
+    ) -> Self {
+        Self {
+            index_offset,
+            index_size,
+            bloom_offset,
+            bloom_size,
+            compression,
+            block_size,
+            entry_count,
+            format_version: FORMAT_VERSION_BLOOM,
+            qf_remainder_bits: 0,
+        }
+    }
+
+    /// Creates a new Footer with per-block Quotient Filter format (v2).
+    pub fn new_quotient(
+        index_offset: u64,
+        index_size: u64,
+        compression: Compression,
+        block_size: u32,
+        entry_count: u64,
+        qf_remainder_bits: u8,
+    ) -> Self {
+        Self {
+            index_offset,
+            index_size,
+            bloom_offset: 0,
+            bloom_size: 0,
+            compression,
+            block_size,
+            entry_count,
+            format_version: FORMAT_VERSION_QUOTIENT,
+            qf_remainder_bits,
+        }
+    }
+
+    /// Returns true if this SSTable uses per-file Bloom filter (v1 format).
+    pub fn uses_bloom_filter(&self) -> bool {
+        self.format_version <= FORMAT_VERSION_BLOOM
+    }
+
+    /// Returns true if this SSTable uses per-block Quotient Filters (v2 format).
+    pub fn uses_quotient_filter(&self) -> bool {
+        self.format_version == FORMAT_VERSION_QUOTIENT
+    }
 }
 
 impl Footer {
@@ -92,7 +175,9 @@ impl Footer {
         buf[32] = self.compression.to_u8();
         buf[33..37].copy_from_slice(&self.block_size.to_le_bytes());
         buf[37..45].copy_from_slice(&self.entry_count.to_le_bytes());
-        // 45..52: reserved (7 bytes)
+        buf[45] = self.format_version;
+        buf[46] = self.qf_remainder_bits;
+        // 47..52: reserved (5 bytes)
         buf[52..60].copy_from_slice(&SSTABLE_MAGIC.to_le_bytes());
 
         // CRC32C of first 60 bytes
@@ -145,6 +230,8 @@ impl Footer {
         let entry_count = u64::from_le_bytes([
             buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44],
         ]);
+        let format_version = buf[45];
+        let qf_remainder_bits = buf[46];
 
         Ok(Footer {
             index_offset,
@@ -154,6 +241,8 @@ impl Footer {
             compression,
             block_size,
             entry_count,
+            format_version,
+            qf_remainder_bits,
         })
     }
 }
@@ -164,34 +253,33 @@ mod tests {
     use crate::error::SSTableError;
 
     #[test]
-    fn test_footer_roundtrip() {
-        let footer = Footer {
-            index_offset: 1024,
-            index_size: 512,
-            bloom_offset: 1536,
-            bloom_size: 256,
-            compression: Compression::Lz4,
-            block_size: 4096,
-            entry_count: 1000,
-        };
+    fn test_footer_roundtrip_bloom() {
+        let footer = Footer::new_bloom(1024, 512, 1536, 256, Compression::Lz4, 4096, 1000);
 
         let encoded = footer.encode();
         let decoded = Footer::decode(&encoded).unwrap();
 
         assert_eq!(footer, decoded);
+        assert!(decoded.uses_bloom_filter());
+        assert!(!decoded.uses_quotient_filter());
+    }
+
+    #[test]
+    fn test_footer_roundtrip_quotient() {
+        let footer = Footer::new_quotient(1024, 512, Compression::Lz4, 4096, 1000, 7);
+
+        let encoded = footer.encode();
+        let decoded = Footer::decode(&encoded).unwrap();
+
+        assert_eq!(footer, decoded);
+        assert!(!decoded.uses_bloom_filter());
+        assert!(decoded.uses_quotient_filter());
+        assert_eq!(decoded.qf_remainder_bits, 7);
     }
 
     #[test]
     fn test_footer_crc_validation() {
-        let footer = Footer {
-            index_offset: 1024,
-            index_size: 512,
-            bloom_offset: 1536,
-            bloom_size: 256,
-            compression: Compression::Zstd,
-            block_size: 4096,
-            entry_count: 1000,
-        };
+        let footer = Footer::new_bloom(1024, 512, 1536, 256, Compression::Zstd, 4096, 1000);
 
         let mut encoded = footer.encode();
 
@@ -204,15 +292,7 @@ mod tests {
 
     #[test]
     fn test_footer_magic_validation() {
-        let footer = Footer {
-            index_offset: 1024,
-            index_size: 512,
-            bloom_offset: 1536,
-            bloom_size: 256,
-            compression: Compression::None,
-            block_size: 4096,
-            entry_count: 1000,
-        };
+        let footer = Footer::new_bloom(1024, 512, 1536, 256, Compression::None, 4096, 1000);
 
         let mut encoded = footer.encode();
 
@@ -237,5 +317,24 @@ mod tests {
         assert_eq!(Compression::None.to_u8(), 0);
         assert_eq!(Compression::Lz4.to_u8(), 1);
         assert_eq!(Compression::Zstd.to_u8(), 2);
+    }
+
+    #[test]
+    fn test_legacy_footer_compatibility() {
+        // A footer with format_version=0 (legacy) should be treated as Bloom
+        let footer = Footer {
+            index_offset: 1024,
+            index_size: 512,
+            bloom_offset: 1536,
+            bloom_size: 256,
+            compression: Compression::None,
+            block_size: 4096,
+            entry_count: 1000,
+            format_version: 0, // Legacy
+            qf_remainder_bits: 0,
+        };
+
+        assert!(footer.uses_bloom_filter());
+        assert!(!footer.uses_quotient_filter());
     }
 }

@@ -258,15 +258,15 @@ impl SSTableBuilder {
             .inc(index_size + bloom_size);
 
         // Write footer
-        let footer = Footer {
+        let footer = Footer::new_bloom(
             index_offset,
             index_size,
             bloom_offset,
             bloom_size,
-            compression: self.config.compression,
-            block_size: self.config.block_size,
-            entry_count: self.entry_count,
-        };
+            self.config.compression,
+            self.config.block_size,
+            self.entry_count,
+        );
         self.writer.write_footer(&footer).await?;
 
         // Track footer bytes written

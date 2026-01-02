@@ -1,56 +1,113 @@
 //! Block encoding/decoding with restart points for prefix compression.
 //!
-//! Block structure:
+//! # Block Structure
+//!
+//! ## Version 1 (legacy): No inline filter
 //! ```text
 //! [Entries with prefix compression]
 //! [Restart points array: u32...]
 //! [Restart count: u32]
 //! ```
 //!
-//! Prefix compression:
+//! ## Version 2: With inline Quotient Filter
+//! ```text
+//! [Entries with prefix compression]
+//! [Restart points array: u32...]
+//! [Restart count: u32]
+//! [Quotient Filter data]
+//! [QF size: u16]
+//! ```
+//!
+//! # Prefix Compression
+//!
 //! Every `restart_interval` entries, we store the full key. Between restart points,
 //! we store only the suffix that differs from the previous key.
 //!
-//! Entry format in block:
+//! # Entry Format
+//!
 //! - shared_len: varint (bytes shared with previous key)
 //! - unshared_len: varint (bytes not shared)
-//! - value_len: varint
+//! - value_len: varint (high bit = tombstone flag)
+//! - term: varint
+//! - index: varint
 //! - unshared_key: bytes[unshared_len]
 //! - value: bytes[value_len]
 
 use crate::entry::Entry;
 use crate::error::{Result, SSTableError};
+use crate::quotient_filter::{QuotientFilter, QuotientFilterConfig};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-/// A block of entries with prefix compression.
+/// A block of entries with prefix compression and optional Quotient Filter.
 #[derive(Debug, Clone)]
 pub struct Block {
     data: Bytes,
     restart_points: Vec<u32>,
+    /// Optional Quotient Filter for fast negative lookups (v2 format).
+    quotient_filter: Option<QuotientFilter>,
+    /// End offset of entry data (before restart points).
+    data_end: usize,
 }
 
 impl Block {
-    /// Decodes a block from bytes.
+    /// Decodes a block from bytes (v1 format, no inline filter).
     pub fn decode(data: Bytes) -> Result<Self> {
+        Self::decode_with_filter(data, false)
+    }
+
+    /// Decodes a block from bytes, optionally parsing an inline Quotient Filter.
+    ///
+    /// Use `has_inline_filter=true` for v2 format blocks that include a QF.
+    pub fn decode_with_filter(data: Bytes, has_inline_filter: bool) -> Result<Self> {
         if data.len() < 4 {
             return Err(SSTableError::Incomplete);
         }
 
-        // Read restart count from last 4 bytes
+        // For v2 format, parse QF from the end first
+        let (qf, qf_total_size) = if has_inline_filter {
+            // Read QF size from last 2 bytes
+            if data.len() < 6 {
+                return Err(SSTableError::Incomplete);
+            }
+            let qf_size = u16::from_le_bytes([data[data.len() - 2], data[data.len() - 1]]) as usize;
+
+            if qf_size == 0 {
+                (None, 2) // Just the size field, no QF data
+            } else {
+                if data.len() < qf_size + 2 {
+                    return Err(SSTableError::Incomplete);
+                }
+                let qf_start = data.len() - 2 - qf_size;
+                let qf_data = &data[qf_start..data.len() - 2];
+                let qf = QuotientFilter::decode(qf_data)?;
+                (Some(qf), qf_size + 2)
+            }
+        } else {
+            (None, 0)
+        };
+
+        // Remaining data after removing QF
+        let remaining_len = data.len() - qf_total_size;
+
+        if remaining_len < 4 {
+            return Err(SSTableError::Incomplete);
+        }
+
+        // Read restart count
         let restart_count = u32::from_le_bytes([
-            data[data.len() - 4],
-            data[data.len() - 3],
-            data[data.len() - 2],
-            data[data.len() - 1],
+            data[remaining_len - 4],
+            data[remaining_len - 3],
+            data[remaining_len - 2],
+            data[remaining_len - 1],
         ]);
 
         let restart_points_size = restart_count as usize * 4;
-        if data.len() < restart_points_size + 4 {
+        if remaining_len < restart_points_size + 4 {
             return Err(SSTableError::Incomplete);
         }
 
         // Read restart points
-        let restart_points_start = data.len() - 4 - restart_points_size;
+        let restart_points_start = remaining_len - 4 - restart_points_size;
         let mut restart_points = Vec::with_capacity(restart_count as usize);
 
         for i in 0..restart_count as usize {
@@ -64,24 +121,60 @@ impl Block {
             restart_points.push(point);
         }
 
+        let data_end = restart_points_start;
+
         Ok(Block {
             data,
             restart_points,
+            quotient_filter: qf,
+            data_end,
         })
+    }
+
+    /// Returns true if this block has an inline Quotient Filter.
+    pub fn has_quotient_filter(&self) -> bool {
+        self.quotient_filter.is_some()
+    }
+
+    /// Fast check if a key might be in this block.
+    ///
+    /// Returns `true` if the key might be present (requires full lookup).
+    /// Returns `false` if the key is definitely not present (no false negatives).
+    ///
+    /// If no Quotient Filter is present, always returns `true`.
+    pub fn may_contain(&self, key: &[u8]) -> bool {
+        match &self.quotient_filter {
+            Some(qf) => qf.contains(key),
+            None => true, // No filter, must do full lookup
+        }
+    }
+
+    /// Returns a reference to the Quotient Filter, if present.
+    pub fn quotient_filter(&self) -> Option<&QuotientFilter> {
+        self.quotient_filter.as_ref()
     }
 
     /// Returns an iterator over entries in this block.
     pub fn iter(&self) -> BlockIterator {
         BlockIterator {
             data: self.data.clone(),
-            restart_points: self.restart_points.clone(),
+            data_end: self.data_end,
             offset: 0,
             last_key: Bytes::new(),
         }
     }
 
     /// Searches for a key in the block.
+    ///
+    /// If a Quotient Filter is present, it is checked first for fast rejection.
     pub fn get(&self, key: &[u8]) -> Result<Option<Entry>> {
+        // Fast path: check Quotient Filter first
+        if let Some(ref qf) = self.quotient_filter {
+            if !qf.contains(key) {
+                return Ok(None); // Definitely not present
+            }
+        }
+
         // Binary search over restart points
         let mut left = 0;
         let mut right = self.restart_points.len();
@@ -140,7 +233,7 @@ impl Block {
 
         let mut iter = BlockIterator {
             data: self.data.clone(),
-            restart_points: self.restart_points.clone(),
+            data_end: self.data_end,
             offset: restart_offset,
             last_key: Bytes::new(),
         };
@@ -157,12 +250,11 @@ impl Block {
     }
 
     fn decode_entry_at(&self, offset: usize, last_key: &Bytes) -> Result<Option<Entry>> {
-        let data_end = self.data.len() - 4 - (self.restart_points.len() * 4);
-        if offset >= data_end {
+        if offset >= self.data_end {
             return Ok(None);
         }
 
-        let mut buf = &self.data[offset..data_end];
+        let mut buf = &self.data[offset..self.data_end];
 
         let shared_len = decode_varint(&mut buf)? as usize;
         let unshared_len = decode_varint(&mut buf)? as usize;
@@ -210,7 +302,7 @@ impl Block {
 /// Iterator over entries in a block.
 pub struct BlockIterator {
     data: Bytes,
-    restart_points: Vec<u32>,
+    data_end: usize,
     offset: usize,
     last_key: Bytes,
 }
@@ -221,13 +313,12 @@ impl BlockIterator {
     /// Returns `Ok(Some(entry))` if there is another entry,
     /// `Ok(None)` if iteration is complete, or `Err` on decoding errors.
     pub fn try_next(&mut self) -> Result<Option<Entry>> {
-        let data_end = self.data.len() - 4 - (self.restart_points.len() * 4);
-        if self.offset >= data_end {
+        if self.offset >= self.data_end {
             return Ok(None);
         }
 
         let start_offset = self.offset;
-        let mut buf = &self.data[self.offset..data_end];
+        let mut buf = &self.data[self.offset..self.data_end];
         let initial_buf_len = buf.len();
 
         let shared_len = decode_varint(&mut buf)? as usize;
@@ -273,7 +364,7 @@ impl BlockIterator {
         buf.advance(unshared_len);
 
         // Optimization: Use slice instead of copy for value
-        let value_offset_in_buf = data_end - buf.len();
+        let value_offset_in_buf = self.data_end - buf.len();
         let value = self
             .data
             .slice(value_offset_in_buf..value_offset_in_buf + value_len);
@@ -303,10 +394,12 @@ pub struct BlockBuilder {
     counter: usize,
     last_key: Bytes,
     entry_count: usize,
+    /// Optional Quotient Filter for v2 format blocks.
+    quotient_filter: Option<QuotientFilter>,
 }
 
 impl BlockBuilder {
-    /// Creates a new block builder.
+    /// Creates a new block builder (v1 format, no inline filter).
     pub fn new(restart_interval: usize) -> Self {
         let mut builder = Self {
             buffer: BytesMut::new(),
@@ -315,6 +408,25 @@ impl BlockBuilder {
             counter: 0,
             last_key: Bytes::new(),
             entry_count: 0,
+            quotient_filter: None,
+        };
+        builder.restart_points.push(0);
+        builder
+    }
+
+    /// Creates a new block builder with Quotient Filter support (v2 format).
+    ///
+    /// The `config` specifies the QF parameters. Use `QuotientFilterConfig::default()`
+    /// for sensible defaults (~0.78% FPR with ~75% load factor).
+    pub fn new_with_filter(restart_interval: usize, config: QuotientFilterConfig) -> Self {
+        let mut builder = Self {
+            buffer: BytesMut::new(),
+            restart_points: Vec::new(),
+            restart_interval,
+            counter: 0,
+            last_key: Bytes::new(),
+            entry_count: 0,
+            quotient_filter: Some(QuotientFilter::with_config(config)),
         };
         builder.restart_points.push(0);
         builder
@@ -328,6 +440,11 @@ impl BlockBuilder {
                 self.last_key.to_vec(),
                 entry.key.to_vec(),
             ));
+        }
+
+        // Add to Quotient Filter if present (for v2 format)
+        if let Some(ref mut qf) = self.quotient_filter {
+            qf.add(&entry.key);
         }
 
         // Determine if this is a restart point
@@ -371,8 +488,14 @@ impl BlockBuilder {
     }
 
     /// Returns the current size of the block in bytes.
+    ///
+    /// For v2 format blocks, this includes the estimated Quotient Filter size.
     pub fn current_size(&self) -> usize {
-        self.buffer.len() + (self.restart_points.len() * 4) + 4
+        let base_size = self.buffer.len() + (self.restart_points.len() * 4) + 4;
+        match &self.quotient_filter {
+            Some(qf) => base_size + qf.encoded_size() + 2, // +2 for QF size trailer
+            None => base_size,
+        }
     }
 
     /// Returns the number of entries added so far.
@@ -381,6 +504,9 @@ impl BlockBuilder {
     }
 
     /// Resets the builder for reuse.
+    ///
+    /// If the builder was created with a Quotient Filter, a new empty QF
+    /// with the same configuration will be created.
     pub fn reset(&mut self) {
         self.buffer.clear();
         self.restart_points.clear();
@@ -388,9 +514,16 @@ impl BlockBuilder {
         self.counter = 0;
         self.last_key = Bytes::new();
         self.entry_count = 0;
+        // Reset QF with same config if present
+        if let Some(ref mut qf) = self.quotient_filter {
+            qf.clear();
+        }
     }
 
     /// Finishes building the block and returns the encoded bytes.
+    ///
+    /// For v2 format blocks with a Quotient Filter, the layout is:
+    /// `[entries][restart points][restart count][QF data][QF size: u16]`
     pub fn finish(&mut self) -> Bytes {
         // Append restart points
         for &point in &self.restart_points {
@@ -400,7 +533,25 @@ impl BlockBuilder {
         // Append restart count
         self.buffer.put_u32_le(self.restart_points.len() as u32);
 
+        // Append Quotient Filter if present (v2 format)
+        if let Some(ref qf) = self.quotient_filter {
+            let qf_data = qf.encode();
+            let qf_size = qf_data.len() as u16;
+            self.buffer.put_slice(&qf_data);
+            self.buffer.put_u16_le(qf_size);
+        }
+
         self.buffer.clone().freeze()
+    }
+
+    /// Returns true if this builder produces v2 format blocks with inline QF.
+    pub fn has_quotient_filter(&self) -> bool {
+        self.quotient_filter.is_some()
+    }
+
+    /// Returns a reference to the Quotient Filter, if present.
+    pub fn quotient_filter(&self) -> Option<&QuotientFilter> {
+        self.quotient_filter.as_ref()
     }
 }
 
@@ -571,5 +722,173 @@ mod tests {
         assert_eq!(common_prefix_len(b"apple", b"banana"), 0);
         assert_eq!(common_prefix_len(b"test", b"test"), 4);
         assert_eq!(common_prefix_len(b"", b"test"), 0);
+    }
+
+    // === V2 FORMAT TESTS (with Quotient Filter) ===
+
+    #[test]
+    fn test_block_builder_with_filter() {
+        let config = QuotientFilterConfig::for_keys(100);
+        let mut builder = BlockBuilder::new_with_filter(16, config);
+
+        assert!(builder.has_quotient_filter());
+
+        // Add entries
+        for i in 0..50 {
+            let key = format!("key{:03}", i);
+            let value = format!("value{:03}", i);
+            builder.add(&Entry::put(key, value)).unwrap();
+        }
+
+        // QF should have entries
+        assert_eq!(builder.quotient_filter().unwrap().len(), 50);
+
+        let block_data = builder.finish();
+
+        // Decode as v2 format
+        let block = Block::decode_with_filter(block_data, true).unwrap();
+
+        assert!(block.has_quotient_filter());
+        assert_eq!(block.quotient_filter().unwrap().len(), 50);
+    }
+
+    #[test]
+    fn test_block_v2_roundtrip() {
+        let config = QuotientFilterConfig::for_keys(100);
+        let mut builder = BlockBuilder::new_with_filter(16, config);
+
+        let entries: Vec<_> = (0..30)
+            .map(|i| Entry::put(format!("key{:03}", i), format!("val{:03}", i)))
+            .collect();
+
+        for entry in &entries {
+            builder.add(entry).unwrap();
+        }
+
+        let block_data = builder.finish();
+        let block = Block::decode_with_filter(block_data, true).unwrap();
+
+        // Verify all entries via iteration
+        let mut iter = block.iter();
+        for expected in &entries {
+            let entry = iter.try_next().unwrap().unwrap();
+            assert_eq!(entry.key, expected.key);
+            assert_eq!(entry.value, expected.value);
+        }
+        assert!(iter.try_next().unwrap().is_none());
+
+        // Verify lookups
+        for entry in &entries {
+            let found = block.get(&entry.key).unwrap().unwrap();
+            assert_eq!(found.key, entry.key);
+            assert_eq!(found.value, entry.value);
+        }
+    }
+
+    #[test]
+    fn test_block_qf_fast_rejection() {
+        let config = QuotientFilterConfig::for_keys(100);
+        let mut builder = BlockBuilder::new_with_filter(16, config);
+
+        // Add known keys
+        for i in 0..20 {
+            builder
+                .add(&Entry::put(format!("exists{:03}", i), "value"))
+                .unwrap();
+        }
+
+        let block_data = builder.finish();
+        let block = Block::decode_with_filter(block_data, true).unwrap();
+
+        // Keys that exist should pass may_contain
+        for i in 0..20 {
+            assert!(
+                block.may_contain(format!("exists{:03}", i).as_bytes()),
+                "False negative for exists{:03}",
+                i
+            );
+        }
+
+        // Most non-existent keys should be rejected by QF (statistical)
+        let mut rejected = 0;
+        for i in 100..200 {
+            if !block.may_contain(format!("notexists{:03}", i).as_bytes()) {
+                rejected += 1;
+            }
+        }
+
+        // With ~0.78% FPR, we expect ~97-99% rejection
+        assert!(
+            rejected > 90,
+            "QF should reject most non-existent keys, but only rejected {}",
+            rejected
+        );
+    }
+
+    #[test]
+    fn test_block_qf_get_uses_filter() {
+        let config = QuotientFilterConfig::for_keys(100);
+        let mut builder = BlockBuilder::new_with_filter(16, config);
+
+        // Add a few keys
+        builder.add(&Entry::put("aaa", "v1")).unwrap();
+        builder.add(&Entry::put("bbb", "v2")).unwrap();
+        builder.add(&Entry::put("ccc", "v3")).unwrap();
+
+        let block_data = builder.finish();
+        let block = Block::decode_with_filter(block_data, true).unwrap();
+
+        // Existing keys found
+        assert!(block.get(b"aaa").unwrap().is_some());
+        assert!(block.get(b"bbb").unwrap().is_some());
+        assert!(block.get(b"ccc").unwrap().is_some());
+
+        // Non-existent key returns None (may skip binary search due to QF)
+        assert!(block.get(b"zzz").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_block_builder_reset_with_filter() {
+        let config = QuotientFilterConfig::for_keys(100);
+        let mut builder = BlockBuilder::new_with_filter(16, config);
+
+        // Add some entries
+        builder.add(&Entry::put("key1", "v1")).unwrap();
+        builder.add(&Entry::put("key2", "v2")).unwrap();
+        assert_eq!(builder.entry_count(), 2);
+        assert_eq!(builder.quotient_filter().unwrap().len(), 2);
+
+        // Reset
+        builder.reset();
+
+        assert_eq!(builder.entry_count(), 0);
+        assert_eq!(builder.quotient_filter().unwrap().len(), 0);
+        assert!(builder.has_quotient_filter());
+
+        // Can add new entries
+        builder.add(&Entry::put("newkey", "newval")).unwrap();
+        assert_eq!(builder.entry_count(), 1);
+    }
+
+    #[test]
+    fn test_block_without_filter_decode_v1() {
+        // v1 format blocks should still work with decode()
+        let mut builder = BlockBuilder::new(16);
+
+        for i in 0..20 {
+            builder
+                .add(&Entry::put(format!("key{:03}", i), format!("val{:03}", i)))
+                .unwrap();
+        }
+
+        let block_data = builder.finish();
+        let block = Block::decode(block_data).unwrap();
+
+        assert!(!block.has_quotient_filter());
+        assert!(block.may_contain(b"anything")); // No filter, always returns true
+
+        // Lookups still work
+        let found = block.get(b"key005").unwrap().unwrap();
+        assert_eq!(found.value.as_ref(), b"val005");
     }
 }

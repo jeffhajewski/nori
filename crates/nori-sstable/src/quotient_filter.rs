@@ -153,6 +153,11 @@ impl QuotientFilter {
         }
     }
 
+    /// Creates a new quotient filter with the given configuration (alias for `new`).
+    pub fn with_config(config: QuotientFilterConfig) -> Self {
+        Self::new(config)
+    }
+
     /// Creates a quotient filter sized for the expected number of keys.
     pub fn for_keys(num_keys: usize) -> Self {
         Self::new(QuotientFilterConfig::for_keys(num_keys))
@@ -176,6 +181,21 @@ impl QuotientFilter {
     /// Returns true if the filter is empty.
     pub fn is_empty(&self) -> bool {
         self.count == 0
+    }
+
+    /// Clears all elements from the filter, keeping the same configuration.
+    pub fn clear(&mut self) {
+        for slot in &mut self.slots {
+            *slot = None;
+        }
+        self.count = 0;
+    }
+
+    /// Returns the estimated encoded size in bytes.
+    ///
+    /// This is the size of the `encode()` output.
+    pub fn encoded_size(&self) -> usize {
+        self.size()
     }
 
     /// Returns the current load factor.

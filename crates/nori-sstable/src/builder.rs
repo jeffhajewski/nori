@@ -38,7 +38,7 @@ use crate::format::{
     DEFAULT_RESTART_INTERVAL,
 };
 use crate::index::Index;
-use crate::quotient_filter::QuotientFilterConfig;
+use crate::quotient_filter::{Fingerprint, QuotientFilterConfig};
 use crate::writer::SSTableWriter;
 use bytes::Bytes;
 use nori_observe::{Meter, NoopMeter};
@@ -221,6 +221,76 @@ impl SSTableBuilder {
         self.meter.counter("sstable_entries_written", &[]).inc(1);
 
         Ok(())
+    }
+
+    /// Adds an entry to the SSTable with a pre-computed fingerprint.
+    ///
+    /// This method is used during compaction to avoid re-hashing keys.
+    /// Instead of hashing the key to compute the fingerprint, the caller
+    /// provides a pre-computed fingerprint that is passed to the BlockBuilder.
+    ///
+    /// For v1 format (Bloom filter), this behaves like `add()` because:
+    /// - Bloom filters use multiple hash functions, so a single fingerprint is insufficient
+    /// - The fingerprint is ignored and the key is hashed for the Bloom filter
+    ///
+    /// For v2 format (QuotientFilter), the fingerprint is used directly,
+    /// saving one xxhash64 computation per entry.
+    ///
+    /// Entries must be added in strictly sorted order by key.
+    pub async fn add_with_fingerprint(&mut self, entry: &Entry, fp: Fingerprint) -> Result<()> {
+        // Validate sorted order
+        if !self.last_key.is_empty() && entry.key <= self.last_key {
+            return Err(SSTableError::KeysNotSorted(
+                self.last_key.to_vec(),
+                entry.key.to_vec(),
+            ));
+        }
+
+        // Track first key in SSTable
+        if self.first_key.is_none() {
+            self.first_key = Some(entry.key.clone());
+        }
+
+        // Add to bloom filter for v1 format (must hash, can't use QF fingerprint)
+        if let Some(ref mut bloom) = self.bloom {
+            bloom.add(&entry.key);
+        }
+
+        // Add to block with fingerprint (uses fingerprint directly for v2 format)
+        self.block_builder.add_with_fingerprint(entry, fp)?;
+
+        // Track first key of current block
+        if self.block_first_key.is_none() {
+            self.block_first_key = Some(entry.key.clone());
+        }
+
+        // Check if we need to flush the block
+        if self.block_builder.current_size() >= self.config.block_size as usize {
+            self.flush_block().await?;
+        }
+
+        self.last_key = entry.key.clone();
+        self.entry_count += 1;
+
+        // Track entry written
+        self.meter.counter("sstable_entries_written", &[]).inc(1);
+
+        Ok(())
+    }
+
+    /// Computes the fingerprint for a key using this builder's QF configuration.
+    ///
+    /// Returns `None` if this builder uses Bloom filters (v1 format).
+    /// For v2 format, returns the fingerprint that would be used when adding the key.
+    ///
+    /// This is useful for pre-computing fingerprints during compaction.
+    pub fn compute_fingerprint(&self, key: &[u8]) -> Option<Fingerprint> {
+        self.block_builder.compute_fingerprint(key)
+    }
+
+    /// Returns true if this builder uses per-block Quotient Filters (v2 format).
+    pub fn uses_quotient_filter(&self) -> bool {
+        self.block_builder.has_quotient_filter()
     }
 
     /// Flushes the current block to disk and updates the index.

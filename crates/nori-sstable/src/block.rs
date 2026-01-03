@@ -35,7 +35,7 @@
 
 use crate::entry::Entry;
 use crate::error::{Result, SSTableError};
-use crate::quotient_filter::{QuotientFilter, QuotientFilterConfig};
+use crate::quotient_filter::{Fingerprint, QuotientFilter, QuotientFilterConfig};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 /// A block of entries with prefix compression and optional Quotient Filter.
@@ -487,6 +487,74 @@ impl BlockBuilder {
         Ok(())
     }
 
+    /// Adds an entry to the block with a pre-computed fingerprint.
+    ///
+    /// This method is used during compaction to avoid re-hashing keys.
+    /// Instead of hashing the key to compute the fingerprint, the caller
+    /// provides a pre-computed fingerprint that is inserted directly into
+    /// the Quotient Filter.
+    ///
+    /// If this builder doesn't have a Quotient Filter (v1 format), the
+    /// fingerprint is ignored and this behaves like `add()`.
+    pub fn add_with_fingerprint(&mut self, entry: &Entry, fp: Fingerprint) -> Result<()> {
+        // Check key ordering
+        if !self.last_key.is_empty() && entry.key <= self.last_key {
+            return Err(SSTableError::KeysNotSorted(
+                self.last_key.to_vec(),
+                entry.key.to_vec(),
+            ));
+        }
+
+        // Insert fingerprint directly (skip hashing)
+        if let Some(ref mut qf) = self.quotient_filter {
+            qf.insert_fingerprint(fp);
+        }
+
+        // Rest is identical to add()
+        let use_restart = self.counter >= self.restart_interval;
+
+        let shared_len = if use_restart {
+            0
+        } else {
+            common_prefix_len(&self.last_key, &entry.key)
+        };
+
+        let unshared_len = entry.key.len() - shared_len;
+
+        if use_restart {
+            self.restart_points.push(self.buffer.len() as u32);
+            self.counter = 0;
+        }
+
+        encode_varint(&mut self.buffer, shared_len as u64);
+        encode_varint(&mut self.buffer, unshared_len as u64);
+        let value_len_encoded = if entry.tombstone {
+            (entry.value.len() as u64) | (1u64 << 63)
+        } else {
+            entry.value.len() as u64
+        };
+        encode_varint(&mut self.buffer, value_len_encoded);
+        encode_varint(&mut self.buffer, entry.term);
+        encode_varint(&mut self.buffer, entry.index);
+        self.buffer.put_slice(&entry.key[shared_len..]);
+        self.buffer.put_slice(&entry.value);
+
+        self.last_key = entry.key.clone();
+        self.counter += 1;
+        self.entry_count += 1;
+
+        Ok(())
+    }
+
+    /// Computes the fingerprint for a key using this builder's QF configuration.
+    ///
+    /// Returns `None` if this builder doesn't have a Quotient Filter.
+    /// This is useful when the caller needs to pre-compute fingerprints
+    /// for later use with `add_with_fingerprint()`.
+    pub fn compute_fingerprint(&self, key: &[u8]) -> Option<Fingerprint> {
+        self.quotient_filter.as_ref().map(|qf| qf.compute_fingerprint(key))
+    }
+
     /// Returns the current size of the block in bytes.
     ///
     /// For v2 format blocks, this includes the estimated Quotient Filter size.
@@ -890,5 +958,113 @@ mod tests {
         // Lookups still work
         let found = block.get(b"key005").unwrap().unwrap();
         assert_eq!(found.value.as_ref(), b"val005");
+    }
+
+    #[test]
+    fn test_add_with_fingerprint_produces_correct_block() {
+        let config = QuotientFilterConfig::for_keys(100);
+        let mut builder = BlockBuilder::new_with_filter(16, config);
+
+        // Add entries using add_with_fingerprint
+        for i in 0..30 {
+            let key = format!("key{:03}", i);
+            let entry = Entry::put(key.clone(), format!("value{:03}", i));
+            let fp = builder.compute_fingerprint(key.as_bytes()).unwrap();
+            builder.add_with_fingerprint(&entry, fp).unwrap();
+        }
+
+        let block_data = builder.finish();
+        let block = Block::decode_with_filter(block_data, true).unwrap();
+
+        // All keys should be findable
+        for i in 0..30 {
+            let key = format!("key{:03}", i);
+            let found = block.get(key.as_bytes()).unwrap().unwrap();
+            assert_eq!(found.value.as_ref(), format!("value{:03}", i).as_bytes());
+        }
+
+        // QF should reject most non-existent keys
+        let mut rejected = 0;
+        for i in 100..150 {
+            if !block.may_contain(format!("missing{:03}", i).as_bytes()) {
+                rejected += 1;
+            }
+        }
+        assert!(rejected > 40, "Expected QF to reject most missing keys");
+    }
+
+    #[test]
+    fn test_add_with_fingerprint_equivalent_to_add() {
+        let config = QuotientFilterConfig::for_keys(100);
+
+        // Build with add()
+        let mut builder1 = BlockBuilder::new_with_filter(16, config);
+        for i in 0..20 {
+            let entry = Entry::put(format!("key{:03}", i), format!("val{:03}", i));
+            builder1.add(&entry).unwrap();
+        }
+        let block1_data = builder1.finish();
+
+        // Build with add_with_fingerprint()
+        let mut builder2 = BlockBuilder::new_with_filter(16, config);
+        for i in 0..20 {
+            let key = format!("key{:03}", i);
+            let entry = Entry::put(key.clone(), format!("val{:03}", i));
+            let fp = builder2.compute_fingerprint(key.as_bytes()).unwrap();
+            builder2.add_with_fingerprint(&entry, fp).unwrap();
+        }
+        let block2_data = builder2.finish();
+
+        // Both blocks should have the same content
+        let block1 = Block::decode_with_filter(block1_data, true).unwrap();
+        let block2 = Block::decode_with_filter(block2_data, true).unwrap();
+
+        // QF lengths should match
+        assert_eq!(
+            block1.quotient_filter().unwrap().len(),
+            block2.quotient_filter().unwrap().len()
+        );
+
+        // Same entries should be found in both
+        for i in 0..20 {
+            let key = format!("key{:03}", i);
+            let found1 = block1.get(key.as_bytes()).unwrap().unwrap();
+            let found2 = block2.get(key.as_bytes()).unwrap().unwrap();
+            assert_eq!(found1.key, found2.key);
+            assert_eq!(found1.value, found2.value);
+        }
+    }
+
+    #[test]
+    fn test_compute_fingerprint_returns_none_for_v1() {
+        let builder = BlockBuilder::new(16);
+        assert!(builder.compute_fingerprint(b"any_key").is_none());
+    }
+
+    #[test]
+    fn test_add_with_fingerprint_on_v1_builder() {
+        // For v1 format, add_with_fingerprint should work but ignore the fingerprint
+        let mut builder = BlockBuilder::new(16);
+
+        // Create a dummy fingerprint (won't be used since v1 has no QF)
+        let dummy_fp = Fingerprint {
+            quotient: 0,
+            remainder: 0,
+        };
+
+        builder
+            .add_with_fingerprint(&Entry::put("key1", "val1"), dummy_fp)
+            .unwrap();
+        builder
+            .add_with_fingerprint(&Entry::put("key2", "val2"), dummy_fp)
+            .unwrap();
+
+        let block_data = builder.finish();
+        let block = Block::decode(block_data).unwrap();
+
+        // Block should work normally without QF
+        assert!(!block.has_quotient_filter());
+        assert!(block.get(b"key1").unwrap().is_some());
+        assert!(block.get(b"key2").unwrap().is_some());
     }
 }

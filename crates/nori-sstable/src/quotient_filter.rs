@@ -229,6 +229,15 @@ impl QuotientFilter {
         Fingerprint::from_hash(hash, self.quotient_bits, self.remainder_bits)
     }
 
+    /// Computes a fingerprint for the given key without inserting it.
+    ///
+    /// This is useful for pre-computing fingerprints during compaction
+    /// to avoid re-hashing when using `insert_fingerprint()`.
+    #[inline]
+    pub fn compute_fingerprint(&self, key: &[u8]) -> Fingerprint {
+        self.fingerprint(key)
+    }
+
     /// Adds a key to the filter.
     pub fn add(&mut self, key: &[u8]) {
         if self.slots.is_empty() {

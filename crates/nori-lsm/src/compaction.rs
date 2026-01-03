@@ -995,10 +995,26 @@ impl MultiWayMerger {
             }
 
             // Write entry to output
-            self.builder
-                .add(&entry)
-                .await
-                .map_err(|e| Error::Internal(format!("SSTable write error: {}", e)))?;
+            // For v2 format, compute fingerprint once and pass through to avoid re-hashing
+            if self.output_filter_type == FilterType::QuotientFilter {
+                if let Some(fp) = self.builder.compute_fingerprint(&entry.key) {
+                    self.builder
+                        .add_with_fingerprint(&entry, fp)
+                        .await
+                        .map_err(|e| Error::Internal(format!("SSTable write error: {}", e)))?;
+                } else {
+                    // Fallback if compute_fingerprint fails (shouldn't happen for v2)
+                    self.builder
+                        .add(&entry)
+                        .await
+                        .map_err(|e| Error::Internal(format!("SSTable write error: {}", e)))?;
+                }
+            } else {
+                self.builder
+                    .add(&entry)
+                    .await
+                    .map_err(|e| Error::Internal(format!("SSTable write error: {}", e)))?;
+            }
 
             // Track metadata
             if min_key.is_none() {

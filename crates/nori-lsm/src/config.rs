@@ -154,6 +154,32 @@ pub struct FilterConfig {
 
     /// Use partitioned filters per run (default: true)
     pub partitioned_filters: bool,
+
+    /// SSTable filter format for new files (default: Bloom for backward compat)
+    ///
+    /// - `Bloom`: Per-file Bloom filter (v1 format) - space efficient
+    /// - `QuotientFilter`: Per-block Quotient filter (v2 format) - supports merge
+    pub sstable_format: SSTableFilterFormat,
+}
+
+/// SSTable filter format selection.
+///
+/// Controls whether SSTables use per-file Bloom filters (v1) or
+/// per-block Quotient Filters (v2).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum SSTableFilterFormat {
+    /// Per-file Bloom filter (v1 format, default)
+    ///
+    /// More space-efficient (~1.5 bytes/key) but requires rebuilding
+    /// during compaction.
+    #[default]
+    Bloom,
+
+    /// Per-block Quotient Filter (v2 format)
+    ///
+    /// Larger (~8 bytes/key) but supports fingerprint-based merge
+    /// during compaction without re-hashing keys.
+    QuotientFilter,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -306,6 +332,7 @@ impl Default for FilterConfig {
             type_preference_order: vec![FilterType::Ribbon, FilterType::Bloom, FilterType::Surf],
             target_fp_point_lookups: 0.001,
             partitioned_filters: true,
+            sstable_format: SSTableFilterFormat::default(), // Bloom for backward compat
         }
     }
 }

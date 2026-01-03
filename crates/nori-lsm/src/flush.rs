@@ -22,7 +22,7 @@ use crate::guards::GuardManager;
 use crate::manifest::{ManifestEdit, ManifestLog, RunMeta};
 use crate::memtable::{Memtable, MemtableEntry};
 use bytes::Bytes;
-use nori_sstable::{Compression, Entry, SSTableBuilder, SSTableConfig};
+use nori_sstable::{Compression, Entry, FilterType, SSTableBuilder, SSTableConfig};
 use std::path::{Path, PathBuf};
 
 /// Flusher handles memtable → SSTable conversion.
@@ -31,7 +31,6 @@ pub struct Flusher {
     sst_dir: PathBuf,
 
     /// ATLL configuration
-    #[allow(dead_code)] // TODO: Will be used for configurable SSTable settings
     config: ATLLConfig,
 }
 
@@ -44,6 +43,15 @@ impl Flusher {
         Ok(Self { sst_dir, config })
     }
 
+    /// Returns the SSTable filter type based on config.
+    fn sstable_filter_type(&self) -> FilterType {
+        use crate::config::SSTableFilterFormat;
+        match self.config.filters.sstable_format {
+            SSTableFilterFormat::Bloom => FilterType::Bloom,
+            SSTableFilterFormat::QuotientFilter => FilterType::QuotientFilter,
+        }
+    }
+
     /// Flushes a memtable to an SSTable file in L0.
     ///
     /// # Returns
@@ -52,7 +60,7 @@ impl Flusher {
     /// # Process
     /// 1. Allocate file number from MANIFEST
     /// 2. Write entries to SSTable (sorted order)
-    /// 3. Build bloom filter
+    /// 3. Build filter (Bloom or QuotientFilter based on config)
     /// 4. Sync file to disk
     /// 5. Return metadata
     pub async fn flush_to_l0(&self, memtable: &Memtable, file_number: u64) -> Result<RunMeta> {
@@ -71,6 +79,7 @@ impl Flusher {
             compression: Compression::None,
             bloom_bits_per_key: 10,
             block_cache_mb: 64,
+            filter_type: self.sstable_filter_type(),
             ..Default::default()
         };
 
@@ -168,6 +177,15 @@ impl L0Admitter {
         let sst_dir = sst_dir.as_ref().to_path_buf();
 
         Ok(Self { sst_dir, config })
+    }
+
+    /// Returns the SSTable filter type based on config.
+    fn sstable_filter_type(&self) -> FilterType {
+        use crate::config::SSTableFilterFormat;
+        match self.config.filters.sstable_format {
+            SSTableFilterFormat::Bloom => FilterType::Bloom,
+            SSTableFilterFormat::QuotientFilter => FilterType::QuotientFilter,
+        }
     }
 
     /// Admits L0 files to L1 by splitting on guard boundaries.
@@ -323,6 +341,7 @@ impl L0Admitter {
                 compression: nori_sstable::Compression::None,
                 bloom_bits_per_key: 10,
                 block_cache_mb: 64,
+                filter_type: self.sstable_filter_type(),
                 ..Default::default()
             };
 
@@ -468,6 +487,15 @@ impl Compactor {
         Ok(Self { sst_dir, config })
     }
 
+    /// Returns the SSTable filter type based on config.
+    fn sstable_filter_type(&self) -> FilterType {
+        use crate::config::SSTableFilterFormat;
+        match self.config.filters.sstable_format {
+            SSTableFilterFormat::Bloom => FilterType::Bloom,
+            SSTableFilterFormat::QuotientFilter => FilterType::QuotientFilter,
+        }
+    }
+
     /// Performs slot-local tiering compaction.
     ///
     /// # Algorithm (from spec lines 197-200)
@@ -541,6 +569,7 @@ impl Compactor {
             compression: nori_sstable::Compression::None,
             bloom_bits_per_key: 10,
             block_cache_mb: 64,
+            filter_type: self.sstable_filter_type(),
             ..Default::default()
         };
 
@@ -862,5 +891,131 @@ mod tests {
 
         // No trigger
         assert!(!compactor.should_compact(1024, 2, 3, 1));
+    }
+
+    // ==================== V2 FORMAT FLUSH TESTS ====================
+
+    #[tokio::test]
+    async fn test_flush_to_l0_v1_format() {
+        // Test that default config produces v1 (Bloom) format
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+
+        let config = ATLLConfig::default();
+        assert_eq!(
+            config.filters.sstable_format,
+            crate::config::SSTableFilterFormat::Bloom
+        );
+
+        let flusher = Flusher::new(&sst_dir, config).unwrap();
+
+        // Create memtable with entries
+        let mt = Memtable::new(Version::new(0, 1));
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), Version::new(0, 1), None)
+            .unwrap();
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), Version::new(0, 2), None)
+            .unwrap();
+
+        // Flush to L0
+        let _run = flusher.flush_to_l0(&mt, 1).await.unwrap();
+
+        // Verify SSTable is v1 format
+        let sst_path = sst_dir.join("sst-000001.sst");
+        let reader = nori_sstable::SSTableReader::open(sst_path).await.unwrap();
+        assert!(!reader.uses_quotient_filter());
+    }
+
+    #[tokio::test]
+    async fn test_flush_to_l0_v2_format() {
+        // Test that QuotientFilter config produces v2 format
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+
+        let mut config = ATLLConfig::default();
+        config.filters.sstable_format = crate::config::SSTableFilterFormat::QuotientFilter;
+
+        let flusher = Flusher::new(&sst_dir, config).unwrap();
+
+        // Create memtable with entries
+        let mt = Memtable::new(Version::new(0, 1));
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), Version::new(0, 1), None)
+            .unwrap();
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), Version::new(0, 2), None)
+            .unwrap();
+        mt.put(Bytes::from("key3"), Bytes::from("value3"), Version::new(0, 3), None)
+            .unwrap();
+
+        // Flush to L0
+        let run = flusher.flush_to_l0(&mt, 1).await.unwrap();
+
+        assert_eq!(run.min_key, Bytes::from("key1"));
+        assert_eq!(run.max_key, Bytes::from("key3"));
+
+        // Verify SSTable is v2 format
+        let sst_path = sst_dir.join("sst-000001.sst");
+        let reader = nori_sstable::SSTableReader::open(sst_path).await.unwrap();
+        assert!(reader.uses_quotient_filter());
+
+        // Verify lookups work
+        let entry1 = reader.get(b"key1").await.unwrap().unwrap();
+        assert_eq!(entry1.value.as_ref(), b"value1");
+
+        let entry2 = reader.get(b"key2").await.unwrap().unwrap();
+        assert_eq!(entry2.value.as_ref(), b"value2");
+
+        // Verify missing key returns None
+        assert!(reader.get(b"missing").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_flush_v2_format_with_tombstones() {
+        // Test v2 format correctly handles tombstones
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+
+        let mut config = ATLLConfig::default();
+        config.filters.sstable_format = crate::config::SSTableFilterFormat::QuotientFilter;
+
+        let flusher = Flusher::new(&sst_dir, config).unwrap();
+
+        // Create memtable with entries and tombstones
+        let mt = Memtable::new(Version::new(0, 1));
+        mt.put(Bytes::from("a"), Bytes::from("1"), Version::new(0, 1), None)
+            .unwrap();
+        mt.delete(Bytes::from("b"), Version::new(0, 2)).unwrap();
+        mt.put(Bytes::from("c"), Bytes::from("3"), Version::new(0, 3), None)
+            .unwrap();
+
+        // Flush to L0
+        let run = flusher.flush_to_l0(&mt, 1).await.unwrap();
+
+        assert_eq!(run.tombstone_count, 1);
+
+        // Verify SSTable is v2 format
+        let sst_path = sst_dir.join("sst-000001.sst");
+        let reader = nori_sstable::SSTableReader::open(sst_path).await.unwrap();
+        assert!(reader.uses_quotient_filter());
+
+        // Verify tombstone is present
+        let entry_b = reader.get(b"b").await.unwrap().unwrap();
+        assert!(entry_b.tombstone);
+    }
+
+    #[test]
+    fn test_sstable_filter_type_helper() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+
+        // Test Bloom config
+        let mut config = ATLLConfig::default();
+        config.filters.sstable_format = crate::config::SSTableFilterFormat::Bloom;
+        let flusher = Flusher::new(&sst_dir, config).unwrap();
+        assert_eq!(flusher.sstable_filter_type(), FilterType::Bloom);
+
+        // Test QuotientFilter config
+        let mut config = ATLLConfig::default();
+        config.filters.sstable_format = crate::config::SSTableFilterFormat::QuotientFilter;
+        let flusher = Flusher::new(&sst_dir, config).unwrap();
+        assert_eq!(flusher.sstable_filter_type(), FilterType::QuotientFilter);
     }
 }

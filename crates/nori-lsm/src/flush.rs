@@ -71,6 +71,7 @@ impl Flusher {
             compression: Compression::None,
             bloom_bits_per_key: 10,
             block_cache_mb: 64,
+            ..Default::default()
         };
 
         let mut builder = SSTableBuilder::new(config)
@@ -322,6 +323,7 @@ impl L0Admitter {
                 compression: nori_sstable::Compression::None,
                 bloom_bits_per_key: 10,
                 block_cache_mb: 64,
+                ..Default::default()
             };
 
             let mut builder = nori_sstable::SSTableBuilder::new(config)
@@ -539,6 +541,7 @@ impl Compactor {
             compression: nori_sstable::Compression::None,
             bloom_bits_per_key: 10,
             block_cache_mb: 64,
+            ..Default::default()
         };
 
         let mut builder = nori_sstable::SSTableBuilder::new(config)

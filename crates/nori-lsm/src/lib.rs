@@ -5334,6 +5334,7 @@ mod tests {
             compression: Compression::None,
             bloom_bits_per_key: 10,
             block_cache_mb: 64,
+            ..Default::default()
         };
 
         let mut builder = SSTableBuilder::new(config).await.unwrap();

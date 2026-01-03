@@ -181,7 +181,7 @@ mod writer;
 
 pub use block::{Block, BlockBuilder, BlockIterator};
 pub use bloom::BloomFilter;
-pub use builder::{SSTableBuilder, SSTableConfig, SSTableMetadata};
+pub use builder::{FilterType, SSTableBuilder, SSTableConfig, SSTableMetadata};
 pub use quotient_filter::{
     Fingerprint, QuotientFilter, QuotientFilterConfig, DEFAULT_LOAD_FACTOR,
     DEFAULT_QUOTIENT_BITS, DEFAULT_REMAINDER_BITS,

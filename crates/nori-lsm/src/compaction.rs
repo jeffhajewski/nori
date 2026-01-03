@@ -830,6 +830,7 @@ impl MultiWayMerger {
             compression: nori_sstable::Compression::None,
             bloom_bits_per_key: 10,
             block_cache_mb: 64,
+            ..Default::default()
         };
 
         let builder = SSTableBuilder::new(sst_config)
@@ -1522,6 +1523,7 @@ impl CompactionExecutor {
                     compression: nori_sstable::Compression::None,
                     bloom_bits_per_key: 10,
                     block_cache_mb: 64,
+                    ..Default::default()
                 };
 
                 let mut builder = nori_sstable::SSTableBuilder::new(config)

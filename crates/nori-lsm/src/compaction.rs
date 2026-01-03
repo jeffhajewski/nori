@@ -70,7 +70,9 @@ use crate::error::{Error, Result};
 use crate::heat::HeatTracker;
 use crate::manifest::{ManifestLog, RunMeta};
 use bytes::Bytes;
-use nori_sstable::{Entry, SSTableBuilder, SSTableConfig, SSTableIterator, SSTableReader};
+use nori_sstable::{
+    Entry, FilterType, SSTableBuilder, SSTableConfig, SSTableIterator, SSTableReader,
+};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::path::PathBuf;
@@ -735,6 +737,9 @@ pub struct MultiWayMerger {
 
     /// Slice size for cooperative yielding (adaptive based on pressure)
     slice_size: u64,
+
+    /// Output filter type (v1=Bloom, v2=QuotientFilter)
+    output_filter_type: FilterType,
 }
 
 impl MultiWayMerger {
@@ -799,6 +804,30 @@ impl Ord for MergeCandidate {
 }
 
 impl MultiWayMerger {
+    /// Determines output filter type based on input SSTables.
+    ///
+    /// Strategy:
+    /// - If any input uses v2 (QuotientFilter), output uses v2
+    /// - Otherwise, uses v1 (Bloom) for backward compatibility
+    ///
+    /// This allows gradual migration: as v2 SSTables enter the system,
+    /// compaction outputs will also be v2, eventually converting the entire store.
+    fn choose_output_filter_type(readers: &[Arc<SSTableReader>]) -> FilterType {
+        // Use v2 if any input uses v2 (gradual migration)
+        let has_v2_input = readers.iter().any(|r| r.uses_quotient_filter());
+
+        if has_v2_input {
+            tracing::debug!(
+                v2_inputs = readers.iter().filter(|r| r.uses_quotient_filter()).count(),
+                total_inputs = readers.len(),
+                "Using QuotientFilter for compaction output (v2 input detected)"
+            );
+            FilterType::QuotientFilter
+        } else {
+            FilterType::Bloom
+        }
+    }
+
     /// Creates a new K-way merger with optional adaptive slice sizing.
     ///
     /// If `l0_count` is provided, uses adaptive slice size based on pressure.
@@ -810,6 +839,29 @@ impl MultiWayMerger {
         config: &ATLLConfig,
         l0_count: Option<usize>,
     ) -> Result<Self> {
+        Self::new_with_filter(
+            input_paths,
+            output_path,
+            can_drop_tombstones,
+            config,
+            l0_count,
+            None, // Auto-detect filter type
+        )
+        .await
+    }
+
+    /// Creates a new K-way merger with explicit filter type control.
+    ///
+    /// If `filter_type` is None, auto-detects based on input SSTable formats.
+    /// If `filter_type` is Some, uses the specified filter type.
+    pub async fn new_with_filter(
+        input_paths: Vec<PathBuf>,
+        output_path: PathBuf,
+        can_drop_tombstones: bool,
+        config: &ATLLConfig,
+        l0_count: Option<usize>,
+        filter_type: Option<FilterType>,
+    ) -> Result<Self> {
         // Open all input SSTables
         let mut readers = Vec::new();
         for path in input_paths {
@@ -818,6 +870,9 @@ impl MultiWayMerger {
                 .map_err(|e| Error::Internal(format!("Failed to open SSTable: {}", e)))?;
             readers.push(Arc::new(reader));
         }
+
+        // Determine output filter type
+        let output_filter_type = filter_type.unwrap_or_else(|| Self::choose_output_filter_type(&readers));
 
         // Create output builder
         let estimated_entries: u64 = readers.iter().map(|r| r.entry_count()).sum();
@@ -830,6 +885,7 @@ impl MultiWayMerger {
             compression: nori_sstable::Compression::None,
             bloom_bits_per_key: 10,
             block_cache_mb: 64,
+            filter_type: output_filter_type,
             ..Default::default()
         };
 
@@ -862,6 +918,7 @@ impl MultiWayMerger {
             can_drop_tombstones,
             bytes_written: 0,
             slice_size,
+            output_filter_type,
         })
     }
 
@@ -996,6 +1053,16 @@ impl MultiWayMerger {
             heat_hint: 0.0,
             value_log_segment_id: None,
         })
+    }
+
+    /// Returns the filter type used for the output SSTable.
+    pub fn output_filter_type(&self) -> FilterType {
+        self.output_filter_type
+    }
+
+    /// Returns true if the output uses per-block Quotient Filters (v2 format).
+    pub fn uses_quotient_filter(&self) -> bool {
+        self.output_filter_type == FilterType::QuotientFilter
     }
 }
 
@@ -2994,6 +3061,305 @@ mod tests {
         let l0_count = max_files;
         let epsilon = scheduler.adaptive_epsilon(l0_count);
         assert_eq!(epsilon, 0.0, "At max capacity should be red (0%)");
+    }
+
+    // ==================== V2 FORMAT COMPACTION TESTS ====================
+
+    #[tokio::test]
+    async fn test_multiway_merger_v2_format_explicit() {
+        // Test that we can explicitly request v2 format for output
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+        std::fs::create_dir_all(&sst_dir).unwrap();
+
+        let config = ATLLConfig::default();
+        let flusher = Flusher::new(&sst_dir, config.clone()).unwrap();
+
+        // Create a memtable with entries
+        let mt = Memtable::new(Version::new(0, 1));
+        mt.put(Bytes::from("key1"), Bytes::from("value1"), Version::new(0, 1), None)
+            .unwrap();
+        mt.put(Bytes::from("key2"), Bytes::from("value2"), Version::new(0, 2), None)
+            .unwrap();
+
+        // Flush to SSTable (v1 format by default)
+        let _run = flusher.flush_to_l0(&mt, 1).await.unwrap();
+
+        let input_path = sst_dir.join("sst-000001.sst");
+        let output_path = temp_dir.path().join("merged_v2.sst");
+
+        // Explicitly request v2 format output
+        let merger = MultiWayMerger::new_with_filter(
+            vec![input_path],
+            output_path.clone(),
+            false,
+            &config,
+            None,
+            Some(FilterType::QuotientFilter),
+        )
+        .await
+        .unwrap();
+
+        // Verify merger knows it's using v2 format
+        assert!(merger.uses_quotient_filter());
+        assert_eq!(merger.output_filter_type(), FilterType::QuotientFilter);
+
+        let result = merger.merge().await.unwrap();
+
+        assert_eq!(result.min_key, Bytes::from("key1"));
+        assert_eq!(result.max_key, Bytes::from("key2"));
+
+        // Verify output SSTable uses v2 format
+        let reader = SSTableReader::open(output_path).await.unwrap();
+        assert!(reader.uses_quotient_filter());
+    }
+
+    #[tokio::test]
+    async fn test_multiway_merger_v1_to_v1_format() {
+        // Test that v1 inputs produce v1 output by default (backward compat)
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+        std::fs::create_dir_all(&sst_dir).unwrap();
+
+        let config = ATLLConfig::default();
+        let flusher = Flusher::new(&sst_dir, config.clone()).unwrap();
+
+        // Create a memtable with entries
+        let mt = Memtable::new(Version::new(0, 1));
+        mt.put(Bytes::from("a"), Bytes::from("1"), Version::new(0, 1), None)
+            .unwrap();
+        mt.put(Bytes::from("b"), Bytes::from("2"), Version::new(0, 2), None)
+            .unwrap();
+
+        // Flush to SSTable (v1 format)
+        let _run = flusher.flush_to_l0(&mt, 1).await.unwrap();
+
+        let input_path = sst_dir.join("sst-000001.sst");
+
+        // Verify input is v1
+        let input_reader = SSTableReader::open(input_path.clone()).await.unwrap();
+        assert!(!input_reader.uses_quotient_filter());
+
+        let output_path = temp_dir.path().join("merged_v1.sst");
+
+        // Default merger (auto-detect) should produce v1 from v1 inputs
+        let merger = MultiWayMerger::new(
+            vec![input_path],
+            output_path.clone(),
+            false,
+            &config,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Verify merger knows it's using v1 format
+        assert!(!merger.uses_quotient_filter());
+        assert_eq!(merger.output_filter_type(), FilterType::Bloom);
+
+        let _result = merger.merge().await.unwrap();
+
+        // Verify output SSTable uses v1 format
+        let reader = SSTableReader::open(output_path).await.unwrap();
+        assert!(!reader.uses_quotient_filter());
+    }
+
+    #[tokio::test]
+    async fn test_multiway_merger_v2_input_propagates() {
+        // Test that v2 input causes v2 output (gradual migration)
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+        std::fs::create_dir_all(&sst_dir).unwrap();
+
+        let config = ATLLConfig::default();
+
+        // Create a v2 SSTable directly
+        let v2_path = sst_dir.join("v2_input.sst");
+        let sst_config = SSTableConfig {
+            path: v2_path.clone(),
+            estimated_entries: 10,
+            block_size: 4096,
+            restart_interval: 16,
+            compression: nori_sstable::Compression::None,
+            bloom_bits_per_key: 10,
+            block_cache_mb: 64,
+            filter_type: FilterType::QuotientFilter,
+            ..Default::default()
+        };
+
+        let mut builder = SSTableBuilder::new(sst_config).await.unwrap();
+        builder.add(&Entry::put("key1", "value1")).await.unwrap();
+        builder.add(&Entry::put("key2", "value2")).await.unwrap();
+        builder.finish().await.unwrap();
+
+        // Verify input is v2
+        let input_reader = SSTableReader::open(v2_path.clone()).await.unwrap();
+        assert!(input_reader.uses_quotient_filter());
+
+        let output_path = temp_dir.path().join("merged_from_v2.sst");
+
+        // Auto-detect should choose v2 because input is v2
+        let merger = MultiWayMerger::new(
+            vec![v2_path],
+            output_path.clone(),
+            false,
+            &config,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(merger.uses_quotient_filter());
+
+        let _result = merger.merge().await.unwrap();
+
+        // Verify output SSTable uses v2 format
+        let reader = SSTableReader::open(output_path).await.unwrap();
+        assert!(reader.uses_quotient_filter());
+    }
+
+    #[tokio::test]
+    async fn test_multiway_merger_mixed_format_inputs() {
+        // Test that mixing v1 and v2 inputs produces v2 output
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+        std::fs::create_dir_all(&sst_dir).unwrap();
+
+        let config = ATLLConfig::default();
+
+        // Create a v1 SSTable
+        let v1_path = sst_dir.join("v1_input.sst");
+        let v1_config = SSTableConfig {
+            path: v1_path.clone(),
+            estimated_entries: 10,
+            block_size: 4096,
+            filter_type: FilterType::Bloom,
+            ..Default::default()
+        };
+
+        let mut v1_builder = SSTableBuilder::new(v1_config).await.unwrap();
+        v1_builder.add(&Entry::put("a", "1")).await.unwrap();
+        v1_builder.add(&Entry::put("c", "3")).await.unwrap();
+        v1_builder.finish().await.unwrap();
+
+        // Create a v2 SSTable
+        let v2_path = sst_dir.join("v2_input.sst");
+        let v2_config = SSTableConfig {
+            path: v2_path.clone(),
+            estimated_entries: 10,
+            block_size: 4096,
+            filter_type: FilterType::QuotientFilter,
+            ..Default::default()
+        };
+
+        let mut v2_builder = SSTableBuilder::new(v2_config).await.unwrap();
+        v2_builder.add(&Entry::put("b", "2")).await.unwrap();
+        v2_builder.add(&Entry::put("d", "4")).await.unwrap();
+        v2_builder.finish().await.unwrap();
+
+        // Verify input formats
+        let v1_reader = SSTableReader::open(v1_path.clone()).await.unwrap();
+        let v2_reader = SSTableReader::open(v2_path.clone()).await.unwrap();
+        assert!(!v1_reader.uses_quotient_filter());
+        assert!(v2_reader.uses_quotient_filter());
+
+        let output_path = temp_dir.path().join("merged_mixed.sst");
+
+        // Auto-detect should choose v2 because one input is v2
+        let merger = MultiWayMerger::new(
+            vec![v1_path, v2_path],
+            output_path.clone(),
+            false,
+            &config,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(merger.uses_quotient_filter());
+
+        let result = merger.merge().await.unwrap();
+
+        // Verify merge result
+        assert_eq!(result.min_key, Bytes::from("a"));
+        assert_eq!(result.max_key, Bytes::from("d"));
+
+        // Verify output SSTable uses v2 format
+        let reader = SSTableReader::open(output_path).await.unwrap();
+        assert!(reader.uses_quotient_filter());
+
+        // Verify all entries are present
+        assert!(reader.get(b"a").await.unwrap().is_some());
+        assert!(reader.get(b"b").await.unwrap().is_some());
+        assert!(reader.get(b"c").await.unwrap().is_some());
+        assert!(reader.get(b"d").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_multiway_merger_v2_deduplication() {
+        // Test that deduplication works correctly with v2 format
+        let temp_dir = tempfile::tempdir().unwrap();
+        let sst_dir = temp_dir.path().join("sst");
+        std::fs::create_dir_all(&sst_dir).unwrap();
+
+        let config = ATLLConfig::default();
+
+        // Create two v2 SSTables with overlapping keys
+        let v2_path1 = sst_dir.join("v2_old.sst");
+        let v2_config1 = SSTableConfig {
+            path: v2_path1.clone(),
+            estimated_entries: 10,
+            filter_type: FilterType::QuotientFilter,
+            ..Default::default()
+        };
+
+        let mut builder1 = SSTableBuilder::new(v2_config1).await.unwrap();
+        builder1.add(&Entry::put("key1", "old_value1")).await.unwrap();
+        builder1.add(&Entry::put("key2", "old_value2")).await.unwrap();
+        builder1.finish().await.unwrap();
+
+        let v2_path2 = sst_dir.join("v2_new.sst");
+        let v2_config2 = SSTableConfig {
+            path: v2_path2.clone(),
+            estimated_entries: 10,
+            filter_type: FilterType::QuotientFilter,
+            ..Default::default()
+        };
+
+        let mut builder2 = SSTableBuilder::new(v2_config2).await.unwrap();
+        builder2.add(&Entry::put("key1", "new_value1")).await.unwrap(); // Overwrites key1
+        builder2.add(&Entry::put("key3", "value3")).await.unwrap();
+        builder2.finish().await.unwrap();
+
+        let output_path = temp_dir.path().join("merged_dedup.sst");
+
+        // Merge with v2_path2 (newer) having higher iterator_idx
+        let merger = MultiWayMerger::new(
+            vec![v2_path1, v2_path2], // path2 is newer (higher idx)
+            output_path.clone(),
+            false,
+            &config,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(merger.uses_quotient_filter());
+
+        let _result = merger.merge().await.unwrap();
+
+        // Verify deduplication: key1 should have new value
+        let reader = SSTableReader::open(output_path).await.unwrap();
+        assert!(reader.uses_quotient_filter());
+
+        let entry1 = reader.get(b"key1").await.unwrap().unwrap();
+        assert_eq!(entry1.value.as_ref(), b"new_value1");
+
+        let entry2 = reader.get(b"key2").await.unwrap().unwrap();
+        assert_eq!(entry2.value.as_ref(), b"old_value2");
+
+        let entry3 = reader.get(b"key3").await.unwrap().unwrap();
+        assert_eq!(entry3.value.as_ref(), b"value3");
     }
 
 }

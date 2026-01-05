@@ -28,7 +28,7 @@
 //! # }
 //! ```
 
-use crate::block::Block;
+use crate::block::{Block, FilterCheckResult};
 use crate::bloom::BloomFilter;
 use crate::compress;
 use crate::entry::Entry;
@@ -233,10 +233,38 @@ impl SSTableReader {
             .read_block(entry.block_offset, entry.block_size)
             .await?;
 
-        // Search within the block
-        let result = block.get(key)?;
+        // Search within the block, tracking filter result for v2 format
+        let (result, filter_result) = block.get_with_filter_result(key)?;
 
-        // Track outcome
+        // Track per-block QF metrics for v2 format
+        match filter_result {
+            FilterCheckResult::Skipped => {
+                self.meter
+                    .counter("sstable_qf_checks", &[("outcome", "skip")])
+                    .inc(1);
+
+                let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+                self.meter
+                    .histo(
+                        "sstable_get_duration_ms",
+                        &[0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0],
+                        &[("outcome", "qf_skip")],
+                    )
+                    .observe(duration_ms);
+
+                return Ok(None);
+            }
+            FilterCheckResult::Passed => {
+                self.meter
+                    .counter("sstable_qf_checks", &[("outcome", "pass")])
+                    .inc(1);
+            }
+            FilterCheckResult::NoFilter => {
+                // v1 format block, no QF metrics to track
+            }
+        }
+
+        // Track final outcome
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
         match &result {
             Some(_) => {

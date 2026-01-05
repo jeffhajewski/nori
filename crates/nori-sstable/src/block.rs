@@ -38,6 +38,17 @@ use crate::error::{Result, SSTableError};
 use crate::quotient_filter::{Fingerprint, QuotientFilter, QuotientFilterConfig};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
+/// Result of a per-block filter check during lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterCheckResult {
+    /// Quotient Filter rejected the key (definitely not present).
+    Skipped,
+    /// Quotient Filter passed (key might be present, needs binary search).
+    Passed,
+    /// No filter present (v1 format block).
+    NoFilter,
+}
+
 /// A block of entries with prefix compression and optional Quotient Filter.
 #[derive(Debug, Clone)]
 pub struct Block {
@@ -168,13 +179,34 @@ impl Block {
     ///
     /// If a Quotient Filter is present, it is checked first for fast rejection.
     pub fn get(&self, key: &[u8]) -> Result<Option<Entry>> {
+        self.get_with_filter_result(key).map(|(entry, _)| entry)
+    }
+
+    /// Searches for a key in the block, returning filter check result.
+    ///
+    /// Returns `(Option<Entry>, FilterCheckResult)` where:
+    /// - `FilterCheckResult::Skipped` - QF rejected the key (fast path)
+    /// - `FilterCheckResult::Passed` - QF passed or no QF present
+    ///
+    /// This is useful for tracking per-block QF metrics.
+    pub fn get_with_filter_result(&self, key: &[u8]) -> Result<(Option<Entry>, FilterCheckResult)> {
         // Fast path: check Quotient Filter first
         if let Some(ref qf) = self.quotient_filter {
             if !qf.contains(key) {
-                return Ok(None); // Definitely not present
+                return Ok((None, FilterCheckResult::Skipped)); // Definitely not present
             }
+            // QF passed, continue to binary search
+            let entry = self.search_binary(key)?;
+            return Ok((entry, FilterCheckResult::Passed));
         }
 
+        // No QF present
+        let entry = self.search_binary(key)?;
+        Ok((entry, FilterCheckResult::NoFilter))
+    }
+
+    /// Binary search for a key in the block (internal helper).
+    fn search_binary(&self, key: &[u8]) -> Result<Option<Entry>> {
         // Binary search over restart points
         let mut left = 0;
         let mut right = self.restart_points.len();

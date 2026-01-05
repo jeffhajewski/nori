@@ -118,12 +118,16 @@
 //!
 //! - `sstable_open_duration_ms` (histogram): Time to open an SSTable
 //! - `sstable_get_duration_ms` (histogram): Lookup duration with outcome label:
-//!   - `outcome=bloom_skip`: Bloom filter rejected the key
+//!   - `outcome=bloom_skip`: Bloom filter rejected the key (v1 format)
+//!   - `outcome=qf_skip`: Quotient Filter rejected the key (v2 format)
 //!   - `outcome=hit`: Key found in SSTable
 //!   - `outcome=miss`: Key not found
-//! - `sstable_bloom_checks` (counter): Bloom filter checks with outcome:
+//! - `sstable_bloom_checks` (counter): Bloom filter checks (v1 format) with outcome:
 //!   - `outcome=skip`: Bloom filter rejected (fast path)
 //!   - `outcome=pass`: Bloom filter passed (requires disk I/O)
+//! - `sstable_qf_checks` (counter): Quotient Filter checks (v2 format) with outcome:
+//!   - `outcome=skip`: Per-block QF rejected (fast path, no binary search)
+//!   - `outcome=pass`: Per-block QF passed (requires binary search)
 //! - `sstable_block_reads` (counter): Number of blocks read from disk
 //!
 //! ## Example with Metrics
@@ -179,7 +183,7 @@ mod reader;
 pub mod vector_block;
 mod writer;
 
-pub use block::{Block, BlockBuilder, BlockIterator};
+pub use block::{Block, BlockBuilder, BlockIterator, FilterCheckResult};
 pub use bloom::BloomFilter;
 pub use builder::{FilterType, SSTableBuilder, SSTableConfig, SSTableMetadata};
 pub use quotient_filter::{

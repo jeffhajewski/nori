@@ -1,9 +1,14 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { formatDuration, formatTimestamp } from "@/lib/utils";
+import { useWritePressureHistory } from "@/stores/eventStore";
+import { Sparkline } from "@/components/charts";
 
 interface WritePressureGaugeProps {
+  nodeId: number;
   pressure: number; // 0-1
   isHigh: boolean;
   threshold: number;
@@ -12,14 +17,33 @@ interface WritePressureGaugeProps {
 }
 
 export function WritePressureGauge({
+  nodeId,
   pressure,
   isHigh,
   threshold,
   l0FileCount,
   l0Threshold,
 }: WritePressureGaugeProps) {
+  const pressureHistory = useWritePressureHistory(nodeId, 60);
   const pct = Math.min(pressure * 100, 100);
   const angle = (pct / 100) * 180 - 90; // -90 to 90 degrees
+
+  // Find the last breach
+  const lastBreach = useMemo(() => {
+    const breaches = pressureHistory.filter((p) => p.value.high);
+    if (breaches.length === 0) return null;
+    return breaches[breaches.length - 1];
+  }, [pressureHistory]);
+
+  const timeSinceLastBreach = lastBreach ? Date.now() - lastBreach.timestamp : null;
+
+  // Prepare sparkline data
+  const sparklineData = useMemo(() => {
+    return pressureHistory.map((p) => ({
+      timestamp: p.timestamp,
+      value: p.value.ratio,
+    }));
+  }, [pressureHistory]);
 
   // Determine color based on pressure
   const getColor = (p: number) => {
@@ -35,6 +59,19 @@ export function WritePressureGauge({
     <div className="flex flex-col items-center">
       {/* Gauge */}
       <div className="relative h-32 w-48">
+        {/* Pulse animation when high */}
+        <AnimatePresence>
+          {isHigh && (
+            <motion.div
+              className="absolute inset-0 rounded-full border-4 border-status-critical"
+              initial={{ opacity: 0.5, scale: 0.9 }}
+              animate={{ opacity: 0, scale: 1.1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1, repeat: Infinity }}
+            />
+          )}
+        </AnimatePresence>
+
         {/* Background arc */}
         <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 60">
           <path
@@ -99,6 +136,34 @@ export function WritePressureGauge({
         {isHigh ? "THROTTLING" : pressure > threshold ? "ELEVATED" : "NORMAL"}
       </div>
 
+      {/* Pressure trend sparkline */}
+      <div className="mt-4 w-full">
+        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+          <span>Pressure Trend (1h)</span>
+          {timeSinceLastBreach !== null && timeSinceLastBreach < 3600000 && (
+            <span className="text-status-warning">
+              Last breach: {formatDuration(timeSinceLastBreach)} ago
+            </span>
+          )}
+        </div>
+        {sparklineData.length > 1 ? (
+          <Sparkline
+            data={sparklineData}
+            width={192}
+            height={40}
+            color={strokeColor}
+            thresholdValue={threshold}
+            thresholdColor="hsl(var(--warning))"
+            showArea
+            className="w-full"
+          />
+        ) : (
+          <div className="flex h-10 items-center justify-center rounded bg-muted/30 text-xs text-muted-foreground">
+            Collecting data...
+          </div>
+        )}
+      </div>
+
       {/* L0 file count */}
       <div className="mt-4 w-full">
         <div className="flex items-center justify-between text-xs">
@@ -120,6 +185,11 @@ export function WritePressureGauge({
             transition={{ duration: 0.3 }}
           />
         </div>
+        {l0FileCount >= l0Threshold && (
+          <p className="mt-1 text-xs text-status-critical">
+            L0 stall triggered - compaction backlog
+          </p>
+        )}
       </div>
     </div>
   );

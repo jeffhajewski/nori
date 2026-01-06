@@ -79,6 +79,7 @@ export default function StoragePage() {
             <div className="rounded-xl border border-border bg-card p-6">
               <h2 className="mb-4 text-lg font-medium text-foreground">Write Pressure</h2>
               <WritePressureGauge
+                nodeId={selectedNode}
                 pressure={nodeState.writePressure}
                 isHigh={nodeState.writePressureHigh}
                 threshold={0.5}

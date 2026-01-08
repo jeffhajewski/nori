@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useEventStore } from "@/stores/eventStore";
-import { formatBytes, getLevelColor } from "@/lib/utils";
+import { useEventStore, useCompactionEfficiency, useBanditState } from "@/stores/eventStore";
+import { formatBytes, getLevelColor, cn } from "@/lib/utils";
 import type { WireCompEvt } from "@/types/events";
 
 interface CompactionEvent {
@@ -20,6 +20,7 @@ interface CompactionEvent {
 export function CompactionPanel({ nodeId }: { nodeId: number }) {
   const [compactions, setCompactions] = useState<Map<string, CompactionEvent>>(new Map());
   const [recentFinished, setRecentFinished] = useState<CompactionEvent[]>([]);
+  const efficiencyRecords = useCompactionEfficiency(nodeId);
 
   // Subscribe to compaction events
   useEffect(() => {
@@ -105,8 +106,30 @@ export function CompactionPanel({ nodeId }: { nodeId: number }) {
 
   const activeCompactions = Array.from(compactions.values());
 
+  // Calculate efficiency metrics
+  const efficiencyMetrics = useMemo(() => {
+    if (efficiencyRecords.length === 0) return null;
+
+    const totalIn = efficiencyRecords.reduce((sum, r) => sum + r.inBytes, 0);
+    const totalOut = efficiencyRecords.reduce((sum, r) => sum + r.outBytes, 0);
+    const writeAmplification = totalOut > 0 ? totalIn / totalOut : 1;
+    const spaceReclaimed = totalIn - totalOut;
+
+    return {
+      writeAmplification,
+      spaceReclaimed,
+      compactionCount: efficiencyRecords.length,
+      avgRatio: efficiencyRecords.reduce((sum, r) => sum + r.ratio, 0) / efficiencyRecords.length,
+    };
+  }, [efficiencyRecords]);
+
   return (
     <div className="space-y-4">
+      {/* Efficiency metrics */}
+      {efficiencyMetrics && (
+        <CompactionEfficiencyMetrics metrics={efficiencyMetrics} />
+      )}
+
       {/* Active compactions */}
       <div>
         <h4 className="text-sm font-medium text-foreground">Active Compactions</h4>
@@ -114,7 +137,7 @@ export function CompactionPanel({ nodeId }: { nodeId: number }) {
           <AnimatePresence mode="popLayout">
             {activeCompactions.length > 0 ? (
               activeCompactions.map((comp) => (
-                <CompactionRow key={comp.id} compaction={comp} />
+                <CompactionRow key={comp.id} compaction={comp} nodeId={nodeId} />
               ))
             ) : (
               <motion.p
@@ -141,7 +164,7 @@ export function CompactionPanel({ nodeId }: { nodeId: number }) {
         <div>
           <h4 className="text-sm font-medium text-foreground">Recently Completed</h4>
           <div className="mt-2 space-y-1">
-            {recentFinished.map((comp, i) => (
+            {recentFinished.map((comp) => (
               <div
                 key={`${comp.id}-${comp.timestamp}`}
                 className="flex items-center justify-between rounded bg-muted/30 px-2 py-1 text-xs"
@@ -168,7 +191,64 @@ export function CompactionPanel({ nodeId }: { nodeId: number }) {
   );
 }
 
-function CompactionRow({ compaction }: { compaction: CompactionEvent }) {
+interface EfficiencyMetrics {
+  writeAmplification: number;
+  spaceReclaimed: number;
+  compactionCount: number;
+  avgRatio: number;
+}
+
+function CompactionEfficiencyMetrics({ metrics }: { metrics: EfficiencyMetrics }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-3">
+      <h4 className="text-sm font-medium text-foreground mb-2">Efficiency (last hour)</h4>
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <p className="text-xs text-muted-foreground">Write Amp</p>
+          <p
+            className={cn(
+              "text-lg font-semibold",
+              metrics.writeAmplification > 10 ? "text-status-warning" : "text-foreground"
+            )}
+          >
+            {metrics.writeAmplification.toFixed(1)}x
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Space Saved</p>
+          <p className="text-lg font-semibold text-status-healthy">
+            {formatBytes(metrics.spaceReclaimed)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Compactions</p>
+          <p className="text-lg font-semibold text-foreground">{metrics.compactionCount}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompactionRow({ compaction, nodeId }: { compaction: CompactionEvent; nodeId: number }) {
+  const banditState = useBanditState(nodeId, compaction.level);
+
+  // Calculate bandit stats
+  const banditStats = useMemo(() => {
+    if (!banditState || banditState.selections.length === 0) return null;
+
+    const recentSelections = banditState.selections.slice(-10);
+    const explorationRate = recentSelections.filter((s) => s.explored).length / recentSelections.length;
+    const avgUcb = recentSelections.reduce((s, sel) => s + sel.ucbScore, 0) / recentSelections.length;
+
+    const recentRewards = banditState.rewards.slice(-10);
+    const avgReward =
+      recentRewards.length > 0
+        ? recentRewards.reduce((s, r) => s + r.reward, 0) / recentRewards.length
+        : 0;
+
+    return { explorationRate, avgUcb, avgReward };
+  }, [banditState]);
+
   return (
     <motion.div
       layout
@@ -201,6 +281,30 @@ function CompactionRow({ compaction }: { compaction: CompactionEvent }) {
           transition={{ duration: 0.3 }}
         />
       </div>
+
+      {/* Bandit optimization stats */}
+      {banditStats && (
+        <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <span>Explore:</span>
+            <span
+              className={cn(
+                banditStats.explorationRate > 0.2 ? "text-status-healthy" : "text-muted-foreground"
+              )}
+            >
+              {(banditStats.explorationRate * 100).toFixed(0)}%
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span>UCB:</span>
+            <span>{banditStats.avgUcb.toFixed(2)}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span>Reward:</span>
+            <span className="text-status-healthy">{banditStats.avgReward.toFixed(2)}</span>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -223,7 +327,7 @@ function ConveyorBelt({ compactions }: { compactions: CompactionEvent[] }) {
       </div>
 
       {/* Compaction blocks moving along belt */}
-      {compactions.map((comp, i) => (
+      {compactions.map((comp) => (
         <motion.div
           key={comp.id}
           className="absolute flex h-10 w-16 items-center justify-center rounded border-2 bg-card shadow-lg"

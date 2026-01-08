@@ -21,13 +21,23 @@ const DEFAULT_CONFIG: MockConfig = {
   slotsPerLevel: 16,
 };
 
+// Cache names for generating cache events
+const CACHE_NAMES = ["block_cache", "index_cache", "filter_cache", "row_cache"];
+
 export class MockEventGenerator {
   private config: MockConfig;
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private cacheHitRatios: Map<string, number> = new Map();
+  private snapshotState: Map<number, { inProgress: boolean; startedAt: number | null }> = new Map();
 
   constructor(config: Partial<MockConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+
+    // Initialize cache hit ratios
+    CACHE_NAMES.forEach((name) => {
+      this.cacheHitRatios.set(name, 0.9 + Math.random() * 0.08); // 90-98%
+    });
   }
 
   start(): void {
@@ -108,6 +118,9 @@ export class MockEventGenerator {
         events: [evt],
         summary: { wal_count: 0, compaction_count: 0, lsm_count: 0, raft_count: 1, swim_count: 0, shard_count: 0, cache_count: 0, heat_count: 0 },
       });
+
+      // Initialize snapshot state
+      this.snapshotState.set(shardId, { inProgress: false, startedAt: null });
     }
 
     // Generate initial slot heat for storage visualization
@@ -138,6 +151,27 @@ export class MockEventGenerator {
           });
         }
       }
+    }
+
+    // Generate initial cache hit ratio events
+    for (const cacheName of CACHE_NAMES) {
+      const evt: TimestampedEvent = {
+        ts: now,
+        node: 1,
+        event: {
+          type: "Cache",
+          data: {
+            name: cacheName,
+            hit_ratio: this.cacheHitRatios.get(cacheName) ?? 0.9,
+          },
+        },
+      };
+      useEventStore.getState().ingestBatch({
+        window_start: now - 50,
+        window_end: now,
+        events: [evt],
+        summary: { wal_count: 0, compaction_count: 0, lsm_count: 0, raft_count: 0, swim_count: 0, shard_count: 0, cache_count: 1, heat_count: 0 },
+      });
     }
   }
 
@@ -176,19 +210,23 @@ export class MockEventGenerator {
   private randomEvent(): WireEvent {
     const rand = Math.random();
 
-    // Weight distribution
-    if (rand < 0.3) {
+    // Weight distribution with new event types
+    if (rand < 0.25) {
       return this.randomSlotHeatEvent();
-    } else if (rand < 0.5) {
+    } else if (rand < 0.40) {
       return this.randomCompactionEvent();
-    } else if (rand < 0.65) {
+    } else if (rand < 0.52) {
       return this.randomLsmEvent();
-    } else if (rand < 0.75) {
+    } else if (rand < 0.62) {
       return this.randomWalEvent();
-    } else if (rand < 0.9) {
+    } else if (rand < 0.75) {
       return this.randomSwimEvent();
-    } else {
+    } else if (rand < 0.85) {
       return this.randomRaftEvent();
+    } else if (rand < 0.95) {
+      return this.randomCacheEvent();
+    } else {
+      return this.randomShardEvent();
     }
   }
 
@@ -213,6 +251,43 @@ export class MockEventGenerator {
   private randomCompactionEvent(): WireEvent {
     const node = this.randomNode();
     const level = this.randomLevel();
+    const rand = Math.random();
+
+    // Include bandit events
+    if (rand < 0.15) {
+      // BanditSelection event
+      return {
+        type: "Compaction",
+        data: {
+          node,
+          level,
+          kind: {
+            kind: "BanditSelection",
+            slot_id: Math.floor(Math.random() * this.config.slotsPerLevel),
+            explored: Math.random() > 0.7,
+            ucb_score: Math.random() * 2,
+            avg_reward: Math.random() * 0.8 + 0.2,
+            selection_count: Math.floor(Math.random() * 100) + 1,
+          },
+        },
+      };
+    } else if (rand < 0.30) {
+      // BanditReward event
+      return {
+        type: "Compaction",
+        data: {
+          node,
+          level,
+          kind: {
+            kind: "BanditReward",
+            slot_id: Math.floor(Math.random() * this.config.slotsPerLevel),
+            reward: Math.random(),
+            bytes_written: Math.floor(Math.random() * 10_000_000),
+            heat_score: Math.random(),
+          },
+        },
+      };
+    }
 
     const kinds = [
       { kind: "Scheduled" as const },
@@ -235,7 +310,7 @@ export class MockEventGenerator {
     const node = this.randomNode();
     const rand = Math.random();
 
-    if (rand < 0.4) {
+    if (rand < 0.35) {
       return {
         type: "Lsm",
         data: {
@@ -243,12 +318,12 @@ export class MockEventGenerator {
           kind: {
             kind: "WritePressureUpdate",
             ratio: Math.random() * 0.8,
-            high: Math.random() > 0.8,
+            high: Math.random() > 0.85,
             threshold: 0.5,
           },
         },
       };
-    } else if (rand < 0.7) {
+    } else if (rand < 0.60) {
       return {
         type: "Lsm",
         data: {
@@ -261,7 +336,7 @@ export class MockEventGenerator {
           },
         },
       };
-    } else {
+    } else if (rand < 0.80) {
       return {
         type: "Lsm",
         data: {
@@ -273,6 +348,19 @@ export class MockEventGenerator {
           },
         },
       };
+    } else {
+      // GuardAdjustment event
+      return {
+        type: "Lsm",
+        data: {
+          node,
+          kind: {
+            kind: "GuardAdjustment",
+            level: this.randomLevel(),
+            new_guard_count: Math.floor(Math.random() * 4) + 1,
+          },
+        },
+      };
     }
   }
 
@@ -280,7 +368,7 @@ export class MockEventGenerator {
     const node = this.randomNode();
     const kinds = [
       { kind: "SegmentRoll" as const, bytes: Math.floor(Math.random() * 64_000_000) },
-      { kind: "Fsync" as const, ms: Math.floor(Math.random() * 50) },
+      { kind: "Fsync" as const, ms: Math.floor(Math.random() * 30) + Math.floor(Math.random() * Math.random() * 50) },
       { kind: "SegmentGc" as const },
     ];
 
@@ -296,8 +384,19 @@ export class MockEventGenerator {
 
   private randomSwimEvent(): WireEvent {
     const node = this.randomNode();
-    // Mostly alive, occasionally suspect
-    const kind = Math.random() > 0.95 ? "Suspect" : "Alive";
+    const rand = Math.random();
+
+    // Mostly alive, occasionally suspect/confirm/leave
+    let kind: "Alive" | "Suspect" | "Confirm" | "Leave";
+    if (rand > 0.97) {
+      kind = "Confirm";
+    } else if (rand > 0.93) {
+      kind = "Suspect";
+    } else if (rand > 0.99) {
+      kind = "Leave";
+    } else {
+      kind = "Alive";
+    }
 
     return {
       type: "Swim",
@@ -321,12 +420,74 @@ export class MockEventGenerator {
       };
     }
 
+    const kinds = [
+      { kind: "VoteReq" as const, from: node },
+      { kind: "VoteGranted" as const, from: node },
+      { kind: "StepDown" as const },
+    ];
+
     return {
       type: "Raft",
       data: {
         shard,
         term: Math.floor(Math.random() * 10) + 1,
-        kind: { kind: "VoteGranted", from: node },
+        kind: kinds[Math.floor(Math.random() * kinds.length)],
+      },
+    };
+  }
+
+  private randomCacheEvent(): WireEvent {
+    // Pick a random cache
+    const cacheName = CACHE_NAMES[Math.floor(Math.random() * CACHE_NAMES.length)];
+
+    // Update the cache hit ratio with some drift
+    let currentRatio = this.cacheHitRatios.get(cacheName) ?? 0.9;
+    currentRatio += (Math.random() - 0.5) * 0.02; // +/- 1%
+    currentRatio = Math.max(0.5, Math.min(0.99, currentRatio)); // Clamp 50-99%
+    this.cacheHitRatios.set(cacheName, currentRatio);
+
+    return {
+      type: "Cache",
+      data: {
+        name: cacheName,
+        hit_ratio: currentRatio,
+      },
+    };
+  }
+
+  private randomShardEvent(): WireEvent {
+    const shard = this.randomShard();
+    const state = this.snapshotState.get(shard);
+
+    // Simulate snapshot lifecycle
+    if (state && state.inProgress) {
+      // Complete the snapshot
+      this.snapshotState.set(shard, { inProgress: false, startedAt: null });
+      return {
+        type: "Shard",
+        data: {
+          shard,
+          kind: "SnapshotDone",
+        },
+      };
+    } else if (Math.random() > 0.7) {
+      // Start a new snapshot
+      this.snapshotState.set(shard, { inProgress: true, startedAt: Date.now() });
+      return {
+        type: "Shard",
+        data: {
+          shard,
+          kind: "SnapshotStart",
+        },
+      };
+    }
+
+    // Default to Plan event
+    return {
+      type: "Shard",
+      data: {
+        shard,
+        kind: "Plan",
       },
     };
   }

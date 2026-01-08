@@ -7,6 +7,8 @@ import {
   WritePressureGauge,
   CompactionPanel,
   NodeSelector,
+  FsyncLatencyPanel,
+  CacheHitRatioPanel,
 } from "@/components/storage";
 
 export default function StoragePage() {
@@ -73,7 +75,7 @@ export default function StoragePage() {
             </div>
           </div>
 
-          {/* Sidebar - Write Pressure */}
+          {/* Sidebar */}
           <div className="space-y-6">
             {/* Write Pressure Gauge */}
             <div className="rounded-xl border border-border bg-card p-6">
@@ -86,6 +88,18 @@ export default function StoragePage() {
                 l0FileCount={nodeState.l0FileCount}
                 l0Threshold={nodeState.l0Threshold}
               />
+            </div>
+
+            {/* Fsync Latency */}
+            <div className="rounded-xl border border-border bg-card p-6">
+              <h2 className="mb-4 text-lg font-medium text-foreground">WAL Fsync Latency</h2>
+              <FsyncLatencyPanel nodeId={selectedNode} />
+            </div>
+
+            {/* Cache Hit Ratios */}
+            <div className="rounded-xl border border-border bg-card p-6">
+              <h2 className="mb-4 text-lg font-medium text-foreground">Cache Performance</h2>
+              <CacheHitRatioPanel />
             </div>
 
             {/* Level Stats */}

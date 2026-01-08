@@ -1,10 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useEventStore } from "@/stores/eventStore";
-import { formatTimestamp } from "@/lib/utils";
-import type { WireRaftEvt } from "@/types/events";
+import { useEventStore, useShardsWithStability } from "@/stores/eventStore";
+import { formatTimestamp, cn } from "@/lib/utils";
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Legend,
+} from "recharts";
 
 interface RaftEvent {
   id: string;
@@ -16,10 +27,14 @@ interface RaftEvent {
   from?: number;
 }
 
-const MAX_EVENTS = 50;
+const MAX_EVENTS = 100;
+
+type ViewMode = "events" | "frequency" | "terms";
 
 export function ElectionTimeline({ filterShard }: { filterShard?: number | null }) {
   const [events, setEvents] = useState<RaftEvent[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>("events");
+  const shards = useShardsWithStability();
 
   // Subscribe to Raft events
   useEffect(() => {
@@ -61,21 +76,347 @@ export function ElectionTimeline({ filterShard }: { filterShard?: number | null 
     ? events.filter((e) => e.shard === filterShard)
     : events;
 
+  // Compute election frequency data (elections per minute)
+  const frequencyData = useMemo(() => {
+    const electionEvents = events.filter((e) => e.kind === "LeaderElected");
+    if (electionEvents.length === 0) return [];
+
+    // Group by minute
+    const buckets = new Map<number, number>();
+    const now = Date.now();
+
+    // Create 10 minute buckets
+    for (let i = 0; i < 10; i++) {
+      const bucketTime = Math.floor((now - i * 60000) / 60000) * 60000;
+      buckets.set(bucketTime, 0);
+    }
+
+    for (const evt of electionEvents) {
+      const bucketTime = Math.floor(evt.timestamp / 60000) * 60000;
+      if (buckets.has(bucketTime)) {
+        buckets.set(bucketTime, (buckets.get(bucketTime) || 0) + 1);
+      }
+    }
+
+    return Array.from(buckets.entries())
+      .map(([timestamp, count]) => ({
+        timestamp,
+        time: new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        elections: count,
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }, [events]);
+
+  // Compute term progression data per shard
+  const termProgressionData = useMemo(() => {
+    // Get unique shards
+    const shardIds = Array.from(new Set(events.map((e) => e.shard))).sort((a, b) => a - b).slice(0, 8);
+    if (shardIds.length === 0) return { data: [], shardIds: [] };
+
+    // Create time buckets (last 10 minutes, 1 minute intervals)
+    const now = Date.now();
+    const bucketCount = 10;
+    const data: Array<{ time: string; timestamp: number; [key: string]: number | string }> = [];
+
+    for (let i = bucketCount - 1; i >= 0; i--) {
+      const bucketTime = Math.floor((now - i * 60000) / 60000) * 60000;
+      const point: { time: string; timestamp: number; [key: string]: number | string } = {
+        timestamp: bucketTime,
+        time: new Date(bucketTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+
+      // For each shard, find the most recent term at that time
+      for (const shardId of shardIds) {
+        const shardEvents = events
+          .filter((e) => e.shard === shardId && e.timestamp <= bucketTime + 60000)
+          .sort((a, b) => b.timestamp - a.timestamp);
+
+        const latestTerm = shardEvents[0]?.term ?? 0;
+        point[`S${shardId}`] = latestTerm;
+      }
+
+      data.push(point);
+    }
+
+    return { data, shardIds };
+  }, [events]);
+
+  // Detect term storms (rapid term increases)
+  const termStormWarning = useMemo(() => {
+    const recentElections = events
+      .filter((e) => e.kind === "LeaderElected" && Date.now() - e.timestamp < 60000);
+
+    // Group by shard
+    const shardCounts = new Map<number, number>();
+    for (const evt of recentElections) {
+      shardCounts.set(evt.shard, (shardCounts.get(evt.shard) || 0) + 1);
+    }
+
+    // Find any shard with > 3 elections in last minute
+    const stormyShards = Array.from(shardCounts.entries())
+      .filter(([, count]) => count > 3)
+      .map(([shardId]) => shardId);
+
+    return stormyShards;
+  }, [events]);
+
+  // Shard colors for charts
+  const shardColors = [
+    "hsl(210, 100%, 60%)",
+    "hsl(150, 80%, 50%)",
+    "hsl(280, 80%, 60%)",
+    "hsl(30, 100%, 55%)",
+    "hsl(340, 80%, 60%)",
+    "hsl(180, 70%, 50%)",
+    "hsl(60, 90%, 50%)",
+    "hsl(0, 80%, 60%)",
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* View mode toggle */}
+      <div className="flex items-center justify-between">
+        <div className="flex rounded-lg bg-muted p-0.5">
+          {(["events", "frequency", "terms"] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                viewMode === mode
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {mode === "events" ? "Events" : mode === "frequency" ? "Frequency" : "Terms"}
+            </button>
+          ))}
+        </div>
+
+        {/* Term storm warning */}
+        {termStormWarning.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex items-center gap-2 rounded-lg bg-status-critical/10 px-3 py-1.5 text-xs font-medium text-status-critical"
+          >
+            <span className="h-2 w-2 animate-pulse rounded-full bg-status-critical" />
+            Term storm: Shard {termStormWarning.join(", ")}
+          </motion.div>
+        )}
+      </div>
+
+      {/* Content based on view mode */}
+      {viewMode === "events" && (
+        <EventListView events={filteredEvents} />
+      )}
+
+      {viewMode === "frequency" && (
+        <FrequencyChartView data={frequencyData} />
+      )}
+
+      {viewMode === "terms" && (
+        <TermProgressionView
+          data={termProgressionData.data}
+          shardIds={termProgressionData.shardIds}
+          colors={shardColors}
+        />
+      )}
+    </div>
+  );
+}
+
+function EventListView({ events }: { events: RaftEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No Raft events yet. Waiting for elections...
+      </p>
+    );
+  }
+
+  return (
+    <div className="max-h-96 space-y-1 overflow-y-auto pr-2">
+      <AnimatePresence mode="popLayout">
+        {events.map((event) => (
+          <EventRow key={event.id} event={event} />
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function FrequencyChartView({ data }: { data: Array<{ time: string; elections: number }> }) {
+  if (data.length === 0) {
+    return (
+      <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-border">
+        <p className="text-sm text-muted-foreground">
+          No election data yet
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
-      {filteredEvents.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No Raft events yet. Waiting for elections...
-        </p>
-      ) : (
-        <div className="max-h-96 space-y-1 overflow-y-auto pr-2">
-          <AnimatePresence mode="popLayout">
-            {filteredEvents.map((event) => (
-              <EventRow key={event.id} event={event} />
-            ))}
-          </AnimatePresence>
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium text-foreground">Elections per Minute</h4>
+        <span className="text-xs text-muted-foreground">Last 10 minutes</span>
+      </div>
+      <div className="h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <XAxis
+              dataKey="time"
+              tick={{ fontSize: 10 }}
+              className="text-muted-foreground"
+            />
+            <YAxis
+              allowDecimals={false}
+              tick={{ fontSize: 10 }}
+              className="text-muted-foreground"
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "8px",
+                fontSize: "12px",
+              }}
+              labelStyle={{ color: "hsl(var(--foreground))" }}
+            />
+            <Bar
+              dataKey="elections"
+              fill="hsl(var(--primary))"
+              radius={[4, 4, 0, 0]}
+              name="Elections"
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-lg bg-muted/50 p-2 text-center">
+          <p className="text-xs text-muted-foreground">Total</p>
+          <p className="text-lg font-semibold text-foreground">
+            {data.reduce((sum, d) => sum + d.elections, 0)}
+          </p>
         </div>
-      )}
+        <div className="rounded-lg bg-muted/50 p-2 text-center">
+          <p className="text-xs text-muted-foreground">Avg/min</p>
+          <p className="text-lg font-semibold text-foreground">
+            {(data.reduce((sum, d) => sum + d.elections, 0) / Math.max(data.length, 1)).toFixed(1)}
+          </p>
+        </div>
+        <div className="rounded-lg bg-muted/50 p-2 text-center">
+          <p className="text-xs text-muted-foreground">Peak</p>
+          <p className="text-lg font-semibold text-foreground">
+            {Math.max(...data.map((d) => d.elections), 0)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TermProgressionView({
+  data,
+  shardIds,
+  colors,
+}: {
+  data: Array<{ time: string; [key: string]: number | string }>;
+  shardIds: number[];
+  colors: string[];
+}) {
+  if (data.length === 0 || shardIds.length === 0) {
+    return (
+      <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-border">
+        <p className="text-sm text-muted-foreground">
+          No term progression data yet
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium text-foreground">Term Progression by Shard</h4>
+        <span className="text-xs text-muted-foreground">
+          Rapid increases indicate instability
+        </span>
+      </div>
+      <div className="h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <XAxis
+              dataKey="time"
+              tick={{ fontSize: 10 }}
+              className="text-muted-foreground"
+            />
+            <YAxis
+              allowDecimals={false}
+              tick={{ fontSize: 10 }}
+              className="text-muted-foreground"
+              label={{
+                value: "Term",
+                angle: -90,
+                position: "insideLeft",
+                style: { fontSize: 10 },
+              }}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: "8px",
+                fontSize: "12px",
+              }}
+              labelStyle={{ color: "hsl(var(--foreground))" }}
+            />
+            <Legend
+              wrapperStyle={{ fontSize: "10px" }}
+              iconType="line"
+            />
+            {shardIds.map((shardId, i) => (
+              <Line
+                key={shardId}
+                type="stepAfter"
+                dataKey={`S${shardId}`}
+                stroke={colors[i % colors.length]}
+                strokeWidth={2}
+                dot={false}
+                name={`Shard ${shardId}`}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Shard term summary */}
+      <div className="flex flex-wrap gap-2">
+        {shardIds.map((shardId, i) => {
+          const latestTerm = data[data.length - 1]?.[`S${shardId}`] as number | undefined;
+          return (
+            <div
+              key={shardId}
+              className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-2 py-1"
+            >
+              <div
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: colors[i % colors.length] }}
+              />
+              <span className="text-xs font-medium text-foreground">S{shardId}</span>
+              <span className="text-xs text-muted-foreground">
+                T{latestTerm ?? "?"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
